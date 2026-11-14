@@ -93,22 +93,22 @@
       class="flex items-center justify-between px-6 pt-1 text-[11px] font-medium tabular-nums"
       style="color: var(--md-sys-color-on-surface-variant);"
     >
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-1.5">
         <span>{formatDuration(positionSec)}</span>
-        {#if seekDeltaSec !== 0}
-          {#key seekDeltaSeq}
-            <span
-              in:fly={{ y: 4, duration: 140 }}
-              out:fade={{ duration: 200 }}
-              class="px-1.5 py-0.5 rounded text-[10px] font-bold tabular-nums leading-none"
-              style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
-            >
-              {seekDeltaSec > 0 ? `+${seekDeltaSec}s` : `${seekDeltaSec}s`}
-            </span>
-          {/key}
+        {#if seekDeltaSec < 0}
+          <span transition:fade={{ duration: 150 }} class="tabular-nums">
+            {seekDeltaSec}s
+          </span>
         {/if}
       </div>
-      <span>-{formatDuration(remainingSec)}</span>
+      <div class="flex items-center gap-1.5">
+        {#if seekDeltaSec > 0}
+          <span transition:fade={{ duration: 150 }} class="tabular-nums">
+            +{seekDeltaSec}s
+          </span>
+        {/if}
+        <span>-{formatDuration(remainingSec)}</span>
+      </div>
     </div>
   </div>
 

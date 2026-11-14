@@ -115,7 +115,7 @@
     if (!lyrics?.syncedLyrics || lyrics.syncedLyrics.length === 0) return -1;
     let active = -1;
     for (let i = 0; i < lyrics.syncedLyrics.length; i++) {
-      if (positionSec + 0.3 >= lyrics.syncedLyrics[i].timeSec) {
+      if (positionSec + 0.25 >= lyrics.syncedLyrics[i].timeSec) {
         active = i;
       } else {
         break;
@@ -537,9 +537,9 @@
                   type="button"
                   data-lyric-idx={idx}
                   onclick={() => line.isSynced && line.timeSec !== null && onSeek(line.timeSec)}
-                  class="w-full text-left font-bold {lyricsExpandedSizeClass} transition-opacity duration-300 cursor-pointer {active
-                    ? 'opacity-100'
-                    : 'opacity-35 hover:opacity-100'}"
+                  class="w-full text-left font-bold {lyricsExpandedSizeClass} origin-left transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer {active
+                    ? 'opacity-100 scale-[1.02]'
+                    : 'opacity-35 scale-[0.93] hover:opacity-100'}"
                 >
                   {line.text}
                 </button>

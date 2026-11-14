@@ -277,6 +277,15 @@
     }
   }
 
+  let ytSearchSeq = 0;
+
+  async function handleSearchSuggestions(q: string) {
+    searchQuery = q;
+    if (q.trim()) {
+      await handleSearchYTMusic(q);
+    }
+  }
+
   async function handleGlobalSearch(q: string) {
     searchQuery = q;
     if (currentRoute.name !== 'search') {
@@ -288,9 +297,11 @@
   }
 
   async function handleSearchYTMusic(q: string) {
+    const seq = ++ytSearchSeq;
     ytLoading = true;
     try {
       const primary = await api.searchYouTubeMusic(q);
+      if (seq !== ytSearchSeq) return;
       if (primary && primary.length >= 20) {
         ytResults = primary;
         return;
@@ -298,6 +309,7 @@
       const seen = new Set((primary || []).map((t) => t.videoId));
       const merged = [...(primary || [])];
       const extra = await api.searchYouTubeMusic(`${q} populer`).catch(() => []);
+      if (seq !== ytSearchSeq) return;
       for (const item of extra || []) {
         if (!item.videoId || seen.has(item.videoId)) continue;
         seen.add(item.videoId);
@@ -305,7 +317,9 @@
       }
       ytResults = merged;
     } finally {
-      ytLoading = false;
+      if (seq === ytSearchSeq) {
+        ytLoading = false;
+      }
     }
   }
 
@@ -912,6 +926,10 @@
     if (!currentTrack) return;
     const maxDur = durationSec > 0 ? durationSec : currentTrack.durationSec || 0;
     const targetSec = Math.max(0, maxDur > 0 ? Math.min(maxDur, positionSec + delta) : positionSec + delta);
+    const actualDelta = targetSec - positionSec;
+    if (Math.abs(actualDelta) < 0.05) {
+      return;
+    }
     handleSeek(targetSec);
 
     if ((delta > 0 && seekDeltaSec < 0) || (delta < 0 && seekDeltaSec > 0)) {
@@ -1070,10 +1088,19 @@
     {fireStreak}
     {isDark}
     {accentColor}
+    {tracks}
+    {artists}
+    {ytResults}
+    {ytLoading}
+    {mediaBaseUrl}
     onBack={goBack}
     onForward={goForward}
     onNavigate={navigate}
     onSearch={handleGlobalSearch}
+    onSuggestSearch={handleSearchSuggestions}
+    onPlayLocalTrack={(tr) => playTrack(tr, tracks)}
+    onPlayYTMusic={playYTMusicSingle}
+    onToggleFavoriteArtist={handleToggleFavoriteArtist}
     onToggleTheme={() => patchPrefs({ 'theme.dark': isDark ? 'false' : 'true' })}
     onOpenStreakModal={() => (showStreakModal = true)}
   />
@@ -1269,6 +1296,7 @@
           {positionSec}
           {mediaBaseUrl}
           onSeek={handleSeek}
+          onResync={() => currentTrack && loadLyricsForTrack(currentTrack)}
           onClose={() => {
             if (navIndex > 0) goBack();
             else navigate({ name: 'home' });
