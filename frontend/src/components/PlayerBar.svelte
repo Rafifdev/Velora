@@ -30,6 +30,7 @@
     onCycleRepeat: () => void;
     onToggleFavorite: (trackId: number) => void;
     onFocusRightCard: (card: 'album' | 'lyrics' | 'queue') => void;
+    onOpenTrackDetail?: (track: Track) => void;
     onToggleLyrics?: () => void;
   }
 
@@ -58,6 +59,7 @@
     onCycleRepeat,
     onToggleFavorite,
     onFocusRightCard,
+    onOpenTrackDetail,
     onToggleLyrics
   }: Props = $props();
 
@@ -121,8 +123,8 @@
         <button
           type="button"
           onclick={() => onFocusRightCard('album')}
-          class="relative w-14 h-14 p-0 rounded-md overflow-clip shrink-0 cursor-pointer transition-transform hover:scale-105"
-          title="Lihat Card Album"
+          class="relative w-14 h-14 p-0 rounded-md overflow-clip shrink-0 cursor-pointer"
+          title="Buka Panel Kanan"
         >
           {#if cover}
             <img
@@ -142,9 +144,15 @@
         </button>
 
         <div class="min-w-0 flex-1 flex flex-col justify-center">
-          <div class="text-[14px] font-bold leading-snug truncate" style="color: var(--md-sys-color-on-surface);">
+          <button
+            type="button"
+            onclick={() => onOpenTrackDetail?.(currentTrack)}
+            class="text-left text-[14px] font-bold leading-snug truncate hover:underline cursor-pointer"
+            style="color: var(--md-sys-color-on-surface);"
+            title="Lihat Detail Musik"
+          >
             {currentTrack.title}
-          </div>
+          </button>
           <div
             class="text-[12px] font-normal leading-snug truncate mt-0.5"
             style="color: var(--md-sys-color-on-surface-variant);"

@@ -267,6 +267,7 @@
   const hasAnySuggestions = $derived(
     titleSuggestions.length > 0 || songSuggestions.length > 0 || artistSuggestions.length > 0
   );
+  const totalDropdownItems = $derived(titleSuggestions.length + mixedSuggestions.length);
   const dropdownVisible = $derived(
     suggestionsOpen &&
       localQuery.trim().length > 0 &&
@@ -274,17 +275,62 @@
       (hasAnySuggestions || (!isDebouncing && !ytLoading))
   );
 
+  let activeSuggestionIdx = $state(-1);
+  let dropdownListEl: HTMLDivElement | undefined = $state();
+
+  $effect(() => {
+    if (!dropdownVisible || totalDropdownItems === 0) {
+      activeSuggestionIdx = -1;
+    } else if (activeSuggestionIdx >= totalDropdownItems) {
+      activeSuggestionIdx = totalDropdownItems - 1;
+    }
+  });
+
+  function scrollActiveSuggestionIntoView(idx: number) {
+    requestAnimationFrame(() => {
+      const el = dropdownListEl?.querySelector(`[data-search-idx="${idx}"]`) as HTMLElement | null;
+      el?.scrollIntoView({ block: 'nearest' });
+    });
+  }
+
+  function activateSuggestionAt(idx: number) {
+    if (idx < 0 || idx >= totalDropdownItems) return;
+    if (idx < titleSuggestions.length) {
+      submitSearch(titleSuggestions[idx]);
+      return;
+    }
+    const entry = mixedSuggestions[idx - titleSuggestions.length];
+    if (!entry) return;
+    suggestionsOpen = false;
+    activeSuggestionIdx = -1;
+    if (entry.entryType === 'song') {
+      if (entry.item.kind === 'local') {
+        onPlayLocalTrack?.(entry.item.track);
+      } else {
+        onPlayYTMusic?.(entry.item.track);
+      }
+    } else {
+      if (entry.artist.id !== null) {
+        onNavigate({ name: 'artist-detail', artistId: entry.artist.id });
+      } else {
+        submitSearch(entry.artist.name);
+      }
+    }
+  }
+
   function submitSearch(q: string) {
     if (debounceTimer) clearTimeout(debounceTimer);
     localQuery = q;
     debouncedQuery = q;
     suggestionsOpen = false;
+    activeSuggestionIdx = -1;
     onSearch(q);
   }
 
   function handleInput(e: Event) {
     const val = (e.target as HTMLInputElement).value;
     localQuery = val;
+    activeSuggestionIdx = -1;
     if (debounceTimer) clearTimeout(debounceTimer);
     if (!val.trim()) {
       debouncedQuery = '';
@@ -299,11 +345,32 @@
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    if (e.key === 'ArrowDown') {
+      if (dropdownVisible && totalDropdownItems > 0) {
+        e.preventDefault();
+        activeSuggestionIdx = activeSuggestionIdx < totalDropdownItems - 1 ? activeSuggestionIdx + 1 : 0;
+        scrollActiveSuggestionIntoView(activeSuggestionIdx);
+      }
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      if (dropdownVisible && totalDropdownItems > 0) {
+        e.preventDefault();
+        activeSuggestionIdx = activeSuggestionIdx > 0 ? activeSuggestionIdx - 1 : totalDropdownItems - 1;
+        scrollActiveSuggestionIntoView(activeSuggestionIdx);
+      }
+      return;
+    }
     if (e.key === 'Enter') {
       e.preventDefault();
-      submitSearch(localQuery);
+      if (dropdownVisible && activeSuggestionIdx >= 0 && activeSuggestionIdx < totalDropdownItems) {
+        activateSuggestionAt(activeSuggestionIdx);
+      } else {
+        submitSearch(localQuery);
+      }
     } else if (e.key === 'Escape') {
       suggestionsOpen = false;
+      activeSuggestionIdx = -1;
     }
   }
 
@@ -320,7 +387,7 @@
 
 <!-- Borderless Spotify Top App Bar -->
 <header
-  class="wails-drag relative z-40 h-16 pl-3 pr-0 flex items-center justify-between gap-4 select-none shrink-0 transition-colors duration-300"
+  class="wails-drag relative z-40 h-14 pl-3 pr-0 flex items-center justify-between gap-4 select-none shrink-0 transition-colors duration-300"
   style="background-color: var(--md-sys-color-surface-container-lowest);"
 >
   <!-- Left: Navigation History Circular Icon Buttons -->
@@ -331,18 +398,18 @@
         onclick={onBack}
         disabled={!canGoBack}
         aria-label="Kembali"
-        class="m3-icon-btn w-10 h-10 rounded-full flex items-center justify-center disabled:opacity-35 disabled:pointer-events-none cursor-pointer"
+        class="m3-icon-btn w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-35 disabled:pointer-events-none cursor-pointer"
       >
-        <Icon name="caret-left" weight="bold" size={18} />
+        <Icon name="caret-left" weight="bold" size={17} />
       </button>
       <button
         type="button"
         onclick={onForward}
         disabled={!canGoForward}
         aria-label="Maju"
-        class="m3-icon-btn w-10 h-10 rounded-full flex items-center justify-center disabled:opacity-35 disabled:pointer-events-none cursor-pointer"
+        class="m3-icon-btn w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-35 disabled:pointer-events-none cursor-pointer"
       >
-        <Icon name="caret-right" weight="bold" size={18} />
+        <Icon name="caret-right" weight="bold" size={17} />
       </button>
     </div>
   </div>
@@ -354,23 +421,23 @@
       onclick={() => onNavigate({ name: 'home' })}
       title="Home"
       aria-label="Home"
-      class="w-12 h-12 rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-all duration-200 hover:scale-105 hover:brightness-125"
+      class="w-10 h-10 rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-all duration-200 hover:scale-105 hover:brightness-125"
       style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
     >
-      <Icon name="house" weight={currentRoute.name === 'home' ? 'fill' : 'regular'} size={22} />
+      <Icon name="house" weight={currentRoute.name === 'home' ? 'fill' : 'regular'} size={19} />
     </button>
 
     <div bind:this={searchContainerEl} class="relative flex-1">
       <div
-        class="w-full h-12 px-3.5 flex items-center gap-3 transition-colors duration-200 {dropdownVisible
-          ? 'rounded-t-[24px] rounded-b-none'
+        class="w-full h-10 px-3.5 flex items-center gap-2.5 transition-colors duration-200 {dropdownVisible
+          ? 'rounded-t-[20px] rounded-b-none'
           : 'rounded-full has-[input:hover]:brightness-110'}"
         style="background-color: var(--md-sys-color-surface-container-high);"
       >
         <Icon
           name="magnifying-glass"
           weight="regular"
-          size={22}
+          size={19}
           class="shrink-0"
           style="color: var(--md-sys-color-on-surface-variant);"
         />
@@ -419,15 +486,19 @@
           style="background-color: var(--md-sys-color-surface-container-high); border-color: rgba(128, 128, 128, 0.16);"
         >
           <div class="relative">
-            <div class="max-h-[440px] overflow-y-auto overscroll-contain p-3 pb-10 space-y-0.5">
+            <div bind:this={dropdownListEl} class="max-h-[520px] overflow-y-auto overscroll-contain p-3 pb-7 space-y-0.5">
 
             <!-- 1. Sugestion Judul Lagu (Maksimal 4) -->
             {#if titleSuggestions.length > 0}
-              {#each titleSuggestions as title (title)}
+              {#each titleSuggestions as title, tIdx (title)}
                 <button
                   type="button"
+                  data-search-idx={tIdx}
+                  onmouseenter={() => (activeSuggestionIdx = tIdx)}
                   onclick={() => submitSearch(title)}
-                  class="w-full flex items-center gap-3 px-2 py-1.5 rounded-lg text-[14px] text-left cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+                  class="w-full flex items-center gap-3 px-2 py-1.5 rounded-lg text-[14px] text-left cursor-pointer transition-colors {activeSuggestionIdx === tIdx
+                    ? 'bg-[var(--md-sys-color-state-active)]'
+                    : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
                 >
                   <div class="w-10 h-8 flex items-center justify-center shrink-0">
                     <Icon
@@ -452,20 +523,26 @@
 
             <!-- 2. Campuran Lagu & Artist (tanpa kategori, pixel-aligned) -->
             {#if mixedSuggestions.length > 0}
-              {#each mixedSuggestions as entry (entry.entryType === 'song' ? 's:' + entry.item.kind + ':' + entry.item.title + ':' + entry.item.artist : 'a:' + entry.artist.name)}
+              {#each mixedSuggestions as entry, mIdx (entry.entryType === 'song' ? 's:' + entry.item.kind + ':' + entry.item.title + ':' + entry.item.artist : 'a:' + entry.artist.name)}
+                {@const itemIdx = titleSuggestions.length + mIdx}
                 {#if entry.entryType === 'song'}
                   {@const item = entry.item}
                   <button
                     type="button"
+                    data-search-idx={itemIdx}
+                    onmouseenter={() => (activeSuggestionIdx = itemIdx)}
                     onclick={() => {
                       suggestionsOpen = false;
+                      activeSuggestionIdx = -1;
                       if (item.kind === 'local') {
                         onPlayLocalTrack?.(item.track);
                       } else {
                         onPlayYTMusic?.(item.track);
                       }
                     }}
-                    class="w-full flex items-center gap-3 px-2 py-1.5 rounded-lg text-left cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+                    class="w-full flex items-center gap-3 px-2 py-1.5 rounded-lg text-left cursor-pointer transition-colors {activeSuggestionIdx === itemIdx
+                      ? 'bg-[var(--md-sys-color-state-active)]'
+                      : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
                   >
                     <div class="w-10 h-10 rounded-md overflow-hidden shrink-0 bg-[var(--md-sys-color-surface-container-highest)]">
                       {#if item.cover}
@@ -506,7 +583,13 @@
                   </button>
                 {:else}
                   {@const art = entry.artist}
-                  <div class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors hover:bg-[var(--md-sys-color-state-hover)]">
+                  <div
+                    data-search-idx={itemIdx}
+                    onmouseenter={() => (activeSuggestionIdx = itemIdx)}
+                    class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-colors {activeSuggestionIdx === itemIdx
+                      ? 'bg-[var(--md-sys-color-state-active)]'
+                      : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
+                  >
                     <button
                       type="button"
                       onclick={() => {
@@ -580,12 +663,12 @@
                 </div>
               {/if}
             </div>
-            <!-- Gradasi hitam di bagian bawah card seperti panel musik sisi kanan/kiri -->
+            <!-- Gradasi halus di bagian bawah card tanpa menutupi item terakhir -->
             <div
-              class="pointer-events-none absolute inset-x-0 bottom-0 h-14"
+              class="pointer-events-none absolute inset-x-0 bottom-0 h-7"
               style={isDark
-                ? 'background: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.45) 55%, rgba(0, 0, 0, 0.88) 100%);'
-                : 'background: linear-gradient(to bottom, transparent 0%, var(--md-sys-color-surface-container-high) 92%);'}
+                ? 'background: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.45) 65%, rgba(0, 0, 0, 0.78) 100%);'
+                : 'background: linear-gradient(to bottom, transparent 0%, var(--md-sys-color-surface-container-high) 95%);'}
             ></div>
           </div>
         </div>
@@ -593,17 +676,17 @@
     </div>
   </div>
 
-  <!-- Right: Taller Unified Controls (44px Action Circles) + Native Windows Caption Controls -->
+  <!-- Right: Compact Unified Controls + Native Windows Caption Controls -->
   <div class="wails-no-drag flex items-center gap-1.5 shrink-0 self-stretch">
     <button
       type="button"
       onclick={() => onNavigate({ name: 'preferences' })}
       title="Nuclear Jam Remote"
       aria-label="Remote QR & Integrations"
-      class="w-11 h-11 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:brightness-125"
+      class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:brightness-125"
       style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant);"
     >
-      <Icon name="qr-code" size={19} />
+      <Icon name="qr-code" size={17} />
     </button>
 
     <button
@@ -611,10 +694,10 @@
       onclick={onToggleTheme}
       title={isDark ? 'Switch to Material Light' : 'Switch to Material Dark'}
       aria-label="Toggle Theme"
-      class="w-11 h-11 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:brightness-125"
+      class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:brightness-125"
       style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant);"
     >
-      <Icon name={isDark ? 'sun' : 'moon'} weight="bold" size={19} />
+      <Icon name={isDark ? 'sun' : 'moon'} weight="bold" size={17} />
     </button>
 
     <div class="flex items-stretch self-stretch ml-2">
