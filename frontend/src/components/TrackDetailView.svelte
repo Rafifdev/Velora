@@ -11,6 +11,8 @@
     albumTracks: Track[];
     currentTrackId: number | null;
     currentExternalId?: string | null;
+    currentTrackTitle?: string | null;
+    currentTrackArtist?: string | null;
     isPlaying: boolean;
     tracks: Track[];
     albums: Album[];
@@ -35,6 +37,8 @@
     albumTracks,
     currentTrackId,
     currentExternalId = null,
+    currentTrackTitle = null,
+    currentTrackArtist = null,
     isPlaying,
     tracks,
     albums,
@@ -73,6 +77,8 @@
     listTracks.reduce((sum, t) => sum + (t.durationSec || 0), 0)
   );
 
+  let albumScrolled = $state(false);
+
   function playShuffled(list: Track[]) {
     if (list.length === 0) return;
     const copy = [...list];
@@ -109,11 +115,13 @@
     | { kind: 'track'; key: string; title: string; subtitle: string; cover: string; track: Track };
 
   const artistReleases = $derived.by<ArtistReleaseCard[]>(() => {
+    if (ytAlbumLoading) return [];
+
     const cards: ArtistReleaseCard[] = [];
     const seenTitles = new Set<string>();
 
-    if (ytAlbum?.artistAlbums?.length) {
-      for (const yt of ytAlbum.artistAlbums) {
+    if (ytAlbum) {
+      for (const yt of ytAlbum.artistAlbums ?? []) {
         const key = yt.title.trim().toLowerCase();
         if (!key || seenTitles.has(key)) continue;
         seenTitles.add(key);
@@ -131,6 +139,7 @@
 
     const target = displayArtist.trim().toLowerCase();
     if (!target || target === 'unknown artist') return [];
+    const currentAlbumTitle = displayTitle.trim().toLowerCase();
 
     for (const alb of albums) {
       if (album && alb.id === album.id) continue;
@@ -149,6 +158,8 @@
     }
 
     for (const tr of tracks) {
+      if (album && tr.albumId === album.id) continue;
+      if (currentAlbumTitle && tr.albumTitle.trim().toLowerCase() === currentAlbumTitle) continue;
       if (listTracks.some((lt) => lt.id === tr.id)) continue;
       if (tr.artistName.trim().toLowerCase() !== target) continue;
       const key = tr.title.trim().toLowerCase();
@@ -170,9 +181,15 @@
 
 <div
   in:fade={{ duration: 180 }}
-  class="h-full w-full overflow-y-auto rounded-xl select-none"
+  onscroll={(e) => (albumScrolled = (e.currentTarget as HTMLElement).scrollTop > 8)}
+  class="relative h-full w-full overflow-y-auto rounded-xl select-none"
   style="background-color: var(--md-sys-color-surface-container-low);"
 >
+  <!-- Top Gradient Fade (sama persis seperti halaman Home saat scroll) -->
+  <div
+    class="pointer-events-none sticky top-0 left-0 right-0 h-16 -mb-16 z-30 transition-opacity duration-300"
+    style="opacity: {albumScrolled ? 1 : 0}; background: linear-gradient(to bottom, var(--md-sys-color-surface) 0%, var(--md-sys-color-surface) 38%, color-mix(in srgb, var(--md-sys-color-surface) 82%, transparent) 58%, color-mix(in srgb, var(--md-sys-color-surface) 42%, transparent) 80%, transparent 100%);"
+  ></div>
   <!-- HERO BANNER ALBUM -->
   <section class="relative overflow-hidden px-6 sm:px-10 pt-8 pb-8">
     {#if cover}
@@ -341,6 +358,8 @@
         tracks={listTracks}
         {currentTrackId}
         {currentExternalId}
+        {currentTrackTitle}
+        {currentTrackArtist}
         {isPlaying}
         {mediaBaseUrl}
         {accentColor}
