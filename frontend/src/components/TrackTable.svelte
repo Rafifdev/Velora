@@ -6,27 +6,41 @@
   interface Props {
     tracks: Track[];
     currentTrackId: number | null;
+    currentExternalId?: string | null;
     isPlaying: boolean;
     mediaBaseUrl: string;
     accentColor: string;
     playlists: Playlist[];
     onPlayTrack: (track: Track, list: Track[]) => void;
+    onTogglePlay?: () => void;
     onToggleFavorite: (trackId: number) => void;
     onAddToPlaylist: (playlistId: number, trackId: number) => void;
+    showCover?: boolean;
   }
 
   let {
     tracks,
     currentTrackId,
+    currentExternalId = null,
     isPlaying,
     mediaBaseUrl,
     playlists,
     onPlayTrack,
+    onTogglePlay,
     onToggleFavorite,
-    onAddToPlaylist
+    onAddToPlaylist,
+    showCover = true
   }: Props = $props();
 
   let openMenuTrackId = $state<number | null>(null);
+
+  function handleRowPlayClick(tr: Track) {
+    if (tr.id === currentTrackId && onTogglePlay) {
+      onTogglePlay();
+    } else {
+      onPlayTrack(tr, tracks);
+    }
+  }
 </script>
 
 <div class="w-full">
@@ -43,11 +57,11 @@
 
   <div class="space-y-0.5 mt-1">
     {#each tracks as tr, idx (tr.id)}
-      {@const active = tr.id === currentTrackId}
+      {@const active = tr.id === currentTrackId || (Boolean(currentExternalId) && tr.externalId === currentExternalId)}
       {@const cover = resolveCoverUrl(tr.coverUrl, mediaBaseUrl)}
       <div
         class="group grid grid-cols-[36px_1.4fr_1fr_92px_96px] gap-3 px-3.5 py-2 items-center rounded-lg transition-colors duration-150 {active
-          ? 'bg-[var(--md-sys-color-state-active)]'
+          ? 'bg-[var(--md-sys-color-state-hover)]'
           : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
         style="color: var(--md-sys-color-on-surface);"
       >
@@ -55,19 +69,28 @@
           {#if active && isPlaying}
             <button
               type="button"
-              onclick={() => onPlayTrack(tr, tracks)}
+              onclick={() => handleRowPlayClick(tr)}
+              aria-label="Jeda {tr.title}"
+              class="flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
+            >
+              <Icon name="pause" weight="fill" size={14} />
+            </button>
+          {:else if active && !isPlaying}
+            <button
+              type="button"
+              onclick={() => handleRowPlayClick(tr)}
               aria-label="Putar {tr.title}"
               class="flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
             >
-              <Icon name="speaker-high" weight="fill" size={15} />
+              <Icon name="play" weight="fill" size={14} />
             </button>
           {:else}
-            <span class="text-xs font-medium tabular-nums group-hover:hidden opacity-65 {active ? 'text-[var(--md-sys-color-primary)]' : ''}">
+            <span class="text-xs font-medium tabular-nums group-hover:hidden opacity-65">
               {idx + 1}
             </span>
             <button
               type="button"
-              onclick={() => onPlayTrack(tr, tracks)}
+              onclick={() => handleRowPlayClick(tr)}
               aria-label="Putar {tr.title}"
               class="hidden group-hover:flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
             >
@@ -78,18 +101,20 @@
 
         <button
           type="button"
-          onclick={() => onPlayTrack(tr, tracks)}
+          onclick={() => handleRowPlayClick(tr)}
           class="flex items-center gap-3 min-w-0 text-left cursor-pointer"
         >
-          {#if cover}
-            <img src={cover} alt={tr.title} class="block w-10 h-10 rounded-md object-cover object-center shrink-0" />
-          {:else}
-            <div
-              class="w-10 h-10 rounded-md flex items-center justify-center shrink-0"
-              style="background: linear-gradient(135deg, var(--md-sys-color-primary-container), var(--md-sys-color-surface-container-highest));"
-            >
-              <Icon name="vinyl-record" weight="fill" size={18} style="color: var(--md-sys-color-on-primary-container); opacity: 0.6;" />
-            </div>
+          {#if showCover}
+            {#if cover}
+              <img src={cover} alt={tr.title} loading="lazy" decoding="async" class="block w-10 h-10 rounded-md object-cover object-center shrink-0" />
+            {:else}
+              <div
+                class="w-10 h-10 rounded-md flex items-center justify-center shrink-0"
+                style="background: linear-gradient(135deg, var(--md-sys-color-primary-container), var(--md-sys-color-surface-container-highest));"
+              >
+                <Icon name="vinyl-record" weight="fill" size={18} style="color: var(--md-sys-color-on-primary-container); opacity: 0.6;" />
+              </div>
+            {/if}
           {/if}
           <div class="min-w-0">
             <div class="text-xs font-bold truncate {active ? 'text-[var(--md-sys-color-primary)]' : ''}">{tr.title}</div>

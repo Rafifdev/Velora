@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { api } from './lib/api';
+  import { api, resolveCoverUrl } from './lib/api';
+  import { EventsOn } from '../wailsjs/runtime/runtime';
   import { VeloraAudioEngine } from './lib/audioEngine';
   import { getPrefBool, getPrefValue } from './lib/nuclearPrefs';
   import type {
@@ -15,6 +16,7 @@
     Track,
     TrackLyrics,
     ViewRoute,
+    YTMusicAlbumView,
     YTMusicCard,
     YTMusicShelf,
     YTMusicTrack
@@ -28,6 +30,7 @@
   import CreatePlaylistModal from './components/CreatePlaylistModal.svelte';
   import SplashScreen from './components/SplashScreen.svelte';
   import LyricsView from './components/LyricsView.svelte';
+  import TrackDetailView from './components/TrackDetailView.svelte';
 
   import HomeView from './views/HomeView.svelte';
   import LibraryViews from './views/LibraryViews.svelte';
@@ -36,6 +39,9 @@
   import AnalyticsAndSettingsViews from './views/AnalyticsAndSettingsViews.svelte';
 
   let tracks = $state<Track[]>([]);
+  let ytAlbumDetail = $state<YTMusicAlbumView | null>(null);
+  let ytAlbumLoading = $state(false);
+  let ytAlbumReqSeq = 0;
   let showSplash = $state(true);
   let albums = $state<Album[]>([]);
   let artists = $state<Artist[]>([]);
@@ -154,8 +160,100 @@
     preferences['accent_color'] || (isDark ? '#FF9E64' : '#EA6A1F')
   );
 
-  onMount(async () => {
-    await Promise.all([refreshAll(), loadYTMusicHome()]);
+  onMount(() => {
+    const savedZoom = Number(localStorage.getItem('velora.zoom') || '1');
+    if (Number.isFinite(savedZoom) && savedZoom >= 0.7 && savedZoom <= 1.5) {
+      applyZoom(savedZoom);
+    }
+    const onWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        applyZoom(zoomLevel + (e.deltaY < 0 ? 0.05 : -0.05));
+      }
+    };
+    window.addEventListener('wheel', onWheel, { passive: false });
+
+    const hideTooltip = () => {
+      if (tooltipTimer) {
+        clearTimeout(tooltipTimer);
+        tooltipTimer = null;
+      }
+      activeTooltipEl = null;
+      tooltipVisible = false;
+    };
+
+    const showTooltipFor = (el: HTMLElement) => {
+      const rawTitle = el.getAttribute('title');
+      if (rawTitle) {
+        el.setAttribute('data-tooltip', rawTitle);
+        el.removeAttribute('title');
+      }
+      const text = (el.getAttribute('data-tooltip') || '').trim();
+      if (!text) return;
+      if (activeTooltipEl === el && tooltipVisible) return;
+      activeTooltipEl = el;
+      if (tooltipTimer) clearTimeout(tooltipTimer);
+      tooltipTimer = setTimeout(() => {
+        if (!activeTooltipEl || !document.contains(activeTooltipEl)) return;
+        const rect = activeTooltipEl.getBoundingClientRect();
+        if (rect.width === 0 && rect.height === 0) return;
+        tooltipText = activeTooltipEl.getAttribute('data-tooltip') || '';
+        const placeBelow = rect.top < 44;
+        tooltipBelow = placeBelow;
+        const pad = 12;
+        tooltipX = Math.min(window.innerWidth - pad, Math.max(pad, rect.left + rect.width / 2));
+        tooltipY = placeBelow ? rect.bottom + 8 : rect.top - 8;
+        tooltipVisible = true;
+      }, 150);
+    };
+
+    const onMouseOver = (e: MouseEvent) => {
+      const target = (e.target as HTMLElement | null)?.closest?.('[title], [data-tooltip]') as HTMLElement | null;
+      if (!target) {
+        hideTooltip();
+        return;
+      }
+      showTooltipFor(target);
+    };
+
+    const onMouseOut = (e: MouseEvent) => {
+      if (!activeTooltipEl) return;
+      const related = e.relatedTarget as Node | null;
+      if (related && activeTooltipEl.contains(related)) return;
+      hideTooltip();
+    };
+
+    document.addEventListener('mouseover', onMouseOver, true);
+    document.addEventListener('mouseout', onMouseOut, true);
+    document.addEventListener('pointerdown', hideTooltip, true);
+    document.addEventListener('scroll', hideTooltip, true);
+
+    void Promise.all([refreshAll(), loadYTMusicHome()]);
+    const offTaskbar = EventsOn('taskbar:control', (action: string) => {
+      if (action === 'prev') {
+        void playPrev();
+      } else if (action === 'next') {
+        void playNext();
+      } else if (action === 'toggle') {
+        void togglePlay();
+      }
+    });
+    return () => {
+      window.removeEventListener('wheel', onWheel);
+      document.removeEventListener('mouseover', onMouseOver, true);
+      document.removeEventListener('mouseout', onMouseOut, true);
+      document.removeEventListener('pointerdown', hideTooltip, true);
+      document.removeEventListener('scroll', hideTooltip, true);
+      hideTooltip();
+      offTaskbar?.();
+    };
+  });
+
+  $effect(() => {
+    const tr = currentTrack;
+    const playing = isPlaying;
+    const cover = tr ? resolveCoverUrl(tr.coverUrl, mediaBaseUrl) : '';
+    api.updateTaskbarState(tr?.title ?? '', tr?.artistName ?? '', cover, playing);
   });
 
   async function loadYTMusicHome() {
@@ -274,6 +372,67 @@
       fireStreak = await api.getFireStreak();
     } else if (route.name === 'fire-streak') {
       fireStreak = await api.getFireStreak();
+    } else if (route.name === 'yt-album-detail') {
+      const seq = ++ytAlbumReqSeq;
+      ytAlbumDetail = null;
+      ytAlbumLoading = true;
+      try {
+        const res = await api.getYTMusicTrackAlbum(
+          route.videoId,
+          route.browseId ?? '',
+          route.title,
+          route.artist,
+          route.albumTitle,
+          route.coverUrl
+        );
+        if (seq === ytAlbumReqSeq) {
+          ytAlbumDetail = res;
+        }
+      } catch (err) {
+        console.error('Gagal memuat album YouTube Music:', err);
+      } finally {
+        if (seq === ytAlbumReqSeq) {
+          ytAlbumLoading = false;
+        }
+      }
+    }
+  }
+
+  async function openTrackAlbumDetail(tr: Track) {
+    if (tr.sourceType === 'ytmusic' || tr.externalId) {
+      await navigate({
+        name: 'yt-album-detail',
+        videoId: tr.externalId,
+        title: tr.title,
+        artist: tr.artistName,
+        albumTitle: tr.albumTitle,
+        coverUrl: tr.coverUrl
+      });
+    } else if (tr.albumId > 0) {
+      await navigate({ name: 'album-detail', albumId: tr.albumId });
+    } else {
+      await navigate({ name: 'track-detail', trackId: tr.id });
+    }
+  }
+
+  async function openYTAlbumCard(card: YTMusicCard) {
+    await navigate({
+      name: 'yt-album-detail',
+      videoId: card.videoId || '',
+      browseId: card.browseId || '',
+      title: card.title,
+      artist: card.artist,
+      albumTitle: card.title,
+      coverUrl: card.coverUrl
+    });
+  }
+
+  let ytSearchSeq = 0;
+
+  async function handleSearchSuggestions(q: string) {
+    searchQuery = q;
+    if (q.trim()) {
+      await handleSearchYTMusic(q);
     }
   }
 
@@ -288,9 +447,11 @@
   }
 
   async function handleSearchYTMusic(q: string) {
+    const seq = ++ytSearchSeq;
     ytLoading = true;
     try {
       const primary = await api.searchYouTubeMusic(q);
+      if (seq !== ytSearchSeq) return;
       if (primary && primary.length >= 20) {
         ytResults = primary;
         return;
@@ -298,6 +459,7 @@
       const seen = new Set((primary || []).map((t) => t.videoId));
       const merged = [...(primary || [])];
       const extra = await api.searchYouTubeMusic(`${q} populer`).catch(() => []);
+      if (seq !== ytSearchSeq) return;
       for (const item of extra || []) {
         if (!item.videoId || seen.has(item.videoId)) continue;
         seen.add(item.videoId);
@@ -305,7 +467,9 @@
       }
       ytResults = merged;
     } finally {
-      ytLoading = false;
+      if (seq === ytSearchSeq) {
+        ytLoading = false;
+      }
     }
   }
 
@@ -912,6 +1076,10 @@
     if (!currentTrack) return;
     const maxDur = durationSec > 0 ? durationSec : currentTrack.durationSec || 0;
     const targetSec = Math.max(0, maxDur > 0 ? Math.min(maxDur, positionSec + delta) : positionSec + delta);
+    const actualDelta = targetSec - positionSec;
+    if (Math.abs(actualDelta) < 0.05) {
+      return;
+    }
     handleSeek(targetSec);
 
     if ((delta > 0 && seekDeltaSec < 0) || (delta < 0 && seekDeltaSec > 0)) {
@@ -927,7 +1095,45 @@
     }, 1100);
   }
 
+  let zoomLevel = 1;
+  let tooltipText = $state('');
+  let tooltipVisible = $state(false);
+  let tooltipX = $state(0);
+  let tooltipY = $state(0);
+  let tooltipBelow = $state(false);
+  let tooltipTimer: ReturnType<typeof setTimeout> | null = null;
+  let activeTooltipEl: HTMLElement | null = null;
+
+  function applyZoom(next: number) {
+    const clamped = Math.round(Math.min(1.5, Math.max(0.7, next)) * 100) / 100;
+    zoomLevel = clamped;
+    document.documentElement.style.zoom = String(clamped);
+    try {
+      localStorage.setItem('velora.zoom', String(clamped));
+    } catch {
+      // ignore
+    }
+  }
+
   function handleGlobalKeydown(e: KeyboardEvent) {
+    if (e.ctrlKey || e.metaKey) {
+      if (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd') {
+        e.preventDefault();
+        applyZoom(zoomLevel + 0.1);
+        return;
+      }
+      if (e.key === '-' || e.key === '_' || e.code === 'NumpadSubtract') {
+        e.preventDefault();
+        applyZoom(zoomLevel - 0.1);
+        return;
+      }
+      if (e.key === '0' || e.code === 'Numpad0') {
+        e.preventDefault();
+        applyZoom(1);
+        return;
+      }
+    }
+
     if (e.key === 'Tab') {
       e.preventDefault();
       return;
@@ -1070,16 +1276,34 @@
     {fireStreak}
     {isDark}
     {accentColor}
+    {tracks}
+    {artists}
+    {ytResults}
+    {ytLoading}
+    {mediaBaseUrl}
     onBack={goBack}
     onForward={goForward}
     onNavigate={navigate}
     onSearch={handleGlobalSearch}
+    onSuggestSearch={handleSearchSuggestions}
+    onPlayLocalTrack={(tr) => playTrack(tr, tracks)}
+    onPlayYTMusic={playYTMusicSingle}
+    onToggleFavoriteArtist={handleToggleFavoriteArtist}
     onToggleTheme={() => patchPrefs({ 'theme.dark': isDark ? 'false' : 'true' })}
     onOpenStreakModal={() => (showStreakModal = true)}
   />
 
   <!-- Main 3-Section Resizable & Collapsible Borderless Workspace -->
-  <div class="flex-1 min-h-0 flex gap-2 px-2 pb-2 overflow-hidden">
+  <div
+    class="flex-1 min-h-0 flex gap-2 pl-2 pb-2 overflow-hidden {rightCollapsed &&
+    currentRoute.name !== 'preferences' &&
+    currentRoute.name !== 'track-detail' &&
+    currentRoute.name !== 'album-detail' &&
+    currentRoute.name !== 'yt-album-detail' &&
+    currentRoute.name !== 'lyrics'
+      ? 'pr-0'
+      : 'pr-2'}"
+  >
     <!-- SECTION 1 (LEFT): Menu Sidebar (Same wrapper, swaps inner content to PreferencesSidebar when in Preferences) -->
     <Sidebar
       {currentRoute}
@@ -1140,16 +1364,13 @@
           onLoadMoreYTMusic={handleLoadMoreYTMusic}
           onNavigate={navigate}
         />
-      {:else if currentRoute.name === 'search' || currentRoute.name === 'liked-songs' || currentRoute.name === 'favorite-albums' || currentRoute.name === 'album-detail' || currentRoute.name === 'favorite-artists' || currentRoute.name === 'artist-detail'}
+      {:else if currentRoute.name === 'search' || currentRoute.name === 'liked-songs' || currentRoute.name === 'favorite-albums' || currentRoute.name === 'favorite-artists' || currentRoute.name === 'artist-detail'}
         <LibraryViews
           mode={currentRoute.name}
           {searchQuery}
           {tracks}
           {albums}
           {artists}
-          selectedAlbum={currentRoute.name === 'album-detail'
-            ? albums.find((a) => a.id === currentRoute.albumId) ?? null
-            : null}
           selectedArtist={currentRoute.name === 'artist-detail'
             ? artists.find((a) => a.id === currentRoute.artistId) ?? null
             : null}
@@ -1261,6 +1482,59 @@
             await playTrack(tr, [tr, ...tracks]);
           }}
         />
+      {:else if currentRoute.name === 'track-detail' || currentRoute.name === 'album-detail' || currentRoute.name === 'yt-album-detail'}
+        {@const detailTrack =
+          currentRoute.name === 'track-detail'
+            ? (currentTrack?.id === currentRoute.trackId ? currentTrack : null) ??
+              tracks.find((t) => t.id === currentRoute.trackId) ??
+              queue.find((t) => t.id === currentRoute.trackId) ??
+              currentTrack
+            : currentRoute.name === 'yt-album-detail'
+              ? currentTrack
+              : null}
+        {@const targetAlbumId =
+          currentRoute.name === 'album-detail'
+            ? currentRoute.albumId
+            : currentRoute.name === 'track-detail'
+              ? detailTrack?.albumId ?? 0
+              : 0}
+        {@const detailAlbum = targetAlbumId > 0 ? albums.find((a) => a.id === targetAlbumId) ?? null : null}
+        {@const albumTrackList =
+          currentRoute.name === 'album-detail'
+            ? detailTracks
+            : currentRoute.name === 'yt-album-detail'
+              ? ytAlbumDetail?.tracks ?? (currentTrack ? [currentTrack] : [])
+              : targetAlbumId > 0
+                ? tracks.filter((t) => t.albumId === targetAlbumId)
+                : detailTrack
+                  ? [detailTrack]
+                  : []}
+        <TrackDetailView
+          track={detailTrack ?? albumTrackList[0] ?? null}
+          album={detailAlbum}
+          albumTracks={albumTrackList}
+          ytAlbum={currentRoute.name === 'yt-album-detail' ? ytAlbumDetail : null}
+          ytAlbumLoading={currentRoute.name === 'yt-album-detail' ? ytAlbumLoading : false}
+          currentTrackId={currentTrack?.id ?? null}
+          currentExternalId={currentTrack?.externalId ?? null}
+          {isPlaying}
+          {tracks}
+          {albums}
+          {playlists}
+          {mediaBaseUrl}
+          {accentColor}
+          onPlayTrack={playTrack}
+          onTogglePlay={() => void togglePlay()}
+          onToggleFavoriteTrack={handleToggleFavoriteTrack}
+          onToggleFavoriteAlbum={handleToggleFavoriteAlbum}
+          onAddToPlaylist={async (plId, trId) => {
+            await api.addTrackToPlaylist(plId, trId);
+            playlists = await api.getPlaylists(false);
+          }}
+          onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
+          onOpenAlbum={(albumId) => navigate({ name: 'album-detail', albumId })}
+          onOpenYTAlbum={(card) => void openYTAlbumCard(card)}
+        />
       {:else if currentRoute.name === 'lyrics'}
         <LyricsView
           track={currentTrack}
@@ -1269,6 +1543,7 @@
           {positionSec}
           {mediaBaseUrl}
           onSeek={handleSeek}
+          onResync={() => currentTrack && loadLyricsForTrack(currentTrack)}
           onClose={() => {
             if (navIndex > 0) goBack();
             else navigate({ name: 'home' });
@@ -1303,8 +1578,8 @@
       {/if}
     </main>
 
-    <!-- SECTION 3 (RIGHT): Hidden on Preferences page so it feels like a dedicated full settings page -->
-    {#if currentRoute.name !== 'preferences'}
+    <!-- SECTION 3 (RIGHT): Hidden on Preferences, Track/Album Detail & Lyrics pages -->
+    {#if currentRoute.name !== 'preferences' && currentRoute.name !== 'track-detail' && currentRoute.name !== 'album-detail' && currentRoute.name !== 'yt-album-detail' && currentRoute.name !== 'lyrics'}
       <RightPanel
         width={rightWidth}
         collapsed={rightCollapsed}
@@ -1336,6 +1611,8 @@
         }}
         onToggleFavorite={handleToggleFavoriteTrack}
         onSeek={handleSeek}
+        onOpenTrackDetail={(tr) => void openTrackAlbumDetail(tr)}
+        onOpenLyrics={() => navigate({ name: 'lyrics' })}
       />
     {/if}
   </div>
@@ -1373,6 +1650,7 @@
         api.playerControl('repeat', 0, repeatMode);
       }}
       onToggleFavorite={handleToggleFavoriteTrack}
+      onOpenTrackDetail={(tr) => void openTrackAlbumDetail(tr)}
       onToggleLyrics={() => {
         if (currentRoute.name === 'lyrics') {
           if (navIndex > 0) goBack();
@@ -1389,6 +1667,33 @@
           } else {
             rightCollapsed = false;
             rightPanelMode = 'queue';
+            patchPrefs({ 'layout.rightCollapsed': 'false' });
+            focusRightSignal = { card, seq: Date.now() };
+          }
+          return;
+        }
+        if (card === 'album') {
+          if (
+            currentRoute.name === 'track-detail' ||
+            currentRoute.name === 'album-detail' ||
+            currentRoute.name === 'yt-album-detail' ||
+            currentRoute.name === 'lyrics' ||
+            currentRoute.name === 'preferences'
+          ) {
+            if (navIndex > 0) goBack();
+            else navigate({ name: 'home' });
+            rightCollapsed = false;
+            rightPanelMode = 'now-playing';
+            patchPrefs({ 'layout.rightCollapsed': 'false' });
+            focusRightSignal = { card, seq: Date.now() };
+            return;
+          }
+          if (!rightCollapsed && rightPanelMode === 'now-playing') {
+            rightCollapsed = true;
+            patchPrefs({ 'layout.rightCollapsed': 'true' });
+          } else {
+            rightCollapsed = false;
+            rightPanelMode = 'now-playing';
             patchPrefs({ 'layout.rightCollapsed': 'false' });
             focusRightSignal = { card, seq: Date.now() };
           }
@@ -1416,3 +1721,20 @@
   onClose={() => (showCreatePlaylistModal = false)}
   onSubmit={handleCreatePlaylist}
 />
+
+{#if tooltipVisible && tooltipText}
+  <div
+    role="tooltip"
+    class="pointer-events-none fixed z-[9999] px-2.5 py-1.5 rounded-lg text-[12px] font-semibold leading-none whitespace-nowrap shadow-xl border transition-opacity duration-150"
+    style="
+      left: {tooltipX}px;
+      top: {tooltipY}px;
+      transform: translate({tooltipX > window.innerWidth - 90 ? '-85%' : tooltipX < 90 ? '-15%' : '-50%'}, {tooltipBelow ? '0%' : '-100%'});
+      background-color: var(--md-sys-color-surface-container-highest);
+      color: var(--md-sys-color-on-surface);
+      border-color: rgba(128, 128, 128, 0.22);
+    "
+  >
+    {tooltipText}
+  </div>
+{/if}

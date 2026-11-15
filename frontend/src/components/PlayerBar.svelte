@@ -30,6 +30,7 @@
     onCycleRepeat: () => void;
     onToggleFavorite: (trackId: number) => void;
     onFocusRightCard: (card: 'album' | 'lyrics' | 'queue') => void;
+    onOpenTrackDetail?: (track: Track) => void;
     onToggleLyrics?: () => void;
   }
 
@@ -58,6 +59,7 @@
     onCycleRepeat,
     onToggleFavorite,
     onFocusRightCard,
+    onOpenTrackDetail,
     onToggleLyrics
   }: Props = $props();
 
@@ -93,22 +95,22 @@
       class="flex items-center justify-between px-6 pt-1 text-[11px] font-medium tabular-nums"
       style="color: var(--md-sys-color-on-surface-variant);"
     >
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-1.5">
         <span>{formatDuration(positionSec)}</span>
-        {#if seekDeltaSec !== 0}
-          {#key seekDeltaSeq}
-            <span
-              in:fly={{ y: 4, duration: 140 }}
-              out:fade={{ duration: 200 }}
-              class="px-1.5 py-0.5 rounded text-[10px] font-bold tabular-nums leading-none"
-              style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
-            >
-              {seekDeltaSec > 0 ? `+${seekDeltaSec}s` : `${seekDeltaSec}s`}
-            </span>
-          {/key}
+        {#if seekDeltaSec < 0}
+          <span transition:fade={{ duration: 150 }} class="tabular-nums">
+            {seekDeltaSec}s
+          </span>
         {/if}
       </div>
-      <span>-{formatDuration(remainingSec)}</span>
+      <div class="flex items-center gap-1.5">
+        {#if seekDeltaSec > 0}
+          <span transition:fade={{ duration: 150 }} class="tabular-nums">
+            +{seekDeltaSec}s
+          </span>
+        {/if}
+        <span>-{formatDuration(remainingSec)}</span>
+      </div>
     </div>
   </div>
 
@@ -121,8 +123,8 @@
         <button
           type="button"
           onclick={() => onFocusRightCard('album')}
-          class="relative w-14 h-14 p-0 rounded-md overflow-clip shrink-0 cursor-pointer transition-transform hover:scale-105"
-          title="Lihat Card Album"
+          class="relative w-14 h-14 p-0 rounded-md overflow-clip shrink-0 cursor-pointer"
+          title="Buka Panel Kanan"
         >
           {#if cover}
             <img
@@ -142,9 +144,15 @@
         </button>
 
         <div class="min-w-0 flex-1 flex flex-col justify-center">
-          <div class="text-[14px] font-bold leading-snug truncate" style="color: var(--md-sys-color-on-surface);">
+          <button
+            type="button"
+            onclick={() => onOpenTrackDetail?.(currentTrack)}
+            class="text-left text-[14px] font-bold leading-snug truncate hover:underline cursor-pointer"
+            style="color: var(--md-sys-color-on-surface);"
+            title="Lihat Detail Musik"
+          >
             {currentTrack.title}
-          </div>
+          </button>
           <div
             class="text-[12px] font-normal leading-snug truncate mt-0.5"
             style="color: var(--md-sys-color-on-surface-variant);"

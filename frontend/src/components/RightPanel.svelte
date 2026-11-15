@@ -32,6 +32,8 @@
     onClearQueue: () => void;
     onToggleFavorite: (trackId: number) => void;
     onSeek: (sec: number) => void;
+    onOpenTrackDetail?: (track: Track) => void;
+    onOpenLyrics?: () => void;
   }
 
   let {
@@ -56,7 +58,9 @@
     onRemoveFromQueue: _onRemoveFromQueue,
     onClearQueue: _onClearQueue,
     onToggleFavorite,
-    onSeek
+    onSeek,
+    onOpenTrackDetail,
+    onOpenLyrics
   }: Props = $props();
 
   let panelScrollEl: HTMLElement | undefined = $state();
@@ -74,7 +78,9 @@
 
   const MIN_WIDTH = 280;
   const MAX_WIDTH = 520;
-  const COLLAPSED_WIDTH = 32;
+  const COLLAPSED_WIDTH = 36;
+  const COLLAPSED_HOVER_WIDTH = 72;
+  let collapsedHover = $state(false);
 
   const lyricsAutoScroll = $derived(getPrefBool(preferences, 'lyrics.autoScroll'));
   const lyricsTextSize = $derived(Number(getPrefValue(preferences, 'lyrics.textSize') || '1'));
@@ -115,7 +121,7 @@
     if (!lyrics?.syncedLyrics || lyrics.syncedLyrics.length === 0) return -1;
     let active = -1;
     for (let i = 0; i < lyrics.syncedLyrics.length; i++) {
-      if (positionSec + 0.3 >= lyrics.syncedLyrics[i].timeSec) {
+      if (positionSec + 0.25 >= lyrics.syncedLyrics[i].timeSec) {
         active = i;
       } else {
         break;
@@ -210,10 +216,12 @@
         card === 'album' ? albumCardEl : card === 'lyrics' ? lyricsCardEl : queueCardEl;
       if (target && panelScrollEl) {
         panelScrollEl.scrollTo({
-          top: Math.max(0, target.offsetTop - 8),
-          behavior: 'smooth'
+          top: card === 'album' ? 0 : Math.max(0, target.offsetTop - 8),
+          behavior: card === 'album' ? 'auto' : 'smooth'
         });
-        animate(target, { scale: [0.985, 1] }, { duration: 0.28, ease: [0.2, 0, 0, 1] });
+        if (card !== 'album') {
+          animate(target, { scale: [0.985, 1] }, { duration: 0.28, ease: [0.2, 0, 0, 1] });
+        }
       }
     }, 120);
   }
@@ -246,8 +254,16 @@
 <!-- Collapsible Right Panel with Spotify 1:1 Now Playing, Lyrics, and Queue Cards (Internal Scroll Only) -->
 <aside
   aria-label="Right Panel Section"
-  class="relative shrink-0 h-full min-h-0 flex flex-col select-none overflow-visible rounded-lg"
-  style="width: {collapsed ? COLLAPSED_WIDTH : width}px; background-color: var(--md-sys-color-surface-container-low); transition: {isResizing ? 'none' : 'width 400ms cubic-bezier(0.16, 1, 0.3, 1), background-color 300ms ease'};"
+  onmouseenter={() => {
+    if (collapsed) collapsedHover = true;
+  }}
+  onmouseleave={() => {
+    collapsedHover = false;
+  }}
+  class="relative shrink-0 h-full min-h-0 flex flex-col select-none overflow-visible {collapsed
+    ? 'rounded-l-lg rounded-r-none'
+    : 'rounded-lg'}"
+  style="width: {collapsed ? (collapsedHover ? COLLAPSED_HOVER_WIDTH : COLLAPSED_WIDTH) : width}px; background-color: var(--md-sys-color-surface-container-low); transition: {isResizing ? 'none' : 'width 320ms cubic-bezier(0.16, 1, 0.3, 1), background-color 300ms ease'};"
 >
   {#if !collapsed}
     <!-- Spotify Centered Gap Resize Divider -->
@@ -266,39 +282,16 @@
     </div>
   {/if}
 
-  <div class="relative w-full h-full min-h-0 overflow-hidden rounded-lg">
-    <!-- COLLAPSED LAYER: Slim strip displaying centered "<" chevron with smooth scale+fade -->
-    <div
-      aria-hidden={!collapsed}
-      class="absolute inset-0 flex items-center justify-center transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] {collapsed
-        ? 'opacity-100 scale-100 pointer-events-auto delay-100'
-        : 'opacity-0 scale-75 pointer-events-none'}"
-    >
-      <button
-        type="button"
-        onclick={onToggleCollapse}
-        tabindex={collapsed ? 0 : -1}
-        title="Expand Right Panel"
-        aria-label="Expand Right Panel"
-        class="w-full h-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)] active:scale-95"
-        style="color: var(--md-sys-color-on-surface-variant);"
-      >
-        <span
-          bind:this={collapseIconEl}
-          class="inline-flex items-center justify-center"
-          style="transform: scaleX(1);"
-        >
-          <Icon name="caret-left" weight="bold" size={18} />
-        </span>
-      </button>
-    </div>
-
-    <!-- EXPANDED LAYER: Cross-slides & scales smoothly in/out alongside width morph -->
+  <div class="relative w-full h-full min-h-0 overflow-hidden {collapsed ? 'rounded-l-lg rounded-r-none' : 'rounded-lg'}">
+    <!-- EXPANDED / PEEK LAYER: Cross-slides & peeks cleanly on collapsed hover -->
     <div
       aria-hidden={collapsed}
-      class="absolute inset-0 flex flex-col transition-all duration-350 ease-[cubic-bezier(0.16,1,0.3,1)] {collapsed
-        ? 'opacity-0 translate-x-6 scale-[0.97] pointer-events-none'
+      class="absolute inset-y-0 left-0 flex flex-col transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] {collapsed
+        ? collapsedHover
+          ? 'opacity-55 translate-x-0 scale-100 pointer-events-none'
+          : 'opacity-0 translate-x-6 scale-[0.97] pointer-events-none'
         : 'opacity-100 translate-x-0 scale-100 pointer-events-auto delay-75'}"
+      style="width: {collapsed ? `${width}px` : '100%'}; {collapsed ? '' : 'right: 0;'}"
     >
     <!-- Header (Fixed inside RightPanel) -->
     <div class="px-3.5 py-2.5 flex items-center justify-between gap-2 shrink-0">
@@ -458,9 +451,14 @@
 
           <div class="p-3.5 flex items-center justify-between gap-3">
             <div class="min-w-0 flex-1">
-              <h3 class="text-[16px] font-bold leading-snug truncate">
+              <button
+                type="button"
+                onclick={() => onOpenTrackDetail?.(currentTrack)}
+                class="w-full text-left text-[16px] font-bold leading-snug truncate hover:underline cursor-pointer"
+                title="Lihat Detail Musik"
+              >
                 {currentTrack.title}
-              </h3>
+              </button>
               <div class="text-[13px] font-medium text-[var(--md-sys-color-on-surface-variant)] truncate mt-0.5">
                 {currentTrack.artistName}
               </div>
@@ -501,12 +499,12 @@
 
           <button
             type="button"
-            onclick={() => (lyricsExpanded = !lyricsExpanded)}
-            title={lyricsExpanded ? 'Perkecil lirik' : 'Perluas lirik'}
-            aria-label={lyricsExpanded ? 'Perkecil lirik' : 'Perluas lirik'}
+            onclick={() => onOpenLyrics?.()}
+            title="Perluas lirik"
+            aria-label="Perluas lirik"
             class="w-7 h-7 rounded-full flex items-center justify-center opacity-75 hover:opacity-100 hover:bg-[var(--md-sys-color-state-hover)] transition-colors cursor-pointer"
           >
-            <Icon name={lyricsExpanded ? 'arrows-in-simple' : 'arrows-out-simple'} size={16} />
+            <Icon name="arrows-out-simple" size={16} />
           </button>
         </div>
 
@@ -537,9 +535,9 @@
                   type="button"
                   data-lyric-idx={idx}
                   onclick={() => line.isSynced && line.timeSec !== null && onSeek(line.timeSec)}
-                  class="w-full text-left font-bold {lyricsExpandedSizeClass} transition-opacity duration-300 cursor-pointer {active
-                    ? 'opacity-100'
-                    : 'opacity-35 hover:opacity-100'}"
+                  class="w-full text-left font-bold {lyricsExpandedSizeClass} origin-left transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer {active
+                    ? 'opacity-100 scale-[1.02]'
+                    : 'opacity-35 scale-[0.93] hover:opacity-100'}"
                 >
                   {line.text}
                 </button>
@@ -659,6 +657,39 @@
       </div>
       {/if}
     </div>
+    </div>
+
+    <!-- COLLAPSED OVERLAY LAYER: Transparent gradient fade revealing peeked content + centered "<" chevron -->
+    <div
+      aria-hidden={!collapsed}
+      class="absolute inset-0 z-10 flex items-center justify-center transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] {collapsed
+        ? 'opacity-100 pointer-events-auto'
+        : 'opacity-0 pointer-events-none'}"
+    >
+      <div
+        class="pointer-events-none absolute inset-0 transition-opacity duration-300 {collapsedHover
+          ? 'opacity-100'
+          : 'opacity-0'}"
+        style="background: linear-gradient(to right, rgba(0, 0, 0, 0.25) 0%, rgba(0, 0, 0, 0.72) 100%);"
+      ></div>
+      <button
+        type="button"
+        onclick={onToggleCollapse}
+        tabindex={collapsed ? 0 : -1}
+        title="Expand Right Panel"
+        aria-label="Expand Right Panel"
+        class="relative z-10 w-full h-full flex items-center justify-center cursor-pointer transition-colors {collapsedHover
+          ? 'text-white'
+          : 'text-[var(--md-sys-color-on-surface-variant)]'} active:scale-95"
+      >
+        <span
+          bind:this={collapseIconEl}
+          class="inline-flex items-center justify-center"
+          style="transform: scaleX(1);"
+        >
+          <Icon name="caret-left" weight="bold" size={18} />
+        </span>
+      </button>
     </div>
   </div>
 </aside>

@@ -11,6 +11,7 @@
     positionSec = 0,
     mediaBaseUrl = '',
     onSeek,
+    onResync,
     onClose
   }: {
     track: Track | null;
@@ -19,15 +20,17 @@
     positionSec?: number;
     mediaBaseUrl?: string;
     onSeek: (sec: number) => void;
+    onResync?: () => void;
     onClose: () => void;
   } = $props();
 
   let scrollEl: HTMLDivElement | undefined = $state();
   let lineEls: Array<HTMLElement | null> = $state([]);
+  let autoSync = $state(true);
 
   let cover = $derived(track ? resolveCoverUrl(track.coverUrl, mediaBaseUrl) : '');
 
-  let syncedLines = $derived(lyrics?.syncedLines ?? []);
+  let syncedLines = $derived(lyrics?.syncedLyrics ?? []);
   let hasSynced = $derived(syncedLines.length > 0);
   let plainLines = $derived(
     (lyrics?.plainLyrics ?? '')
@@ -37,7 +40,7 @@
 
   let activeSyncedIndex = $derived.by(() => {
     if (!hasSynced) return -1;
-    const t = positionSec + 0.15;
+    const t = positionSec + 0.25;
     let idx = -1;
     for (let i = 0; i < syncedLines.length; i++) {
       if (syncedLines[i].timeSec <= t) idx = i;
@@ -46,7 +49,7 @@
     return idx;
   });
 
-  $effect(() => {
+  function scrollToActiveLine(behavior: ScrollBehavior = 'smooth') {
     const idx = activeSyncedIndex;
     const container = scrollEl;
     if (!container || idx < 0) return;
@@ -56,8 +59,28 @@
       0,
       el.offsetTop - container.clientHeight * 0.42 + el.clientHeight / 2
     );
-    container.scrollTo({ top: targetTop, behavior: 'smooth' });
+    container.scrollTo({ top: targetTop, behavior });
+  }
+
+  $effect(() => {
+    const _trackId = track?.id;
+    autoSync = true;
   });
+
+  $effect(() => {
+    const idx = activeSyncedIndex;
+    if (!autoSync || idx < 0) return;
+    scrollToActiveLine('smooth');
+  });
+
+  function handleSyncClick() {
+    autoSync = true;
+    if (hasSynced) {
+      scrollToActiveLine('smooth');
+    } else {
+      onResync?.();
+    }
+  }
 </script>
 
 <div
@@ -76,54 +99,82 @@
   {/if}
   <div
     class="absolute inset-0 pointer-events-none"
-    style="background: linear-gradient(180deg, rgba(10, 12, 16, 0.58) 0%, rgba(10, 12, 16, 0.78) 60%, rgba(10, 12, 16, 0.90) 100%);"
+    style="background: linear-gradient(180deg, rgba(10, 12, 16, 0.84) 0%, rgba(10, 12, 16, 0.68) 18%, rgba(10, 12, 16, 0.72) 55%, rgba(10, 12, 16, 0.88) 88%, rgba(10, 12, 16, 0.94) 100%);"
   ></div>
 
   <!-- Top Header -->
   <header class="relative z-10 flex items-center justify-between gap-4 px-8 pt-6 pb-4 shrink-0">
-    <div class="flex items-center gap-3.5 min-w-0">
+    <div class="flex items-center gap-4 min-w-0">
       {#if cover}
         <img
           src={cover}
           alt={track?.title ?? 'Album cover'}
-          class="w-12 h-12 rounded-lg object-cover shadow-lg shrink-0"
+          class="w-16 h-16 rounded-lg object-cover shadow-lg shrink-0"
         />
       {:else}
         <div
-          class="w-12 h-12 rounded-lg flex items-center justify-center shrink-0 bg-white/10 text-white/70"
+          class="w-16 h-16 rounded-lg flex items-center justify-center shrink-0 bg-white/10 text-white/70"
         >
-          <Icon name="music-notes" size={22} />
+          <Icon name="music-notes" size={26} />
         </div>
       {/if}
-      <div class="min-w-0">
-        <p class="text-[11px] font-semibold uppercase tracking-widest text-white/60">
+      <div class="min-w-0 flex flex-col justify-center">
+        <p class="text-[11px] leading-[14px] font-semibold uppercase tracking-widest text-white/60 mb-1.5">
           Lirik Lagu
         </p>
-        <h1 class="text-lg font-bold text-white truncate">
+        <h1 class="text-lg leading-[24px] font-bold text-white truncate">
           {track?.title ?? 'Tidak ada lagu diputar'}
         </h1>
         {#if track?.artistName}
-          <p class="text-xs text-white/70 truncate">{track.artistName}</p>
+          <p class="text-xs leading-[18px] text-white/70 truncate mt-0.5">{track.artistName}</p>
         {/if}
       </div>
     </div>
 
-    <button
-      type="button"
-      onclick={onClose}
-      class="w-9 h-9 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/20 text-white transition-colors duration-200 cursor-pointer shrink-0"
-      title="Tutup layar lirik"
-      aria-label="Tutup layar lirik"
-    >
-      <Icon name="x" size={18} />
-    </button>
+    <div class="flex items-center gap-2 shrink-0">
+      <button
+        type="button"
+        onclick={handleSyncClick}
+        class="w-9 h-9 rounded-full flex items-center justify-center transition-colors duration-200 cursor-pointer {hasSynced && autoSync
+          ? 'bg-white/25 text-white'
+          : 'bg-white/10 hover:bg-white/20 text-white/80 hover:text-white'}"
+        title={hasSynced ? 'Sinkronkan lirik dengan lagu' : 'Cari ulang lirik tersinkron'}
+        aria-label="Sinkronisasi lirik"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect x="3" y="9" width="2.4" height="6" rx="1.2" fill="currentColor" />
+          <rect x="7.4" y="6" width="2.4" height="12" rx="1.2" fill="currentColor" />
+          <rect x="11.8" y="3" width="2.4" height="18" rx="1.2" fill="currentColor" />
+          <rect x="16.2" y="6" width="2.4" height="12" rx="1.2" fill="currentColor" />
+          <rect x="20.6" y="9" width="2.4" height="6" rx="1.2" fill="currentColor" />
+        </svg>
+      </button>
+
+      <button
+        type="button"
+        onclick={onClose}
+        class="w-9 h-9 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/20 text-white transition-colors duration-200 cursor-pointer"
+        title="Tutup layar lirik"
+        aria-label="Tutup layar lirik"
+      >
+        <Icon name="x" size={18} />
+      </button>
+    </div>
   </header>
 
-  <!-- Main Full-Screen Lyrics Area -->
-  <div
-    bind:this={scrollEl}
-    class="relative z-10 flex-1 min-h-0 overflow-y-auto px-8 sm:px-14 md:px-24 pb-20 pt-6"
-  >
+  <!-- Main Full-Screen Lyrics Area with Ultra-Smooth Top & Bottom Mask Fade -->
+  <div class="relative z-10 flex-1 min-h-0">
+    <div
+      bind:this={scrollEl}
+      onwheel={() => {
+        if (hasSynced) autoSync = false;
+      }}
+      ontouchstart={() => {
+        if (hasSynced) autoSync = false;
+      }}
+      class="h-full overflow-y-auto px-8 sm:px-14 md:px-24 pb-24 pt-10"
+      style="-webkit-mask-image: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.45) 5%, black 14%, black 84%, rgba(0,0,0,0.45) 94%, transparent 100%); mask-image: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.45) 5%, black 14%, black 84%, rgba(0,0,0,0.45) 94%, transparent 100%);"
+    >
     {#if !track}
       <div class="h-full flex flex-col items-center justify-center text-center gap-3 text-white/65">
         <Icon name="microphone-stage" size={40} />
@@ -131,7 +182,13 @@
       </div>
     {:else if lyricsLoading}
       <div class="h-full flex flex-col items-center justify-center text-center gap-3 text-white/65">
-        <Icon name="spinner-gap" size={32} class="animate-spin" />
+        <span class="velora-eq-loader" style="--loader-color: rgba(255, 255, 255, 0.85);" aria-hidden="true">
+          <span class="velora-eq-bar"></span>
+          <span class="velora-eq-bar"></span>
+          <span class="velora-eq-bar"></span>
+          <span class="velora-eq-bar"></span>
+          <span class="velora-eq-bar"></span>
+        </span>
         <p class="text-sm font-medium">Memuat lirik…</p>
       </div>
     {:else if hasSynced}
@@ -142,9 +199,9 @@
             bind:this={lineEls[idx]}
             type="button"
             onclick={() => onSeek(line.timeSec)}
-            class="text-left text-2xl sm:text-3xl md:text-4xl font-bold leading-snug tracking-tight transition-all duration-300 cursor-pointer text-white {active
-              ? 'opacity-100 scale-[1.01] origin-left'
-              : 'opacity-35 hover:opacity-100'}"
+            class="text-left text-2xl sm:text-3xl md:text-4xl font-bold leading-snug tracking-tight origin-left transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer text-white {active
+              ? 'opacity-100 scale-[1.03]'
+              : 'opacity-35 scale-[0.92] hover:opacity-90'}"
           >
             {line.text || '♪'}
           </button>
@@ -170,5 +227,6 @@
         <p class="text-base font-medium">Lirik belum tersedia untuk lagu ini.</p>
       </div>
     {/if}
+    </div>
   </div>
 </div>

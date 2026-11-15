@@ -840,3 +840,33 @@ func (s *Store) SeedDefaults() error {
 
 	return nil
 }
+
+func (s *Store) GetCachedLyrics(trackID int64) (plainLyrics, syncedJSON, source string, ok bool) {
+	if trackID <= 0 {
+		return "", "", "", false
+	}
+	err := s.db.QueryRow(
+		`SELECT plain_lyrics, synced_json, source FROM track_lyrics WHERE track_id = ?`,
+		trackID,
+	).Scan(&plainLyrics, &syncedJSON, &source)
+	if err != nil {
+		return "", "", "", false
+	}
+	return plainLyrics, syncedJSON, source, source != "" && source != "fallback"
+}
+
+func (s *Store) SaveCachedLyrics(trackID int64, plainLyrics, syncedJSON, source string) {
+	if trackID <= 0 || source == "" || source == "fallback" {
+		return
+	}
+	_, _ = s.db.Exec(
+		`INSERT INTO track_lyrics (track_id, plain_lyrics, synced_json, source, updated_at)
+		 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+		 ON CONFLICT(track_id) DO UPDATE SET
+		   plain_lyrics = excluded.plain_lyrics,
+		   synced_json = excluded.synced_json,
+		   source = excluded.source,
+		   updated_at = CURRENT_TIMESTAMP`,
+		trackID, plainLyrics, syncedJSON, source,
+	)
+}
