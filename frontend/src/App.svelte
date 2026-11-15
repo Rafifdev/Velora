@@ -162,8 +162,8 @@
 
   onMount(() => {
     const savedZoom = Number(localStorage.getItem('velora.zoom') || '1');
-    if (Number.isFinite(savedZoom) && savedZoom >= 0.7 && savedZoom <= 1.5) {
-      applyZoom(savedZoom);
+    if (Number.isFinite(savedZoom) && savedZoom >= 0.5 && savedZoom <= 1.5) {
+      applyZoom(savedZoom, false);
     }
     const onWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.metaKey) {
@@ -204,7 +204,7 @@
         tooltipX = Math.min(window.innerWidth - pad, Math.max(pad, rect.left + rect.width / 2));
         tooltipY = placeBelow ? rect.bottom + 8 : rect.top - 8;
         tooltipVisible = true;
-      }, 150);
+      }, 1000);
     };
 
     const onMouseOver = (e: MouseEvent) => {
@@ -1095,7 +1095,9 @@
     }, 1100);
   }
 
-  let zoomLevel = 1;
+  let zoomLevel = $state(1);
+  let zoomBadgeVisible = $state(false);
+  let zoomBadgeTimer: ReturnType<typeof setTimeout> | null = null;
   let tooltipText = $state('');
   let tooltipVisible = $state(false);
   let tooltipX = $state(0);
@@ -1104,14 +1106,20 @@
   let tooltipTimer: ReturnType<typeof setTimeout> | null = null;
   let activeTooltipEl: HTMLElement | null = null;
 
-  function applyZoom(next: number) {
-    const clamped = Math.round(Math.min(1.5, Math.max(0.7, next)) * 100) / 100;
+  function applyZoom(next: number, showBadge = true) {
+    const clamped = Math.round(Math.min(1.5, Math.max(0.5, next)) * 100) / 100;
     zoomLevel = clamped;
-    document.documentElement.style.zoom = String(clamped);
     try {
       localStorage.setItem('velora.zoom', String(clamped));
     } catch {
       // ignore
+    }
+    if (showBadge) {
+      zoomBadgeVisible = true;
+      if (zoomBadgeTimer) clearTimeout(zoomBadgeTimer);
+      zoomBadgeTimer = setTimeout(() => {
+        zoomBadgeVisible = false;
+      }, 2000);
     }
   }
 
@@ -1260,8 +1268,8 @@
 <div
   data-theme={isDark ? 'dark' : 'light'}
   data-seed={themeSeed}
-  class="h-screen w-screen flex flex-col overflow-hidden transition-colors duration-300"
-  style="background-color: var(--md-sys-color-surface-container-lowest); color: var(--md-sys-color-on-surface);"
+  class="flex flex-col overflow-hidden transition-colors duration-300"
+  style="zoom: {zoomLevel}; width: {100 / zoomLevel}vw; height: {100 / zoomLevel}vh; background-color: var(--md-sys-color-surface-container-lowest); color: var(--md-sys-color-on-surface);"
 >
   {#if showSplash}
     <SplashScreen onComplete={() => (showSplash = false)} />
@@ -1281,6 +1289,8 @@
     {ytResults}
     {ytLoading}
     {mediaBaseUrl}
+    {zoomLevel}
+    {zoomBadgeVisible}
     onBack={goBack}
     onForward={goForward}
     onNavigate={navigate}
@@ -1291,6 +1301,7 @@
     onToggleFavoriteArtist={handleToggleFavoriteArtist}
     onToggleTheme={() => patchPrefs({ 'theme.dark': isDark ? 'false' : 'true' })}
     onOpenStreakModal={() => (showStreakModal = true)}
+    onResetZoom={() => applyZoom(1)}
   />
 
   <!-- Main 3-Section Resizable & Collapsible Borderless Workspace -->
