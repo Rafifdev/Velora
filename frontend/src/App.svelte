@@ -543,13 +543,9 @@
     if (ytLoadingMore) return;
     ytLoadingMore = true;
     try {
-      const page = ytMorePage++;
-      const q =
-        activeCategory === 'semua'
-          ? MORESONGS_QUERIES[page % MORESONGS_QUERIES.length]
-          : CATEGORY_MORE_QUERIES[activeCategory][page % CATEGORY_MORE_QUERIES[activeCategory].length];
-
       if (activeCategory === 'playlist') {
+        const page = ytMorePage++;
+        const q = CATEGORY_MORE_QUERIES.playlist[page % CATEGORY_MORE_QUERIES.playlist.length];
         const morePlaylists = await api.searchYouTubeMusicPlaylists(q);
         if (!morePlaylists || morePlaylists.length === 0) return;
         const existingKeys = new Set(ytPlaylistResults.map((c) => c.browseId || c.playlistId || c.id));
@@ -563,36 +559,53 @@
         return;
       }
 
-      const moreTracks = await api.searchYouTubeMusic(q);
-      if (!moreTracks || moreTracks.length === 0) return;
-
       if (activeCategory === 'semua') {
+        const targetBatch = 35; // 5 rows x 7 items
         const existingVideoIds = new Set<string>(ytMoreAllBuffer.map((c) => c.videoId));
         for (const shelf of ytShelves) {
           for (const item of shelf.items) {
             if (item.videoId) existingVideoIds.add(item.videoId);
           }
         }
-        const newCards = moreTracks
-          .filter((t) => t.videoId && !existingVideoIds.has(t.videoId))
-          .map((t) => ({
-            id: `song:${t.videoId}`,
-            title: t.title,
-            subtitle: t.artist || 'YouTube Music',
-            coverUrl: t.coverUrl,
-            kind: 'song' as const,
-            videoId: t.videoId,
-            browseId: '',
-            playlistId: '',
-            artist: t.artist,
-            album: t.album,
-            durationSec: t.durationSec
-          }));
 
-        const pool = [...ytMoreAllBuffer, ...newCards];
-        const fullCount = pool.length >= 5 ? Math.floor(pool.length / 5) * 5 : pool.length;
-        const toAppend = pool.slice(0, fullCount);
-        ytMoreAllBuffer = pool.slice(fullCount);
+        const pool = [...ytMoreAllBuffer];
+        let attempts = 0;
+        while (pool.length < targetBatch && attempts < 4) {
+          attempts++;
+          const page = ytMorePage++;
+          const q = MORESONGS_QUERIES[page % MORESONGS_QUERIES.length];
+          const moreTracks = await api.searchYouTubeMusic(q);
+          if (!moreTracks || moreTracks.length === 0) continue;
+
+          for (const t of moreTracks) {
+            if (!t.videoId || existingVideoIds.has(t.videoId)) continue;
+            existingVideoIds.add(t.videoId);
+            pool.push({
+              id: `song:${t.videoId}`,
+              title: t.title,
+              subtitle: t.artist || 'YouTube Music',
+              coverUrl: t.coverUrl,
+              kind: 'song' as const,
+              videoId: t.videoId,
+              browseId: '',
+              playlistId: '',
+              artist: t.artist,
+              album: t.album,
+              durationSec: t.durationSec
+            });
+          }
+        }
+
+        if (pool.length === 0) return;
+
+        const takeCount =
+          pool.length >= targetBatch
+            ? targetBatch
+            : pool.length >= 7
+              ? Math.floor(pool.length / 7) * 7
+              : pool.length;
+        const toAppend = pool.slice(0, takeCount);
+        ytMoreAllBuffer = pool.slice(takeCount);
 
         if (toAppend.length > 0) {
           const targetTitle = 'Lagu Lainnya untuk Anda';
@@ -609,6 +622,10 @@
           }
         }
       } else {
+        const page = ytMorePage++;
+        const q = CATEGORY_MORE_QUERIES[activeCategory][page % CATEGORY_MORE_QUERIES[activeCategory].length];
+        const moreTracks = await api.searchYouTubeMusic(q);
+        if (!moreTracks || moreTracks.length === 0) return;
         const existingIds = new Set(ytResults.map((t) => t.videoId));
         const unique = moreTracks.filter((t) => t.videoId && !existingIds.has(t.videoId));
         if (unique.length > 0) {
@@ -1272,7 +1289,7 @@
   style="zoom: {zoomLevel}; width: {100 / zoomLevel}vw; height: {100 / zoomLevel}vh; background-color: var(--md-sys-color-surface-container-lowest); color: var(--md-sys-color-on-surface);"
 >
   {#if showSplash}
-    <SplashScreen onComplete={() => (showSplash = false)} />
+    <SplashScreen {isDark} onComplete={() => (showSplash = false)} />
   {/if}
 
   <!-- Top App Bar (Borderless) -->
@@ -1528,6 +1545,8 @@
           ytAlbumLoading={currentRoute.name === 'yt-album-detail' ? ytAlbumLoading : false}
           currentTrackId={currentTrack?.id ?? null}
           currentExternalId={currentTrack?.externalId ?? null}
+          currentTrackTitle={currentTrack?.title ?? null}
+          currentTrackArtist={currentTrack?.artistName ?? null}
           {isPlaying}
           {tracks}
           {albums}

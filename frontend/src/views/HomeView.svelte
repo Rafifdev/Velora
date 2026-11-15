@@ -120,19 +120,19 @@
   );
 
   const displayedFilteredPlaylists = $derived.by(() => {
-    if (ytPlaylistResults.length <= 5) return ytPlaylistResults;
-    const fullRows = Math.floor(ytPlaylistResults.length / 5) * 5;
+    if (ytPlaylistResults.length <= 7) return ytPlaylistResults;
+    const fullRows = Math.floor(ytPlaylistResults.length / 7) * 7;
     if (!filteredMoreLoaded) {
-      return ytPlaylistResults.slice(0, Math.min(20, fullRows));
+      return ytPlaylistResults.slice(0, Math.min(21, fullRows));
     }
     return ytPlaylistResults.slice(0, fullRows);
   });
 
   const displayedFilteredResults = $derived.by(() => {
-    if (ytResults.length <= 5) return ytResults;
-    const fullRows = Math.floor(ytResults.length / 5) * 5;
+    if (ytResults.length <= 7) return ytResults;
+    const fullRows = Math.floor(ytResults.length / 7) * 7;
     if (!filteredMoreLoaded) {
-      return ytResults.slice(0, Math.min(20, fullRows));
+      return ytResults.slice(0, Math.min(21, fullRows));
     }
     return ytResults.slice(0, fullRows);
   });
@@ -230,14 +230,14 @@
           <div
             use:shelfEdgeFade
             class={plExpanded
-              ? 'velora-card-grid'
+              ? 'velora-card-grid-7'
               : 'flex items-start justify-start gap-3 overflow-x-auto no-scrollbar velora-shelf-scroll pb-1'}
           >
             {#each playlists as pl (pl.id)}
               {@const cover = resolveCoverUrl(pl.coverUrl, mediaBaseUrl)}
               <div
                 role="group"
-                class="group w-[172px] shrink-0 flex flex-col justify-start items-stretch self-start p-2.5 rounded-lg transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]"
+                class="group {plExpanded ? 'w-full min-w-0' : 'w-[172px] shrink-0'} flex flex-col justify-start items-stretch self-start p-2.5 rounded-lg transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]"
               >
                 <div
                   class="velora-card-artwork mb-2.5 flex items-center justify-center"
@@ -331,13 +331,14 @@
       {:else}
         {#each ytShelves as shelf, sIdx (shelf.title)}
           {@const shelfKey = `yt-${shelf.title}`}
-          {@const isExpanded = !!expandedShelves[shelfKey]}
+          {@const isAlwaysFull = shelf.title === 'Lagu Lainnya untuk Anda'}
+          {@const isExpanded = isAlwaysFull || !!expandedShelves[shelfKey]}
           <section class="min-w-0 space-y-3" use:svelteMotionEnter={{ delay: Math.min(0.18, sIdx * 0.04) }}>
             <div class="flex items-center justify-between gap-2">
               <h2 class="text-xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
                 {shelf.title}
               </h2>
-              {#if shelf.items.length > 4}
+              {#if !isAlwaysFull && shelf.items.length > 4}
                 <button
                   type="button"
                   onclick={() => toggleShelfExpand(shelfKey)}
@@ -352,7 +353,7 @@
             <div
               use:shelfEdgeFade
               class={isExpanded
-                ? 'velora-card-grid-5'
+                ? 'velora-card-grid-7'
                 : 'flex items-start justify-start gap-3 overflow-x-auto no-scrollbar velora-shelf-scroll pb-1'}
             >
               {#each shelf.items as item (item.id)}
@@ -410,8 +411,8 @@
         </h2>
 
         {#if ytLoading}
-          <div class="velora-card-grid-5">
-            {#each Array.from({ length: 20 }, (_, idx) => idx) as idx (idx)}
+          <div class="velora-card-grid-7">
+            {#each Array.from({ length: 21 }, (_, idx) => idx) as idx (idx)}
               <div class="w-full min-w-0 p-2.5 rounded-lg space-y-2.5">
                 <div class="w-full aspect-square rounded-md bg-[var(--md-sys-color-surface-container-high)] animate-pulse"></div>
                 <div class="h-3.5 w-3/4 rounded bg-[var(--md-sys-color-surface-container-highest)] animate-pulse"></div>
@@ -428,7 +429,7 @@
               </p>
             </div>
           {:else}
-            <div class="velora-card-grid-5">
+            <div class="velora-card-grid-7">
               {#each displayedFilteredPlaylists as item (item.id)}
                 {@const cover = resolveCoverUrl(item.coverUrl, mediaBaseUrl)}
                 {@const isItemLoading = loadingCollectionId === item.id}
@@ -482,7 +483,7 @@
             </p>
           </div>
         {:else}
-          <div class="velora-card-grid-5">
+          <div class="velora-card-grid-7">
             {#each displayedFilteredResults as yt (yt.videoId)}
               {@const cover = resolveCoverUrl(yt.coverUrl, mediaBaseUrl)}
               <button
@@ -530,7 +531,12 @@
           disabled={ytLoadingMore}
           aria-label={ytLoadingMore ? 'Memuat' : activeFilterPill === 'playlist' ? 'Muat lebih banyak playlist' : 'Muat lebih banyak lagu'}
           onclick={() => {
-            if (activeFilterPill !== 'semua') {
+            if (activeFilterPill === 'semua') {
+              expandedShelves = {
+                ...expandedShelves,
+                'yt-Lagu Lainnya untuk Anda': true
+              };
+            } else {
               filteredMoreLoaded = true;
             }
             onLoadMoreYTMusic?.(activeFilterPill);
