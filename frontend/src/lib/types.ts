@@ -176,6 +176,18 @@ export interface YTMusicHomeFeed {
   tracks: YTMusicTrack[];
 }
 
+export interface YTMusicAlbumView {
+  browseId: string;
+  title: string;
+  artist: string;
+  artistBrowseId: string;
+  year: string;
+  coverUrl: string;
+  subtitle: string;
+  tracks: Track[];
+  artistAlbums: YTMusicCard[];
+}
+
 export interface LyricLine {
   timeSec: number;
   text: string;
@@ -219,4 +231,14 @@ export type ViewRoute =
   | { name: 'preferences' }
   | { name: 'listening-stats' }
   | { name: 'fire-streak' }
-  | { name: 'lyrics' };
+  | { name: 'lyrics' }
+  | { name: 'track-detail'; trackId: number }
+  | {
+      name: 'yt-album-detail';
+      videoId: string;
+      browseId?: string;
+      title: string;
+      artist: string;
+      albumTitle: string;
+      coverUrl: string;
+    };

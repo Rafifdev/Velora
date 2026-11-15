@@ -346,6 +346,52 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class YTMusicAlbumView {
+	    browseId: string;
+	    title: string;
+	    artist: string;
+	    artistBrowseId: string;
+	    year: string;
+	    coverUrl: string;
+	    subtitle: string;
+	    tracks: db.Track[];
+	    artistAlbums: sources.YTMusicCard[];
+	
+	    static createFrom(source: any = {}) {
+	        return new YTMusicAlbumView(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.browseId = source["browseId"];
+	        this.title = source["title"];
+	        this.artist = source["artist"];
+	        this.artistBrowseId = source["artistBrowseId"];
+	        this.year = source["year"];
+	        this.coverUrl = source["coverUrl"];
+	        this.subtitle = source["subtitle"];
+	        this.tracks = this.convertValues(source["tracks"], db.Track);
+	        this.artistAlbums = this.convertValues(source["artistAlbums"], sources.YTMusicCard);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 
 }
 

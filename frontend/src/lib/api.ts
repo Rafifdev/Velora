@@ -10,6 +10,7 @@ import type {
   Source,
   Track,
   TrackLyrics,
+  YTMusicAlbumView,
   YTMusicCard,
   YTMusicHomeFeed,
   YTMusicTrack
@@ -44,7 +45,19 @@ export function resolveCoverUrl(coverUrl: string, mediaBaseUrl = ''): string {
   } else if (resolved.includes('googleusercontent.com') || resolved.includes('yt3.ggpht.com')) {
     resolved = resolved.replace(/=w\d+-h\d+[^&?]*/i, '=w544-h544-c-l90-rj');
   }
-  if (resolved.startsWith('http://') || resolved.startsWith('https://') || resolved.startsWith('data:')) {
+  if (resolved.startsWith('http://') || resolved.startsWith('https://')) {
+    if (
+      mediaBaseUrl &&
+      (resolved.includes('googleusercontent.com') ||
+        resolved.includes('ggpht.com') ||
+        resolved.includes('ytimg.com') ||
+        resolved.includes('youtube.com'))
+    ) {
+      return `${mediaBaseUrl}/media/cover?url=${encodeURIComponent(resolved)}`;
+    }
+    return resolved;
+  }
+  if (resolved.startsWith('data:')) {
     return resolved;
   }
   if (resolved.startsWith('/media/') && mediaBaseUrl) {
@@ -54,7 +67,7 @@ export function resolveCoverUrl(coverUrl: string, mediaBaseUrl = ''): string {
 }
 
 export function isYTVideoThumb(url: string): boolean {
-  return Boolean(url && url.includes('i.ytimg.com/'));
+  return Boolean(url && (url.includes('i.ytimg.com/') || url.includes('i.ytimg.com%2F')));
 }
 
 export const api = {
@@ -151,6 +164,16 @@ export const api = {
   ): Promise<Track[]> {
     return appBridge().PlayYTMusicCollection(browseId, playlistId, title, subtitle, coverUrl);
   },
+  async getYTMusicTrackAlbum(
+    videoId: string,
+    browseId: string,
+    title: string,
+    artist: string,
+    albumTitle: string,
+    coverUrl: string
+  ): Promise<YTMusicAlbumView> {
+    return appBridge().GetYTMusicTrackAlbum(videoId, browseId, title, artist, albumTitle, coverUrl);
+  },
   async getTrackLyrics(
     trackId: number,
     title: string,
@@ -214,5 +237,8 @@ export const api = {
   },
   windowClose(): void {
     appBridge()?.WindowClose();
+  },
+  updateTaskbarState(title: string, artist: string, coverUrl: string, isPlaying: boolean): void {
+    appBridge()?.UpdateTaskbarState?.(title, artist, coverUrl, isPlaying);
   }
 };

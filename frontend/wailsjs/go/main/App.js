@@ -90,6 +90,10 @@ export function GetYTMusicHome() {
   return window['go']['main']['App']['GetYTMusicHome']();
 }
 
+export function GetYTMusicTrackAlbum(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['main']['App']['GetYTMusicTrackAlbum'](arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
 export function ImportLocalPaths(arg1) {
   return window['go']['main']['App']['ImportLocalPaths'](arg1);
 }
@@ -160,6 +164,10 @@ export function ToggleFavoriteTrack(arg1) {
 
 export function UpdatePlaylist(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['UpdatePlaylist'](arg1, arg2, arg3, arg4);
+}
+
+export function UpdateTaskbarState(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['UpdateTaskbarState'](arg1, arg2, arg3, arg4);
 }
 
 export function UploadLocalFiles() {

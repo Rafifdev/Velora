@@ -50,6 +50,8 @@ export function GetTracks(arg1:string,arg2:string):Promise<Array<db.Track>>;
 
 export function GetYTMusicHome():Promise<sources.YTMusicHomeFeed>;
 
+export function GetYTMusicTrackAlbum(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string):Promise<main.YTMusicAlbumView>;
+
 export function ImportLocalPaths(arg1:Array<string>):Promise<Array<db.Track>>;
 
 export function ImportLocalPlaylistM3U():Promise<db.Playlist>;
@@ -85,6 +87,8 @@ export function ToggleFavoriteArtist(arg1:number):Promise<boolean>;
 export function ToggleFavoriteTrack(arg1:number):Promise<boolean>;
 
 export function UpdatePlaylist(arg1:number,arg2:string,arg3:string,arg4:string):Promise<db.Playlist>;
+
+export function UpdateTaskbarState(arg1:string,arg2:string,arg3:string,arg4:boolean):Promise<void>;
 
 export function UploadLocalFiles():Promise<Array<db.Track>>;
 
