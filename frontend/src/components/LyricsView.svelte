@@ -104,29 +104,29 @@
 
   <!-- Top Header -->
   <header class="relative z-10 flex items-center justify-between gap-4 px-8 pt-6 pb-4 shrink-0">
-    <div class="flex items-center gap-3.5 min-w-0">
+    <div class="flex items-center gap-4 min-w-0">
       {#if cover}
         <img
           src={cover}
           alt={track?.title ?? 'Album cover'}
-          class="w-12 h-12 rounded-lg object-cover shadow-lg shrink-0"
+          class="w-16 h-16 rounded-lg object-cover shadow-lg shrink-0"
         />
       {:else}
         <div
-          class="w-12 h-12 rounded-lg flex items-center justify-center shrink-0 bg-white/10 text-white/70"
+          class="w-16 h-16 rounded-lg flex items-center justify-center shrink-0 bg-white/10 text-white/70"
         >
-          <Icon name="music-notes" size={22} />
+          <Icon name="music-notes" size={26} />
         </div>
       {/if}
-      <div class="min-w-0">
-        <p class="text-[11px] font-semibold uppercase tracking-widest text-white/60">
+      <div class="min-w-0 flex flex-col justify-center">
+        <p class="text-[11px] leading-[14px] font-semibold uppercase tracking-widest text-white/60 mb-1.5">
           Lirik Lagu
         </p>
-        <h1 class="text-lg font-bold text-white truncate">
+        <h1 class="text-lg leading-[24px] font-bold text-white truncate">
           {track?.title ?? 'Tidak ada lagu diputar'}
         </h1>
         {#if track?.artistName}
-          <p class="text-xs text-white/70 truncate">{track.artistName}</p>
+          <p class="text-xs leading-[18px] text-white/70 truncate mt-0.5">{track.artistName}</p>
         {/if}
       </div>
     </div>
@@ -182,7 +182,13 @@
       </div>
     {:else if lyricsLoading}
       <div class="h-full flex flex-col items-center justify-center text-center gap-3 text-white/65">
-        <Icon name="spinner-gap" size={32} class="animate-spin" />
+        <span class="velora-eq-loader" style="--loader-color: rgba(255, 255, 255, 0.85);" aria-hidden="true">
+          <span class="velora-eq-bar"></span>
+          <span class="velora-eq-bar"></span>
+          <span class="velora-eq-bar"></span>
+          <span class="velora-eq-bar"></span>
+          <span class="velora-eq-bar"></span>
+        </span>
         <p class="text-sm font-medium">Memuat lirik…</p>
       </div>
     {:else if hasSynced}

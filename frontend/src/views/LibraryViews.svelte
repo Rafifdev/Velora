@@ -10,14 +10,12 @@
       | 'search'
       | 'liked-songs'
       | 'favorite-albums'
-      | 'album-detail'
       | 'favorite-artists'
       | 'artist-detail';
     searchQuery: string;
     tracks: Track[];
     albums: Album[];
     artists: Artist[];
-    selectedAlbum?: Album | null;
     selectedArtist?: Artist | null;
     detailTracks?: Track[];
     ytResults: YTMusicTrack[];
@@ -47,7 +45,6 @@
     tracks,
     albums,
     artists,
-    selectedAlbum = null,
     selectedArtist = null,
     detailTracks = [],
     ytResults,
@@ -373,72 +370,6 @@
         {/each}
       </div>
     {/if}
-  </div>
-{:else if mode === 'album-detail' && selectedAlbum}
-  {@const cover = resolveCoverUrl(selectedAlbum.coverUrl, mediaBaseUrl)}
-  <div class="relative min-h-full" use:svelteMotionEnter={{ y: 8 }}>
-    <div
-      class="pointer-events-none absolute inset-x-0 top-0 h-60"
-      style="background: linear-gradient(180deg, rgba(29, 185, 84, 0.14) 0%, transparent 100%);"
-    ></div>
-
-    <div class="relative z-10 p-6 space-y-6">
-      <div class="flex flex-wrap items-end justify-between gap-5">
-        <div class="flex flex-wrap items-center gap-5">
-          <div
-            class="w-36 h-36 rounded-lg overflow-hidden shrink-0 flex items-center justify-center"
-            style="background: linear-gradient(135deg, var(--md-sys-color-primary-container), var(--md-sys-color-surface-container-highest));"
-          >
-            {#if cover}
-              <img src={cover} alt={selectedAlbum.title} class="block w-full h-full object-cover object-center" />
-            {:else}
-              <Icon name="vinyl-record" weight="fill" size={48} style="color: var(--md-sys-color-on-primary-container); opacity: 0.6;" />
-            {/if}
-          </div>
-          <div class="space-y-1.5 min-w-[200px]">
-            <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--md-sys-color-primary)]">Album</div>
-            <h1 class="text-3xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-              {selectedAlbum.title}
-            </h1>
-            <p class="text-xs" style="color: var(--md-sys-color-on-surface-variant);">
-              {selectedAlbum.artistName} • {selectedAlbum.releaseYear || 'Release'} • {detailTracks.length} lagu
-            </p>
-          </div>
-        </div>
-
-        <div class="flex items-center gap-2.5">
-          <button
-            type="button"
-            disabled={detailTracks.length === 0}
-            onclick={() => detailTracks[0] && onPlayTrack(detailTracks[0], detailTracks)}
-            class="h-10 px-5 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] text-xs font-bold flex items-center gap-2 cursor-pointer hover:brightness-105 disabled:opacity-40"
-          >
-            <Icon name="play" weight="fill" size={16} /> Putar Album
-          </button>
-          <button
-            type="button"
-            disabled={detailTracks.length === 0}
-            onclick={() => playShuffled(detailTracks)}
-            class="h-10 px-4 rounded-full text-xs font-semibold flex items-center gap-1.5 cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] disabled:opacity-40"
-            style="color: var(--md-sys-color-on-surface);"
-          >
-            <Icon name="shuffle" size={15} /> Shuffle
-          </button>
-        </div>
-      </div>
-
-      <TrackTable
-        tracks={detailTracks}
-        {currentTrackId}
-        {isPlaying}
-        {mediaBaseUrl}
-        {accentColor}
-        {playlists}
-        {onPlayTrack}
-        onToggleFavorite={onToggleFavoriteTrack}
-        {onAddToPlaylist}
-      />
-    </div>
   </div>
 {:else if mode === 'favorite-artists'}
   <div class="p-6 space-y-6" use:svelteMotionEnter={{ y: 8 }}>
