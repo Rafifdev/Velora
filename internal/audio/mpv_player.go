@@ -2,11 +2,14 @@ package audio
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -82,6 +85,7 @@ func (p *PlayerController) StartMediaServer() (string, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/media/local", p.handleLocalMedia)
 	mux.HandleFunc("/media/yt", p.handleYTMedia)
+	mux.HandleFunc("/media/cover", p.handleCoverProxy)
 	mux.Handle("/media/art/", http.StripPrefix("/media/art/", http.FileServer(http.Dir(p.artworkDir))))
 
 	p.server = &http.Server{
@@ -511,4 +515,92 @@ func (p *PlayerController) Shutdown() {
 	if p.mpvCmd != nil && p.mpvCmd.Process != nil {
 		_ = p.mpvCmd.Process.Kill()
 	}
+}
+
+var (
+	coverFetchClient = &http.Client{Timeout: 12 * time.Second}
+	coverKeyLocks    sync.Map
+)
+
+func isAllowedCoverHost(host string) bool {
+	h := strings.ToLower(strings.TrimSpace(host))
+	for _, suffix := range []string{".googleusercontent.com", ".ggpht.com", ".ytimg.com", ".youtube.com"} {
+		if strings.HasSuffix(h, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *PlayerController) handleCoverProxy(w http.ResponseWriter, r *http.Request) {
+	rawURL := strings.TrimSpace(r.URL.Query().Get("url"))
+	parsed, err := url.Parse(rawURL)
+	if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") || !isAllowedCoverHost(parsed.Hostname()) {
+		http.Error(w, "invalid cover url", http.StatusBadRequest)
+		return
+	}
+
+	sum := sha256.Sum256([]byte(rawURL))
+	key := hex.EncodeToString(sum[:])
+	cacheDir := filepath.Join(p.artworkDir, "ytcache")
+	cachePath := filepath.Join(cacheDir, key+".img")
+
+	if data, err := os.ReadFile(cachePath); err == nil && len(data) > 0 {
+		w.Header().Set("Content-Type", http.DetectContentType(data))
+		w.Header().Set("Cache-Control", "public, max-age=604800, immutable")
+		_, _ = w.Write(data)
+		return
+	}
+
+	lockVal, _ := coverKeyLocks.LoadOrStore(key, &sync.Mutex{})
+	mu := lockVal.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+
+	// Re-check after acquiring per-key lock
+	if data, err := os.ReadFile(cachePath); err == nil && len(data) > 0 {
+		w.Header().Set("Content-Type", http.DetectContentType(data))
+		w.Header().Set("Cache-Control", "public, max-age=604800, immutable")
+		_, _ = w.Write(data)
+		return
+	}
+
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, rawURL, nil)
+	if err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+
+	resp, err := coverFetchClient.Do(req)
+	if err != nil {
+		http.Error(w, "upstream failed", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		http.Error(w, "upstream status", http.StatusBadGateway)
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 8*1024*1024))
+	if err != nil || len(body) == 0 {
+		http.Error(w, "empty body", http.StatusBadGateway)
+		return
+	}
+
+	_ = os.MkdirAll(cacheDir, 0o755)
+	tmpPath := cachePath + ".tmp"
+	if err := os.WriteFile(tmpPath, body, 0o644); err == nil {
+		_ = os.Rename(tmpPath, cachePath)
+	}
+
+	ctype := resp.Header.Get("Content-Type")
+	if ctype == "" || !strings.HasPrefix(ctype, "image/") {
+		ctype = http.DetectContentType(body)
+	}
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Cache-Control", "public, max-age=604800, immutable")
+	_, _ = w.Write(body)
 }

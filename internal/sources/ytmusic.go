@@ -49,6 +49,18 @@ type YTMusicHomeFeed struct {
 	Tracks  []YTMusicTrack `json:"tracks"`
 }
 
+type YTMusicAlbumDetail struct {
+	BrowseID       string         `json:"browseId"`
+	Title          string         `json:"title"`
+	Artist         string         `json:"artist"`
+	ArtistBrowseID string         `json:"artistBrowseId"`
+	Year           string         `json:"year"`
+	CoverURL       string         `json:"coverUrl"`
+	Subtitle       string         `json:"subtitle"`
+	Tracks         []YTMusicTrack `json:"tracks"`
+	ArtistAlbums   []YTMusicCard  `json:"artistAlbums"`
+}
+
 type StreamInfo struct {
 	URL           string
 	MimeType      string
@@ -456,6 +468,337 @@ func (c *YTMusicClient) GetCollectionTracks(ctx context.Context, browseID, playl
 		results = results[:40]
 	}
 	return results, nil
+}
+
+var yearRegex = regexp.MustCompile(`\b(19|20)\d{2}\b`)
+
+// GetTrackAlbumDetail resolves the official YouTube Music album (MPREb_...) for a track
+// or browseId, returning its full tracklist and other albums by the same artist.
+func (c *YTMusicClient) GetTrackAlbumDetail(ctx context.Context, videoID, browseID, fallbackTitle, fallbackArtist, fallbackAlbum, fallbackCover string) (YTMusicAlbumDetail, error) {
+	albumBrowseID := strings.TrimSpace(browseID)
+	artistBrowseID := ""
+	artistName := cleanCollectionSubtitle(fallbackArtist)
+	albumTitle := strings.TrimSpace(fallbackAlbum)
+	cover := strings.TrimSpace(fallbackCover)
+
+	if !strings.HasPrefix(albumBrowseID, "MPREb_") && strings.TrimSpace(videoID) != "" {
+		if tree, err := c.postInnerTube(ctx, "next", map[string]any{
+			"context": ytWebRemixContext(),
+			"videoId": strings.TrimSpace(videoID),
+		}); err == nil {
+			abid, atitle, arid, aname, acover := extractAlbumArtistFromNext(tree)
+			if abid != "" {
+				albumBrowseID = abid
+			}
+			if atitle != "" {
+				albumTitle = atitle
+			}
+			if arid != "" {
+				artistBrowseID = arid
+			}
+			if aname != "" {
+				artistName = aname
+			}
+			if cover == "" && acover != "" {
+				cover = acover
+			}
+		}
+	}
+
+	if !strings.HasPrefix(albumBrowseID, "MPREb_") {
+		q := strings.TrimSpace(fallbackTitle + " " + artistName)
+		if q == "" {
+			q = strings.TrimSpace(albumTitle + " " + artistName)
+		}
+		if q != "" {
+			if cards, err := c.SearchPlaylists(ctx, q); err == nil {
+				for _, card := range cards {
+					if card.Kind == "album" && strings.HasPrefix(card.BrowseID, "MPREb_") {
+						albumBrowseID = card.BrowseID
+						if albumTitle == "" {
+							albumTitle = card.Title
+						}
+						if cover == "" {
+							cover = card.CoverURL
+						}
+						break
+					}
+				}
+			}
+			if !strings.HasPrefix(albumBrowseID, "MPREb_") {
+				if tracks, err := c.Search(ctx, q); err == nil && len(tracks) > 0 && tracks[0].VideoID != "" && tracks[0].VideoID != videoID {
+					if tree, err := c.postInnerTube(ctx, "next", map[string]any{
+						"context": ytWebRemixContext(),
+						"videoId": tracks[0].VideoID,
+					}); err == nil {
+						abid, atitle, arid, aname, acover := extractAlbumArtistFromNext(tree)
+						if abid != "" {
+							albumBrowseID = abid
+						}
+						if atitle != "" {
+							albumTitle = atitle
+						}
+						if arid != "" && artistBrowseID == "" {
+							artistBrowseID = arid
+						}
+						if aname != "" && artistName == "" {
+							artistName = aname
+						}
+						if cover == "" && acover != "" {
+							cover = acover
+						}
+					}
+				}
+			}
+		}
+	}
+
+	detail := YTMusicAlbumDetail{
+		BrowseID:       albumBrowseID,
+		Title:          albumTitle,
+		Artist:         artistName,
+		ArtistBrowseID: artistBrowseID,
+		CoverURL:       cover,
+	}
+
+	if strings.HasPrefix(albumBrowseID, "MPREb_") {
+		if tree, err := c.postInnerTube(ctx, "browse", map[string]any{
+			"context":  ytWebRemixContext(),
+			"browseId": albumBrowseID,
+		}); err == nil {
+			extractAlbumHeaderMeta(tree, &detail)
+			seen := map[string]struct{}{}
+			extractResponsiveItems(tree, &detail.Tracks, seen)
+		}
+	}
+
+	if detail.Title == "" {
+		detail.Title = fallbackTitle
+	}
+	if detail.Artist == "" {
+		detail.Artist = "YouTube Music"
+	}
+
+	for i := range detail.Tracks {
+		if detail.CoverURL != "" && (detail.Tracks[i].CoverURL == "" || strings.Contains(detail.Tracks[i].CoverURL, "i.ytimg.com/vi/")) {
+			detail.Tracks[i].CoverURL = detail.CoverURL
+		}
+		if detail.Tracks[i].Artist == "" || detail.Tracks[i].Artist == "YouTube Music Artist" {
+			detail.Tracks[i].Artist = detail.Artist
+		}
+		if detail.Tracks[i].Album == "" || detail.Tracks[i].Album == "YouTube Music" {
+			detail.Tracks[i].Album = detail.Title
+		}
+	}
+
+	// Fetch other albums from the same artist
+	var otherAlbums []YTMusicCard
+	seenAlbums := map[string]struct{}{}
+	if detail.BrowseID != "" {
+		seenAlbums[detail.BrowseID] = struct{}{}
+	}
+	if detail.ArtistBrowseID != "" {
+		if tree, err := c.postInnerTube(ctx, "browse", map[string]any{
+			"context":  ytWebRemixContext(),
+			"browseId": detail.ArtistBrowseID,
+		}); err == nil {
+			extractArtistAlbumCards(tree, &otherAlbums, seenAlbums)
+		}
+	}
+	if len(otherAlbums) == 0 && detail.Artist != "" && detail.Artist != "YouTube Music" {
+		if cards, err := c.SearchPlaylists(ctx, detail.Artist); err == nil {
+			for _, card := range cards {
+				if card.Kind != "album" || card.BrowseID == "" {
+					continue
+				}
+				if _, dup := seenAlbums[card.BrowseID]; dup {
+					continue
+				}
+				seenAlbums[card.BrowseID] = struct{}{}
+				otherAlbums = append(otherAlbums, card)
+				if len(otherAlbums) >= 12 {
+					break
+				}
+			}
+		}
+	}
+	detail.ArtistAlbums = otherAlbums
+	return detail, nil
+}
+
+func extractAlbumArtistFromNext(node any) (albumBrowseID, albumTitle, artistBrowseID, artistName, coverURL string) {
+	var walk func(n any) bool
+	walk = func(n any) bool {
+		switch v := n.(type) {
+		case map[string]any:
+			if pvr, ok := v["playlistPanelVideoRenderer"].(map[string]any); ok {
+				if byline, ok := pvr["longBylineText"].(map[string]any); ok {
+					if runs, ok := byline["runs"].([]any); ok {
+						for _, item := range runs {
+							rm, ok := item.(map[string]any)
+							if !ok {
+								continue
+							}
+							txt, _ := rm["text"].(string)
+							nav, _ := rm["navigationEndpoint"].(map[string]any)
+							be, _ := nav["browseEndpoint"].(map[string]any)
+							bid, _ := be["browseId"].(string)
+							if strings.HasPrefix(bid, "MPREb_") && albumBrowseID == "" {
+								albumBrowseID = bid
+								albumTitle = strings.TrimSpace(txt)
+							} else if strings.HasPrefix(bid, "UC") && artistBrowseID == "" {
+								artistBrowseID = bid
+								artistName = strings.TrimSpace(txt)
+							}
+						}
+					}
+				}
+				if t, ok := pvr["thumbnail"].(map[string]any); ok {
+					if list, ok := t["thumbnails"].([]any); ok && len(list) > 0 {
+						if last, ok := list[len(list)-1].(map[string]any); ok {
+							if u, ok := last["url"].(string); ok && u != "" {
+								coverURL = upgradeThumbURL(u)
+							}
+						}
+					}
+				}
+				if menu, ok := pvr["menu"].(map[string]any); ok {
+					if mr, ok := menu["menuRenderer"].(map[string]any); ok {
+						if items, ok := mr["items"].([]any); ok {
+							for _, item := range items {
+								im, ok := item.(map[string]any)
+								if !ok {
+									continue
+								}
+								mni, ok := im["menuNavigationItemRenderer"].(map[string]any)
+								if !ok {
+									continue
+								}
+								nav, _ := mni["navigationEndpoint"].(map[string]any)
+								be, _ := nav["browseEndpoint"].(map[string]any)
+								bid, _ := be["browseId"].(string)
+								if strings.HasPrefix(bid, "MPREb_") && albumBrowseID == "" {
+									albumBrowseID = bid
+								} else if strings.HasPrefix(bid, "UC") && artistBrowseID == "" {
+									artistBrowseID = bid
+								}
+							}
+						}
+					}
+				}
+				if albumBrowseID != "" || artistBrowseID != "" {
+					return true
+				}
+			}
+			for _, child := range v {
+				if walk(child) {
+					return true
+				}
+			}
+		case []any:
+			for _, child := range v {
+				if walk(child) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	walk(node)
+	return
+}
+
+func extractAlbumHeaderMeta(node any, detail *YTMusicAlbumDetail) {
+	var walk func(n any) bool
+	walk = func(n any) bool {
+		switch v := n.(type) {
+		case map[string]any:
+			for _, key := range []string{"musicResponsiveHeaderRenderer", "musicDetailHeaderRenderer"} {
+				if hdr, ok := v[key].(map[string]any); ok {
+					if t := strings.TrimSpace(extractRunsText(hdr["title"])); t != "" {
+						detail.Title = t
+					}
+					if sub := strings.TrimSpace(extractRunsText(hdr["subtitle"])); sub != "" {
+						detail.Subtitle = sub
+						if m := yearRegex.FindString(sub); m != "" {
+							detail.Year = m
+						}
+					}
+					for _, field := range []string{"straplineTextOne", "subtitle"} {
+						if nodeMap, ok := hdr[field].(map[string]any); ok {
+							if runs, ok := nodeMap["runs"].([]any); ok {
+								for _, item := range runs {
+									rm, ok := item.(map[string]any)
+									if !ok {
+										continue
+									}
+									txt, _ := rm["text"].(string)
+									nav, _ := rm["navigationEndpoint"].(map[string]any)
+									be, _ := nav["browseEndpoint"].(map[string]any)
+									bid, _ := be["browseId"].(string)
+									if strings.HasPrefix(bid, "UC") && detail.ArtistBrowseID == "" {
+										detail.ArtistBrowseID = bid
+										if strings.TrimSpace(txt) != "" {
+											detail.Artist = strings.TrimSpace(txt)
+										}
+									}
+								}
+							}
+						}
+					}
+					if thumb, ok := hdr["thumbnail"].(map[string]any); ok {
+						if u := extractThumbRendererURL(thumb); u != "" {
+							detail.CoverURL = u
+						}
+					}
+					return true
+				}
+			}
+			for _, child := range v {
+				if walk(child) {
+					return true
+				}
+			}
+		case []any:
+			for _, child := range v {
+				if walk(child) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	walk(node)
+}
+
+func extractArtistAlbumCards(node any, out *[]YTMusicCard, seen map[string]struct{}) {
+	switch v := node.(type) {
+	case map[string]any:
+		if r, ok := v["musicTwoRowItemRenderer"].(map[string]any); ok {
+			if card, ok := parseTwoRowItem(r); ok && card.Kind == "album" && strings.HasPrefix(card.BrowseID, "MPREb_") {
+				if _, dup := seen[card.BrowseID]; !dup {
+					seen[card.BrowseID] = struct{}{}
+					*out = append(*out, card)
+					if len(*out) >= 12 {
+						return
+					}
+				}
+			}
+		}
+		for _, child := range v {
+			extractArtistAlbumCards(child, out, seen)
+			if len(*out) >= 12 {
+				return
+			}
+		}
+	case []any:
+		for _, child := range v {
+			extractArtistAlbumCards(child, out, seen)
+			if len(*out) >= 12 {
+				return
+			}
+		}
+	}
 }
 
 func extractPlaylistPanelItems(node any, out *[]YTMusicTrack, seen map[string]struct{}) {
@@ -1239,4 +1582,83 @@ func (c *YTMusicClient) resolveViaInnerTube(ctx context.Context, videoID, qualit
 		lastErr = fmt.Errorf("no direct audio stream found")
 	}
 	return StreamInfo{}, lastErr
+}
+
+// GetLyricsByVideoID fetches official YouTube Music lyrics via InnerTube next -> browse (MPLYt_...).
+func (c *YTMusicClient) GetLyricsByVideoID(ctx context.Context, videoID string) (string, bool) {
+	vid := strings.TrimSpace(videoID)
+	if vid == "" {
+		return "", false
+	}
+	nextTree, err := c.postInnerTube(ctx, "next", map[string]any{
+		"context": ytWebRemixContext(),
+		"videoId": vid,
+	})
+	if err != nil {
+		return "", false
+	}
+
+	var lyricsBrowseID string
+	var findLyricsID func(n any) bool
+	findLyricsID = func(n any) bool {
+		switch v := n.(type) {
+		case map[string]any:
+			if bid, ok := v["browseId"].(string); ok && strings.HasPrefix(bid, "MPLYt_") {
+				lyricsBrowseID = bid
+				return true
+			}
+			for _, child := range v {
+				if findLyricsID(child) {
+					return true
+				}
+			}
+		case []any:
+			for _, child := range v {
+				if findLyricsID(child) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	findLyricsID(nextTree)
+	if lyricsBrowseID == "" {
+		return "", false
+	}
+
+	browseTree, err := c.postInnerTube(ctx, "browse", map[string]any{
+		"context":  ytWebRemixContext(),
+		"browseId": lyricsBrowseID,
+	})
+	if err != nil {
+		return "", false
+	}
+
+	var text string
+	var findDesc func(n any) bool
+	findDesc = func(n any) bool {
+		switch v := n.(type) {
+		case map[string]any:
+			if mdr, ok := v["musicDescriptionShelfRenderer"].(map[string]any); ok {
+				if t := strings.TrimSpace(extractRunsText(mdr["description"])); t != "" {
+					text = t
+					return true
+				}
+			}
+			for _, child := range v {
+				if findDesc(child) {
+					return true
+				}
+			}
+		case []any:
+			for _, child := range v {
+				if findDesc(child) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	findDesc(browseTree)
+	return text, text != ""
 }

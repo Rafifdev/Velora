@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -102,7 +104,12 @@ func (a *App) startYTMusicHomePrefetch() {
 	}()
 }
 
+func (a *App) domReady(ctx context.Context) {
+	a.initTaskbar(ctx)
+}
+
 func (a *App) shutdown(ctx context.Context) {
+	a.shutdownTaskbar()
 	if a.player != nil {
 		a.player.Shutdown()
 	}
@@ -375,12 +382,99 @@ func (a *App) PlayYTMusicCollection(browseID, playlistID, title, subtitle, cover
 	return saved, nil
 }
 
+type YTMusicAlbumView struct {
+	BrowseID       string                `json:"browseId"`
+	Title          string                `json:"title"`
+	Artist         string                `json:"artist"`
+	ArtistBrowseID string                `json:"artistBrowseId"`
+	Year           string                `json:"year"`
+	CoverURL       string                `json:"coverUrl"`
+	Subtitle       string                `json:"subtitle"`
+	Tracks         []db.Track            `json:"tracks"`
+	ArtistAlbums   []sources.YTMusicCard `json:"artistAlbums"`
+}
+
+func (a *App) GetYTMusicTrackAlbum(videoID, browseID, title, artist, albumTitle, coverURL string) (YTMusicAlbumView, error) {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 16*time.Second)
+	defer cancel()
+
+	detail, err := a.ytClient.GetTrackAlbumDetail(reqCtx, videoID, browseID, title, artist, albumTitle, coverURL)
+	if err != nil {
+		return YTMusicAlbumView{}, err
+	}
+
+	limit := len(detail.Tracks)
+	if limit > 35 {
+		limit = 35
+	}
+	saved := make([]db.Track, 0, limit)
+	for i := 0; i < limit; i++ {
+		tr, err := a.SaveYTMusicTrack(detail.Tracks[i])
+		if err == nil {
+			saved = append(saved, tr)
+		}
+	}
+
+	return YTMusicAlbumView{
+		BrowseID:       detail.BrowseID,
+		Title:          detail.Title,
+		Artist:         detail.Artist,
+		ArtistBrowseID: detail.ArtistBrowseID,
+		Year:           detail.Year,
+		CoverURL:       detail.CoverURL,
+		Subtitle:       detail.Subtitle,
+		Tracks:         saved,
+		ArtistAlbums:   detail.ArtistAlbums,
+	}, nil
+}
+
 func (a *App) GetTrackLyrics(trackID int64, title, artist, album string, durationSec int) sources.TrackLyrics {
 	ctx := a.ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return sources.FetchLyrics(ctx, trackID, title, artist, album, durationSec)
+
+	if trackID > 0 {
+		if plain, syncedJSON, source, ok := a.store.GetCachedLyrics(trackID); ok {
+			var lines []sources.LyricLine
+			_ = json.Unmarshal([]byte(syncedJSON), &lines)
+			if lines == nil {
+				lines = []sources.LyricLine{}
+			}
+			return sources.TrackLyrics{
+				TrackID:      trackID,
+				Title:        title,
+				Artist:       artist,
+				PlainLyrics:  plain,
+				SyncedLyrics: lines,
+				Source:       source,
+			}
+		}
+	}
+
+	res := sources.FetchLyrics(ctx, trackID, title, artist, album, durationSec)
+
+	// Fallback to official YouTube Music lyrics tab (MPLYt_...) if not found in LRCLIB/NetEase/KuGou/OVH
+	if res.Source == "fallback" && trackID > 0 {
+		if tr, err := a.store.GetTrackByID(trackID); err == nil && strings.TrimSpace(tr.ExternalID) != "" {
+			ytCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
+			defer cancel()
+			if ytLyrics, ok := a.ytClient.GetLyricsByVideoID(ytCtx, tr.ExternalID); ok {
+				res.PlainLyrics = ytLyrics
+				res.Source = "ytmusic"
+			}
+		}
+	}
+
+	if trackID > 0 && res.Source != "fallback" {
+		b, _ := json.Marshal(res.SyncedLyrics)
+		a.store.SaveCachedLyrics(trackID, res.PlainLyrics, string(b), res.Source)
+	}
+	return res
 }
 
 func (a *App) SaveYTMusicTrack(yt sources.YTMusicTrack) (db.Track, error) {

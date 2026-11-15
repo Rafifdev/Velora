@@ -95,6 +95,14 @@ CREATE TABLE IF NOT EXISTS preferences (
 	value TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS track_lyrics (
+	track_id INTEGER PRIMARY KEY,
+	plain_lyrics TEXT NOT NULL DEFAULT '',
+	synced_json TEXT NOT NULL DEFAULT '[]',
+	source TEXT NOT NULL DEFAULT '',
+	updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_tracks_source_type ON tracks(source_type);
 CREATE INDEX IF NOT EXISTS idx_tracks_external_id ON tracks(external_id);
 CREATE INDEX IF NOT EXISTS idx_tracks_file_path ON tracks(file_path);
