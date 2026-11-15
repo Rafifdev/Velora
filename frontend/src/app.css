@@ -2,6 +2,7 @@
 
 :root,
 [data-theme="dark"] {
+  color-scheme: dark;
   --md-sys-color-background: #0b0c0e;
   --md-sys-color-surface: #101113;
   --md-sys-color-surface-dim: #101113;
@@ -35,6 +36,7 @@
 }
 
 [data-theme="light"] {
+  color-scheme: light;
   --md-sys-color-background: #eff2f6;
   --md-sys-color-surface: #f6f8fa;
   --md-sys-color-surface-dim: #dfe4ec;
@@ -161,6 +163,11 @@
 
 * {
   box-sizing: border-box;
+}
+
+::selection {
+  background-color: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
 }
 
 *:focus,
@@ -388,6 +395,20 @@ body,
   background-color: var(--md-sys-color-surface-container-high);
 }
 
+select.m3-input {
+  accent-color: var(--md-sys-color-primary);
+}
+
+select.m3-input option {
+  background-color: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+}
+
+select.m3-input option:checked {
+  background-color: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+
 /* Custom sleek M3 inset scrollbar (always stays inside component bounds) */
 ::-webkit-scrollbar {
   width: 6px;
@@ -457,14 +478,14 @@ body,
   gap: 0.75rem;
 }
 
-.velora-card-grid-5 {
+.velora-card-grid-7 {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   align-items: start;
   gap: 0.75rem;
 }
 
-.velora-card-grid-5 .velora-card-artwork {
+.velora-card-grid-7 .velora-card-artwork {
   width: 100%;
   height: auto;
 }
@@ -680,6 +701,38 @@ input[type='search']::-webkit-search-cancel-button {
   height: 6px;
   animation-delay: 0.36s;
 }
+
+@keyframes velora-playing-wave {
+  0%, 100% {
+    transform: scaleY(0.28);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.velora-playing-eq {
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  height: 14px;
+  width: 16px;
+}
+
+.velora-playing-eq span {
+  width: 2.5px;
+  height: 14px;
+  border-radius: 9999px;
+  background-color: var(--md-sys-color-tertiary);
+  transform-origin: bottom;
+  animation: velora-playing-wave 0.9s ease-in-out infinite;
+}
+
+.velora-playing-eq span:nth-child(1) { animation-delay: 0s; animation-duration: 0.85s; }
+.velora-playing-eq span:nth-child(2) { animation-delay: 0.25s; animation-duration: 0.72s; }
+.velora-playing-eq span:nth-child(3) { animation-delay: 0.45s; animation-duration: 0.95s; }
+.velora-playing-eq span:nth-child(4) { animation-delay: 0.15s; animation-duration: 0.78s; }
 
 @media (prefers-reduced-motion: reduce) {
   *,

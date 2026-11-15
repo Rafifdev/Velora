@@ -7,6 +7,8 @@
     tracks: Track[];
     currentTrackId: number | null;
     currentExternalId?: string | null;
+    currentTrackTitle?: string | null;
+    currentTrackArtist?: string | null;
     isPlaying: boolean;
     mediaBaseUrl: string;
     accentColor: string;
@@ -22,6 +24,8 @@
     tracks,
     currentTrackId,
     currentExternalId = null,
+    currentTrackTitle = null,
+    currentTrackArtist = null,
     isPlaying,
     mediaBaseUrl,
     playlists,
@@ -34,8 +38,32 @@
 
   let openMenuTrackId = $state<number | null>(null);
 
-  function handleRowPlayClick(tr: Track) {
-    if (tr.id === currentTrackId && onTogglePlay) {
+  function normTitle(s: string): string {
+    return (s || '')
+      .toLowerCase()
+      .replace(/\s*[\(\[](?:official|audio|video|mv|lyrics?|hd|4k).*?[\)\]]/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function isTrackActive(tr: Track): boolean {
+    if (tr.id === currentTrackId) return true;
+    if (currentExternalId && tr.externalId === currentExternalId) return true;
+    if (currentTrackTitle) {
+      const nt = normTitle(tr.title);
+      const nc = normTitle(currentTrackTitle);
+      if (nt && nc && nt === nc) {
+        if (!currentTrackArtist) return true;
+        const a1 = (tr.artistName || '').toLowerCase();
+        const a2 = currentTrackArtist.toLowerCase();
+        if (a1.includes(a2) || a2.includes(a1)) return true;
+      }
+    }
+    return false;
+  }
+
+  function handleRowPlayClick(tr: Track, active: boolean) {
+    if (active && onTogglePlay) {
       onTogglePlay();
     } else {
       onPlayTrack(tr, tracks);
@@ -57,7 +85,7 @@
 
   <div class="space-y-0.5 mt-1">
     {#each tracks as tr, idx (tr.id)}
-      {@const active = tr.id === currentTrackId || (Boolean(currentExternalId) && tr.externalId === currentExternalId)}
+      {@const active = isTrackActive(tr)}
       {@const cover = resolveCoverUrl(tr.coverUrl, mediaBaseUrl)}
       <div
         class="group grid grid-cols-[36px_1.4fr_1fr_92px_96px] gap-3 px-3.5 py-2 items-center rounded-lg transition-colors duration-150 {active
@@ -67,18 +95,24 @@
       >
         <div class="flex items-center justify-center">
           {#if active && isPlaying}
+            <span class="velora-playing-eq group-hover:hidden" aria-hidden="true">
+              <span></span>
+              <span></span>
+              <span></span>
+              <span></span>
+            </span>
             <button
               type="button"
-              onclick={() => handleRowPlayClick(tr)}
+              onclick={() => handleRowPlayClick(tr, active)}
               aria-label="Jeda {tr.title}"
-              class="flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
+              class="hidden group-hover:flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
             >
               <Icon name="pause" weight="fill" size={14} />
             </button>
           {:else if active && !isPlaying}
             <button
               type="button"
-              onclick={() => handleRowPlayClick(tr)}
+              onclick={() => handleRowPlayClick(tr, active)}
               aria-label="Putar {tr.title}"
               class="flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
             >
@@ -90,7 +124,7 @@
             </span>
             <button
               type="button"
-              onclick={() => handleRowPlayClick(tr)}
+              onclick={() => handleRowPlayClick(tr, active)}
               aria-label="Putar {tr.title}"
               class="hidden group-hover:flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
             >
@@ -101,7 +135,7 @@
 
         <button
           type="button"
-          onclick={() => handleRowPlayClick(tr)}
+          onclick={() => handleRowPlayClick(tr, active)}
           class="flex items-center gap-3 min-w-0 text-left cursor-pointer"
         >
           {#if showCover}

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fade } from 'svelte/transition';
+  import { fade, scale } from 'svelte/transition';
   import { api, resolveCoverUrl, isYTVideoThumb } from '../lib/api';
   import type { Artist, FireStreakStatus, Track, ViewRoute, YTMusicTrack } from '../lib/types';
   import Icon from './Icon.svelte';
@@ -17,6 +17,8 @@
     ytResults?: YTMusicTrack[];
     ytLoading?: boolean;
     mediaBaseUrl?: string;
+    zoomLevel?: number;
+    zoomBadgeVisible?: boolean;
     onBack: () => void;
     onForward: () => void;
     onNavigate: (route: ViewRoute) => void;
@@ -27,6 +29,7 @@
     onToggleFavoriteArtist?: (artistId: number) => void;
     onToggleTheme: () => void;
     onOpenStreakModal: () => void;
+    onResetZoom?: () => void;
   }
 
   let {
@@ -41,6 +44,8 @@
     ytResults = [],
     ytLoading = false,
     mediaBaseUrl = '',
+    zoomLevel = 1,
+    zoomBadgeVisible = false,
     onBack,
     onForward,
     onNavigate,
@@ -50,7 +55,8 @@
     onPlayYTMusic,
     onToggleFavoriteArtist,
     onToggleTheme,
-    onOpenStreakModal
+    onOpenStreakModal,
+    onResetZoom
   }: Props = $props();
 
   const SEARCH_DEBOUNCE_MS = 300;
@@ -677,11 +683,29 @@
   </div>
 
   <!-- Right: Compact Unified Controls + Native Windows Caption Controls -->
-  <div class="wails-no-drag flex items-center gap-1.5 shrink-0 self-stretch">
+  <div class="wails-no-drag relative flex items-center gap-1.5 shrink-0 self-stretch">
+    {#if zoomBadgeVisible}
+      <button
+        type="button"
+        transition:scale={{ start: 0.88, duration: 180 }}
+        onclick={() => onResetZoom?.()}
+        title="Reset Zoom (Ctrl+0)"
+        aria-label="Indikator Zoom"
+        class="absolute right-full mr-1.5 top-1/2 -translate-y-1/2 h-9 px-3 rounded-full flex items-center justify-center gap-1.5 text-[11px] font-bold leading-none tabular-nums whitespace-nowrap cursor-pointer transition-all duration-200 hover:brightness-125"
+        style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant);"
+      >
+        <Icon
+          name={zoomLevel < 1 ? 'magnifying-glass-minus' : zoomLevel > 1 ? 'magnifying-glass-plus' : 'magnifying-glass'}
+          size={15}
+        />
+        <span>{Math.round(zoomLevel * 100)}%</span>
+      </button>
+    {/if}
+
     <button
       type="button"
       onclick={() => onNavigate({ name: 'preferences' })}
-      title="Nuclear Jam Remote"
+      title="Velora Jam Remote"
       aria-label="Remote QR & Integrations"
       class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:brightness-125"
       style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant);"
