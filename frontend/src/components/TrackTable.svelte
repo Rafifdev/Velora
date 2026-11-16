@@ -17,6 +17,7 @@
     onTogglePlay?: () => void;
     onToggleFavorite: (trackId: number) => void;
     onAddToPlaylist: (playlistId: number, trackId: number) => void;
+    onOpenTrackAlbum?: (track: Track) => void;
     showCover?: boolean;
   }
 
@@ -33,6 +34,7 @@
     onTogglePlay,
     onToggleFavorite,
     onAddToPlaylist,
+    onOpenTrackAlbum,
     showCover = true
   }: Props = $props();
 
@@ -133,28 +135,47 @@
           {/if}
         </div>
 
-        <button
-          type="button"
-          onclick={() => handleRowPlayClick(tr, active)}
-          class="flex items-center gap-3 min-w-0 text-left cursor-pointer"
-        >
+        <div class="flex items-center gap-3 min-w-0 text-left">
           {#if showCover}
-            {#if cover}
-              <img src={cover} alt={tr.title} loading="lazy" decoding="async" class="block w-10 h-10 rounded-md object-cover object-center shrink-0" />
-            {:else}
-              <div
-                class="w-10 h-10 rounded-md flex items-center justify-center shrink-0"
-                style="background: linear-gradient(135deg, var(--md-sys-color-primary-container), var(--md-sys-color-surface-container-highest));"
-              >
-                <Icon name="vinyl-record" weight="fill" size={18} style="color: var(--md-sys-color-on-primary-container); opacity: 0.6;" />
-              </div>
-            {/if}
+            <button
+              type="button"
+              onclick={() => handleRowPlayClick(tr, active)}
+              aria-label="Putar {tr.title}"
+              class="shrink-0 cursor-pointer"
+            >
+              {#if cover}
+                <img src={cover} alt={tr.title} loading="lazy" decoding="async" class="block w-10 h-10 rounded-md object-cover object-center shrink-0" />
+              {:else}
+                <div
+                  class="w-10 h-10 rounded-md flex items-center justify-center shrink-0"
+                  style="background: linear-gradient(135deg, var(--md-sys-color-primary-container), var(--md-sys-color-surface-container-highest));"
+                >
+                  <Icon name="vinyl-record" weight="fill" size={18} style="color: var(--md-sys-color-on-primary-container); opacity: 0.6;" />
+                </div>
+              {/if}
+            </button>
           {/if}
-          <div class="min-w-0">
-            <div class="text-xs font-bold truncate {active ? 'text-[var(--md-sys-color-primary)]' : ''}">{tr.title}</div>
+          <div class="min-w-0 flex-1">
+            {#if onOpenTrackAlbum}
+              <button
+                type="button"
+                onclick={() => onOpenTrackAlbum(tr)}
+                class="block max-w-full text-left text-xs font-bold truncate hover:underline cursor-pointer {active ? 'text-[var(--md-sys-color-primary)]' : ''}"
+              >
+                {tr.title}
+              </button>
+            {:else}
+              <button
+                type="button"
+                onclick={() => handleRowPlayClick(tr, active)}
+                class="block max-w-full text-left text-xs font-bold truncate cursor-pointer {active ? 'text-[var(--md-sys-color-primary)]' : ''}"
+              >
+                {tr.title}
+              </button>
+            {/if}
             <div class="text-[11px] truncate opacity-75">{tr.artistName}</div>
           </div>
-        </button>
+        </div>
 
         <div class="hidden sm:block text-xs truncate opacity-70">
           {tr.albumTitle}
