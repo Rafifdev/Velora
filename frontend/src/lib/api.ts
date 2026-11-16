@@ -95,6 +95,15 @@ export const api = {
   async toggleFavoriteAlbum(id: number): Promise<boolean> {
     return appBridge().ToggleFavoriteAlbum(id);
   },
+  async toggleFavoriteYTMusicAlbum(
+    browseId: string,
+    title: string,
+    artistName: string,
+    coverUrl: string,
+    releaseYear: number
+  ): Promise<Album> {
+    return appBridge().ToggleFavoriteYTMusicAlbum(browseId, title, artistName, coverUrl, releaseYear);
+  },
   async toggleFavoriteArtist(id: number): Promise<boolean> {
     return appBridge().ToggleFavoriteArtist(id);
   },
@@ -151,6 +160,9 @@ export const api = {
   },
   async searchYouTubeMusicPlaylists(query: string): Promise<YTMusicCard[]> {
     return appBridge().SearchYouTubeMusicPlaylists(query);
+  },
+  async searchYouTubeMusicAlbums(query: string): Promise<YTMusicCard[]> {
+    return appBridge().SearchYouTubeMusicAlbums(query);
   },
   async getYTMusicHome(): Promise<YTMusicHomeFeed> {
     return appBridge().GetYTMusicHome();
@@ -242,3 +254,71 @@ export const api = {
     appBridge()?.UpdateTaskbarState?.(title, artist, coverUrl, isPlaying);
   }
 };
+
+const dominantColorCache = new Map<string, string | null>();
+
+export async function extractDominantColor(imageUrl: string): Promise<string | null> {
+  if (!imageUrl || typeof document === 'undefined') return null;
+  if (dominantColorCache.has(imageUrl)) {
+    return dominantColorCache.get(imageUrl) ?? null;
+  }
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const size = 16;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          dominantColorCache.set(imageUrl, null);
+          resolve(null);
+          return;
+        }
+        ctx.drawImage(img, 0, 0, size, size);
+        const data = ctx.getImageData(0, 0, size, size).data;
+        let rSum = 0;
+        let gSum = 0;
+        let bSum = 0;
+        let wSum = 0;
+
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+          const a = data[i + 3];
+          if (a < 128) continue;
+          const max = Math.max(r, g, b);
+          const min = Math.min(r, g, b);
+          if (max < 24 || min > 235) continue;
+          const sat = max === 0 ? 0 : (max - min) / max;
+          const weight = 0.25 + sat * 1.5;
+          rSum += r * weight;
+          gSum += g * weight;
+          bSum += b * weight;
+          wSum += weight;
+        }
+
+        if (wSum === 0) {
+          dominantColorCache.set(imageUrl, null);
+          resolve(null);
+          return;
+        }
+        const color = `rgb(${Math.round(rSum / wSum)}, ${Math.round(gSum / wSum)}, ${Math.round(bSum / wSum)})`;
+        dominantColorCache.set(imageUrl, color);
+        resolve(color);
+      } catch {
+        dominantColorCache.set(imageUrl, null);
+        resolve(null);
+      }
+    };
+    img.onerror = () => {
+      dominantColorCache.set(imageUrl, null);
+      resolve(null);
+    };
+    img.src = imageUrl;
+  });
+}

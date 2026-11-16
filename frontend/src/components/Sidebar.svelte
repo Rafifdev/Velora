@@ -61,9 +61,9 @@
 
   const flatMenuItems = $derived<MenuEntry[]>([
     { id: 'home', label: 'Home', icon: 'house' },
-    { id: 'favorite-albums', label: 'Favorite albums', icon: 'vinyl-record', count: favoriteAlbumsCount },
-    { id: 'liked-songs', label: 'Favorite tracks', icon: 'heart', count: favoriteTracksCount },
-    { id: 'favorite-artists', label: 'Favorite artists', icon: 'users', count: favoriteArtistsCount },
+    { id: 'favorite-albums', label: 'Favorite albums', icon: 'vinyl-record' },
+    { id: 'liked-songs', label: 'Favorite music', icon: 'heart' },
+    { id: 'favorite-artists', label: 'Favorite artists', icon: 'users' },
     { id: 'playlists', label: 'Playlists', icon: 'playlist', count: playlistsCount },
     { id: 'history', label: 'Listening history', icon: 'clock-counter-clockwise' },
     { id: 'sources', label: 'Sources', icon: 'plugs', count: sourcesCount }
