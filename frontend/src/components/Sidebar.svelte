@@ -212,18 +212,6 @@
             >
               {item.label}
             </span>
-            {#if item.count !== undefined && item.count > 0}
-              <span
-                class="ml-auto rounded-full text-[10px] font-semibold tabular-nums shrink-0 overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] {collapsed
-                  ? 'max-w-0 px-0 py-0 opacity-0 scale-75'
-                  : 'max-w-[48px] px-1.5 py-0.5 opacity-100 scale-100'}"
-                style={active
-                  ? 'background-color: var(--md-sys-color-state-active); color: var(--md-sys-color-on-primary-container);'
-                  : 'background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant);'}
-              >
-                {item.count}
-              </span>
-            {/if}
           </button>
         {/each}
       </nav>

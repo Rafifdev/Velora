@@ -167,6 +167,12 @@ export const api = {
   async getYTMusicHome(): Promise<YTMusicHomeFeed> {
     return appBridge().GetYTMusicHome();
   },
+  async getYTMusicTop100(): Promise<YTMusicTrack[]> {
+    return appBridge().GetYTMusicTop100();
+  },
+  async getYTMusicTop100Recommended(excludeVideoIDs: string[]): Promise<YTMusicTrack[]> {
+    return appBridge().GetYTMusicTop100Recommended(excludeVideoIDs);
+  },
   async playYTMusicCollection(
     browseId: string,
     playlistId: string,

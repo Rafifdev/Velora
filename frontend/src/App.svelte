@@ -119,10 +119,38 @@
   let seekDeltaSeq = $state(0);
   let seekDeltaTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Modals
+  // Modals & Recommendations
   let showStreakModal = $state(false);
   let showCreatePlaylistModal = $state(false);
   let createPlaylistIsLocal = $state(true);
+  let ytTop100Tracks = $state<YTMusicTrack[]>([]);
+  let ytTop100Loading = $state(false);
+  let lastRecPlaylistId = $state<number | null>(null);
+
+  async function loadPlaylistRecommendations(excludeIds: string[] = []) {
+    ytTop100Loading = true;
+    try {
+      const res = await api.getYTMusicTop100Recommended(excludeIds);
+      ytTop100Tracks = res ?? [];
+    } catch (err) {
+      console.error('Failed to load YT Music Top 100:', err);
+    } finally {
+      ytTop100Loading = false;
+    }
+  }
+
+  $effect(() => {
+    if (currentRoute.name === 'playlist-detail') {
+      const pid = currentRoute.playlistId;
+      if (pid !== lastRecPlaylistId) {
+        lastRecPlaylistId = pid;
+        const exclude = selectedPlaylistDetail?.tracks.map((t) => t.externalId).filter(Boolean) ?? [];
+        void loadPlaylistRecommendations(exclude);
+      }
+    } else {
+      lastRecPlaylistId = null;
+    }
+  });
 
   // Audio playback & Lyrics state
   let audioEl: HTMLAudioElement | undefined = $state();
@@ -1570,14 +1598,23 @@
           {playlists}
           detail={selectedPlaylistDetail}
           allTracks={tracks}
+          {ytTop100Tracks}
+          {ytTop100Loading}
+          onRefreshRecommendations={() => {
+            const exclude = selectedPlaylistDetail?.tracks.map((t) => t.externalId).filter(Boolean) ?? [];
+            void loadPlaylistRecommendations(exclude);
+          }}
           currentTrackId={currentTrack?.id ?? null}
           {mediaBaseUrl}
           {accentColor}
           onOpenPlaylist={(playlistId) => navigate({ name: 'playlist-detail', playlistId })}
           onPlayPlaylist={handlePlayPlaylist}
-          onCreatePlaylist={(isLocal) => {
-            createPlaylistIsLocal = isLocal;
-            showCreatePlaylistModal = true;
+          onCreatePlaylist={async () => {
+            let n = playlists.length + 1;
+            while (playlists.some((p) => p.name.trim().toLowerCase() === `playlist #${n}`)) {
+              n += 1;
+            }
+            await handleCreatePlaylist(`Playlist #${n}`, '', true, accentColor);
           }}
           onRenamePlaylist={async (id, name, desc, color) => {
             await api.updatePlaylist(id, name, desc, color);
@@ -1590,10 +1627,18 @@
             await navigate({ name: 'playlists' });
           }}
           onPlayTrack={playTrack}
+          onPlayYTMusic={playYTMusicSingle}
           onAddTrack={async (pid, tid) => {
             await api.addTrackToPlaylist(pid, tid);
             playlists = await api.getPlaylists(false);
             selectedPlaylistDetail = await api.getPlaylistDetail(pid);
+          }}
+          onAddYTMusicTrack={async (pid, yt) => {
+            const saved = await api.saveYTMusicTrack(yt);
+            await api.addTrackToPlaylist(pid, saved.id);
+            playlists = await api.getPlaylists(false);
+            selectedPlaylistDetail = await api.getPlaylistDetail(pid);
+            tracks = await api.getTracks('all', '');
           }}
           onRemoveTrack={async (pid, tid) => {
             await api.removeTrackFromPlaylist(pid, tid);
@@ -1605,6 +1650,13 @@
             selectedPlaylistDetail = await api.getPlaylistDetail(pid);
           }}
           onToggleFavorite={handleToggleFavoriteTrack}
+          onAddToQueue={(tr) => {
+            if (!queue.some((q) => q.id === tr.id)) {
+              queue = [...queue, tr];
+            }
+          }}
+          onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
+          onOpenTrackAlbum={openTrackAlbumDetail}
           onExportM3U={(pid) => api.exportLocalPlaylistM3U(pid)}
           onImportM3U={async () => {
             const pl = await api.importLocalPlaylistM3U();

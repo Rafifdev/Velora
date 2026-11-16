@@ -214,6 +214,23 @@
   ></div>
   <!-- HERO BANNER ALBUM -->
   <section class="relative overflow-hidden px-6 sm:px-10 pt-8 pb-8">
+    {#if ytAlbumLoading}
+      <div class="relative z-10 flex flex-col sm:flex-row sm:items-end gap-6 animate-pulse">
+        <div
+          class="w-44 h-44 sm:w-52 sm:h-52 rounded-2xl shrink-0"
+          style="background-color: var(--md-sys-color-surface-container-highest);"
+        ></div>
+        <div class="min-w-0 flex-1 space-y-3">
+          <div class="h-5 w-16 rounded-full bg-[var(--md-sys-color-surface-container-highest)]"></div>
+          <div class="h-10 w-64 max-w-full rounded-lg bg-[var(--md-sys-color-surface-container-highest)]"></div>
+          <div class="h-4 w-44 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+          <div class="pt-2 flex items-center gap-3">
+            <div class="w-11 h-11 rounded-full bg-[var(--md-sys-color-surface-container-highest)]"></div>
+            <div class="w-11 h-11 rounded-full bg-[var(--md-sys-color-surface-container-highest)]"></div>
+          </div>
+        </div>
+      </div>
+    {:else}
     {#if cover}
       <img
         src={cover}
@@ -380,6 +397,7 @@
         </div>
       </div>
     </div>
+    {/if}
   </section>
 
   <!-- TRACK LIST (seperti di page album) -->

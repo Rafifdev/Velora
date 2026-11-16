@@ -463,28 +463,22 @@
         {:else if activeFilterPill === 'album'}
           {#if ytAlbumResults.length === 0}
             <div class="flex flex-col items-center justify-center text-center py-14 px-4">
-              <div
-                class="w-14 h-14 mb-4 rounded-2xl flex items-center justify-center"
-                style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
-              >
-                <Icon name="vinyl-record" weight="fill" size={26} />
+              <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
+                <Icon name="vinyl-record" weight="bold" size={38} />
               </div>
-              <div class="space-y-1.5">
-                <p class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
-                  Belum ada album
-                </p>
-                <p class="text-xs max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-                  Album untuk kategori ini belum tersedia.
-                </p>
-              </div>
+              <h2 class="text-2xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+                Belum ada album
+              </h2>
+              <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
+                Album untuk kategori ini belum tersedia.
+              </p>
               <button
                 type="button"
                 onclick={() => onSearchYTMusicAlbums?.('')}
-                class="mt-5 h-9 px-5 rounded-full text-xs font-bold flex items-center gap-2 cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
-                style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
+                class="mt-6 h-10 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
+                style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
               >
-                <Icon name="arrow-clockwise" weight="bold" size={14} />
-                <span>Muat Ulang</span>
+                Muat ulang
               </button>
             </div>
           {:else}
@@ -557,28 +551,22 @@
         {:else if activeFilterPill === 'playlist'}
           {#if ytPlaylistResults.length === 0}
             <div class="flex flex-col items-center justify-center text-center py-14 px-4">
-              <div
-                class="w-14 h-14 mb-4 rounded-2xl flex items-center justify-center"
-                style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
-              >
-                <Icon name="playlist" weight="fill" size={26} />
+              <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
+                <Icon name="playlist" weight="bold" size={38} />
               </div>
-              <div class="space-y-1.5">
-                <p class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
-                  Belum ada playlist
-                </p>
-                <p class="text-xs max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-                  Playlist untuk kategori ini belum tersedia.
-                </p>
-              </div>
+              <h2 class="text-2xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+                Belum ada playlist
+              </h2>
+              <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
+                Playlist untuk kategori ini belum tersedia.
+              </p>
               <button
                 type="button"
                 onclick={() => onSearchYTMusicPlaylists?.('Top Hits Indonesia Playlist')}
-                class="mt-5 h-9 px-5 rounded-full text-xs font-bold flex items-center gap-2 cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
-                style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
+                class="mt-6 h-10 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
+                style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
               >
-                <Icon name="arrow-clockwise" weight="bold" size={14} />
-                <span>Muat Ulang</span>
+                Muat ulang
               </button>
             </div>
           {:else}
@@ -635,20 +623,15 @@
           {/if}
         {:else if ytResults.length === 0}
           <div class="flex flex-col items-center justify-center text-center py-14 px-4">
-            <div
-              class="w-14 h-14 mb-4 rounded-2xl flex items-center justify-center"
-              style="background-color: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container);"
-            >
-              <Icon name="music-notes" weight="fill" size={26} />
+            <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
+              <Icon name="music-note" weight="bold" size={38} />
             </div>
-            <div class="space-y-1.5">
-              <p class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
-                Belum ada lagu
-              </p>
-              <p class="text-xs max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-                Hasil untuk kategori ini belum tersedia.
-              </p>
-            </div>
+            <h2 class="text-2xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+              Belum ada lagu
+            </h2>
+            <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
+              Hasil untuk kategori ini belum tersedia.
+            </p>
             <button
               type="button"
               onclick={() =>
@@ -659,11 +642,10 @@
                       ? 'Audiobook Chill Ambient'
                       : 'Trending Pop Music Indonesia'
                 )}
-              class="mt-5 h-9 px-5 rounded-full text-xs font-bold flex items-center gap-2 cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
-              style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
+              class="mt-6 h-10 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
+              style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
             >
-              <Icon name="arrow-clockwise" weight="bold" size={14} />
-              <span>Muat Ulang</span>
+              Muat ulang
             </button>
           </div>
         {:else}

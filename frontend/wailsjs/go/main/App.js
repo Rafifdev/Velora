@@ -90,6 +90,14 @@ export function GetYTMusicHome() {
   return window['go']['main']['App']['GetYTMusicHome']();
 }
 
+export function GetYTMusicTop100() {
+  return window['go']['main']['App']['GetYTMusicTop100']();
+}
+
+export function GetYTMusicTop100Recommended(arg1) {
+  return window['go']['main']['App']['GetYTMusicTop100Recommended'](arg1);
+}
+
 export function GetYTMusicTrackAlbum(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['main']['App']['GetYTMusicTrackAlbum'](arg1, arg2, arg3, arg4, arg5, arg6);
 }

@@ -583,7 +583,7 @@ func (s *Store) GetPlaylistDetail(id int64) (PlaylistDetail, error) {
 	p.IsLocal = isLocal == 1
 
 	rows, err := s.db.Query(`
-		SELECT t.id, t.title, t.artist_id, t.artist_name, t.album_id, t.album_title, t.duration_sec, t.format, t.bitrate, t.source_type, t.file_path, t.external_id, t.cover_url, t.is_favorite, t.play_count, t.created_at
+		SELECT t.id, t.title, t.artist_id, t.artist_name, t.album_id, t.album_title, t.duration_sec, t.format, t.bitrate, t.source_type, t.file_path, t.external_id, t.cover_url, t.is_favorite, t.play_count, COALESCE(pt.added_at, t.created_at)
 		FROM playlist_tracks pt
 		JOIN tracks t ON t.id = pt.track_id
 		WHERE pt.playlist_id = ?

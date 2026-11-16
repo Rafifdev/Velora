@@ -50,6 +50,10 @@ export function GetTracks(arg1:string,arg2:string):Promise<Array<db.Track>>;
 
 export function GetYTMusicHome():Promise<sources.YTMusicHomeFeed>;
 
+export function GetYTMusicTop100():Promise<Array<sources.YTMusicTrack>>;
+
+export function GetYTMusicTop100Recommended(arg1:Array<string>):Promise<Array<sources.YTMusicTrack>>;
+
 export function GetYTMusicTrackAlbum(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string):Promise<main.YTMusicAlbumView>;
 
 export function ImportLocalPaths(arg1:Array<string>):Promise<Array<db.Track>>;
