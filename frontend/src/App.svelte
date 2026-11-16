@@ -8,6 +8,7 @@
     Album,
     Artist,
     FireStreakStatus,
+    HomeFilter,
     ListeningStats,
     PlayHistoryItem,
     Playlist,
@@ -48,7 +49,11 @@
   let playlists = $state<Playlist[]>([]);
   let sources = $state<Source[]>([]);
   let history = $state<PlayHistoryItem[]>([]);
-  let preferences = $state<Record<string, string>>({});
+  const initialThemeDark =
+    typeof localStorage !== 'undefined' ? localStorage.getItem('velora.theme.dark') : null;
+  let preferences = $state<Record<string, string>>(
+    initialThemeDark !== null ? { 'theme.dark': initialThemeDark } : {}
+  );
   let mediaBaseUrl = $state('');
 
   let fireStreak = $state<FireStreakStatus>({
@@ -89,6 +94,7 @@
   let ytShelves = $state<YTMusicShelf[]>([]);
   let ytResults = $state<YTMusicTrack[]>([]);
   let ytPlaylistResults = $state<YTMusicCard[]>([]);
+  let ytAlbumResults = $state<YTMusicCard[]>([]);
   let ytLoading = $state(false);
   let ytHomeLoading = $state(false);
   let ytLoadingMore = $state(false);
@@ -155,6 +161,11 @@
   let recordedForCurrentTrack = false;
 
   const isDark = $derived(getPrefBool(preferences, 'theme.dark'));
+  $effect(() => {
+    if (preferences['theme.dark'] !== undefined) {
+      localStorage.setItem('velora.theme.dark', String(isDark));
+    }
+  });
   const themeSeed = $derived(getPrefValue(preferences, 'theme.seed') || 'monolith');
   const accentColor = $derived(
     preferences['accent_color'] || (isDark ? '#FF9E64' : '#EA6A1F')
@@ -503,6 +514,25 @@
     }
   }
 
+  async function handleSearchYTMusicAlbums(q: string) {
+    const seq = ++ytSearchSeq;
+    ytLoading = true;
+    try {
+      const res = await api.searchYouTubeMusicAlbums(q);
+      if (seq === ytSearchSeq) {
+        ytAlbumResults = res || [];
+      }
+    } catch {
+      if (seq === ytSearchSeq) {
+        ytAlbumResults = [];
+      }
+    } finally {
+      if (seq === ytSearchSeq) {
+        ytLoading = false;
+      }
+    }
+  }
+
   const MORESONGS_QUERIES = [
     'Lagu Indonesia Populer Terbaru',
     'Top Global Hits Music',
@@ -514,12 +544,18 @@
     'Electronic & Synthwave Music'
   ];
 
-  const CATEGORY_MORE_QUERIES: Record<'musik' | 'playlist' | 'podcast' | 'buku', string[]> = {
+  const CATEGORY_MORE_QUERIES: Record<'musik' | 'album' | 'playlist' | 'podcast' | 'buku', string[]> = {
     musik: [
       'Trending Pop Music Indonesia',
       'Top Hits Indonesia 2025 2026',
       'Viral Pop & R&B Hits',
       'Best Acoustic Pop Hits'
+    ],
+    album: [
+      'Top Pop Indonesia Album',
+      'Best Indie Album Indonesia',
+      'Top Global Pop Album',
+      'R&B Soul Classic Album'
     ],
     playlist: [
       'Top Hits Indonesia Playlist',
@@ -539,10 +575,26 @@
     ]
   };
 
-  async function handleLoadMoreYTMusic(activeCategory: 'semua' | 'musik' | 'playlist' | 'podcast' | 'buku') {
+  async function handleLoadMoreYTMusic(activeCategory: HomeFilter) {
     if (ytLoadingMore) return;
     ytLoadingMore = true;
     try {
+      if (activeCategory === 'album') {
+        const page = ytMorePage++;
+        const q = CATEGORY_MORE_QUERIES.album[page % CATEGORY_MORE_QUERIES.album.length];
+        const moreAlbums = await api.searchYouTubeMusicAlbums(q);
+        if (!moreAlbums || moreAlbums.length === 0) return;
+        const existingKeys = new Set(ytAlbumResults.map((c) => c.browseId || c.id));
+        const unique = moreAlbums.filter((c) => {
+          const k = c.browseId || c.id;
+          return k && !existingKeys.has(k);
+        });
+        if (unique.length > 0) {
+          ytAlbumResults = [...ytAlbumResults, ...unique];
+        }
+        return;
+      }
+
       if (activeCategory === 'playlist') {
         const page = ytMorePage++;
         const q = CATEGORY_MORE_QUERIES.playlist[page % CATEGORY_MORE_QUERIES.playlist.length];
@@ -894,10 +946,44 @@
     }
   }
 
+  async function handleOpenAlbum(albumId: number) {
+    const al = albums.find((a) => a.id === albumId);
+    if (al?.sourceType === 'ytmusic') {
+      await navigate({
+        name: 'yt-album-detail',
+        browseId: al.externalId || '',
+        videoId: '',
+        title: al.title,
+        artist: al.artistName,
+        albumTitle: al.title,
+        coverUrl: al.coverUrl
+      });
+      return;
+    }
+    await navigate({ name: 'album-detail', albumId });
+  }
+
   async function handlePlayAlbum(albumId: number) {
+    const al = albums.find((a) => a.id === albumId);
+    if (al?.sourceType === 'ytmusic' && al.externalId) {
+      await handlePlayYTCollection({
+        id: al.externalId,
+        title: al.title,
+        subtitle: al.artistName,
+        coverUrl: al.coverUrl,
+        kind: 'album',
+        videoId: '',
+        browseId: al.externalId,
+        playlistId: '',
+        artist: al.artistName,
+        album: al.title,
+        durationSec: 0
+      });
+      return;
+    }
     const albumTracks = await api.getAlbumTracks(albumId);
     if (albumTracks && albumTracks.length > 0) {
-      const albumName = albums.find((a) => a.id === albumId)?.title || 'Album';
+      const albumName = al?.title || 'Album';
       await playTrack(albumTracks[0], albumTracks, albumName);
     }
   }
@@ -921,7 +1007,7 @@
       } else if (currentRoute.name === 'artist-detail') {
         queueSourceTitle = artists.find((a) => a.id === currentRoute.artistId)?.name || 'Artis';
       } else if (currentRoute.name === 'liked-songs') {
-        queueSourceTitle = 'Favorite tracks';
+        queueSourceTitle = 'Favorite music';
       }
     } else {
       queueSourceTitle = '';
@@ -1248,6 +1334,26 @@
     albums = albums.map((a) => (a.id === id ? { ...a, isFavorite: fav } : a));
   }
 
+  async function handleToggleFavoriteYTMusicAlbum(payload: {
+    browseId: string;
+    title: string;
+    artist: string;
+    coverUrl: string;
+    releaseYear: number;
+  }) {
+    const updated = await api.toggleFavoriteYTMusicAlbum(
+      payload.browseId,
+      payload.title,
+      payload.artist,
+      payload.coverUrl,
+      payload.releaseYear
+    );
+    const exists = albums.some((a) => a.id === updated.id);
+    albums = exists
+      ? albums.map((a) => (a.id === updated.id ? updated : a))
+      : [updated, ...albums];
+  }
+
   async function handleToggleFavoriteArtist(id: number) {
     const fav = await api.toggleFavoriteArtist(id);
     artists = artists.map((a) => (a.id === id ? { ...a, isFavorite: fav } : a));
@@ -1387,6 +1493,8 @@
           {ytShelves}
           {ytResults}
           {ytPlaylistResults}
+          {ytAlbumResults}
+          initialFilter={currentRoute.name === 'home' ? currentRoute.filter : undefined}
           {ytLoading}
           {ytHomeLoading}
           {ytLoadingMore}
@@ -1394,10 +1502,12 @@
           {mediaBaseUrl}
           onPlayYTMusic={playYTMusicSingle}
           onPlayYTCollection={handlePlayYTCollection}
+          onOpenYTAlbum={openYTAlbumCard}
           onPlayPlaylist={handlePlayPlaylist}
           onPlayAlbum={handlePlayAlbum}
           onSearchYTMusic={handleSearchYTMusic}
           onSearchYTMusicPlaylists={handleSearchYTMusicPlaylists}
+          onSearchYTMusicAlbums={handleSearchYTMusicAlbums}
           onRefreshYTMusicHome={loadYTMusicHome}
           onLoadMoreYTMusic={handleLoadMoreYTMusic}
           onNavigate={navigate}
@@ -1417,7 +1527,11 @@
           {ytLoading}
           {playlists}
           currentTrackId={currentTrack?.id ?? null}
+          currentExternalId={currentTrack?.externalId ?? null}
+          currentTrackTitle={currentTrack?.title ?? null}
+          currentTrackArtist={currentTrack?.artistName ?? null}
           {isPlaying}
+          onTogglePlay={togglePlay}
           {mediaBaseUrl}
           {accentColor}
           onPlayTrack={playTrack}
@@ -1436,8 +1550,19 @@
             await api.addTrackToPlaylist(pid, tid);
             playlists = await api.getPlaylists(false);
           }}
-          onOpenAlbum={(albumId) => navigate({ name: 'album-detail', albumId })}
+          onOpenAlbum={handleOpenAlbum}
           onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
+          onOpenTrackAlbum={openTrackAlbumDetail}
+          onOpenYTMusicAlbum={(yt) =>
+            navigate({
+              name: 'yt-album-detail',
+              videoId: yt.videoId,
+              title: yt.title,
+              artist: yt.artist,
+              albumTitle: yt.album,
+              coverUrl: yt.coverUrl
+            })}
+          onNavigate={navigate}
         />
       {:else if currentRoute.name === 'playlists' || currentRoute.name === 'local-playlists' || currentRoute.name === 'playlist-detail'}
         <PlaylistViews
@@ -1567,12 +1692,13 @@
           onTogglePlay={() => void togglePlay()}
           onToggleFavoriteTrack={handleToggleFavoriteTrack}
           onToggleFavoriteAlbum={handleToggleFavoriteAlbum}
+          onToggleFavoriteYTMusicAlbum={handleToggleFavoriteYTMusicAlbum}
           onAddToPlaylist={async (plId, trId) => {
             await api.addTrackToPlaylist(plId, trId);
             playlists = await api.getPlaylists(false);
           }}
           onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
-          onOpenAlbum={(albumId) => navigate({ name: 'album-detail', albumId })}
+          onOpenAlbum={handleOpenAlbum}
           onOpenYTAlbum={(card) => void openYTAlbumCard(card)}
         />
       {:else if currentRoute.name === 'lyrics'}
@@ -1614,6 +1740,7 @@
           onClearCache={async () => {
             await api.clearCache();
           }}
+          onNavigate={navigate}
         />
       {/if}
     </main>
