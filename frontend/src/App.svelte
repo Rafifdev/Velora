@@ -1056,11 +1056,21 @@
     const nextIdx = idx + 1;
     if (nextIdx < queue.length) {
       await playTrack(queue[nextIdx], queue, queueSourceTitle);
-    } else if (queueSourceTitle === '' && currentTrack) {
-      algoBatchRound += 1;
+    } else if (repeatMode === 'all' && queueSourceTitle !== '') {
+      await playTrack(queue[0], queue, queueSourceTitle);
+    } else if (currentTrack) {
+      if (queueSourceTitle !== '') {
+        algoBatchRound = 0;
+        playedAlgoKeys = new Set<string>(queue.map(trackQueueKey));
+        playedAlgoKeys.add(trackQueueKey(currentTrack));
+      } else {
+        algoBatchRound += 1;
+      }
       const nextBatch = await fetchTwentyGenreTracks(currentTrack, playedAlgoKeys, algoBatchRound);
       if (nextBatch.length > 0) {
         await playTrack(nextBatch[0], nextBatch, '');
+      } else if (repeatMode === 'all') {
+        await playTrack(queue[0], queue, queueSourceTitle);
       } else {
         isPlaying = false;
       }
