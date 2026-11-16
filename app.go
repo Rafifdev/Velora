@@ -325,6 +325,26 @@ func (a *App) SearchYouTubeMusicAlbums(query string) ([]sources.YTMusicCard, err
 	return a.ytClient.SearchAlbums(reqCtx, query)
 }
 
+func (a *App) GetYTMusicTop100() ([]sources.YTMusicTrack, error) {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	return a.ytClient.GetTop100Tracks(reqCtx)
+}
+
+func (a *App) GetYTMusicTop100Recommended(excludeVideoIDs []string) ([]sources.YTMusicTrack, error) {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	return a.ytClient.GetTop100Recommended(reqCtx, excludeVideoIDs)
+}
+
 func (a *App) GetYTMusicHome() (sources.YTMusicHomeFeed, error) {
 	ctx := a.ctx
 	if ctx == nil {

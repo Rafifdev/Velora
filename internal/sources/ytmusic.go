@@ -1,4 +1,4 @@
-package sources
+﻿package sources
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os/exec"
 	"regexp"
@@ -79,9 +80,11 @@ type cachedStream struct {
 }
 
 type YTMusicClient struct {
-	httpClient *http.Client
-	mu         sync.RWMutex
-	cache      map[string]cachedStream
+	httpClient    *http.Client
+	mu            sync.RWMutex
+	cache         map[string]cachedStream
+	top100Cache   []YTMusicTrack
+	top100Expires time.Time
 }
 
 func NewYTMusicClient() *YTMusicClient {
@@ -526,6 +529,157 @@ func (c *YTMusicClient) GetHomeFeed(ctx context.Context) (YTMusicHomeFeed, error
 	return feed, nil
 }
 
+// GetTop100Tracks fetches up to 100 top songs from YouTube Music (cached for 30 minutes).
+func (c *YTMusicClient) GetTop100Tracks(ctx context.Context) ([]YTMusicTrack, error) {
+	c.mu.RLock()
+	if len(c.top100Cache) > 0 && time.Now().Before(c.top100Expires) {
+		out := make([]YTMusicTrack, len(c.top100Cache))
+		copy(out, c.top100Cache)
+		c.mu.RUnlock()
+		return out, nil
+	}
+	c.mu.RUnlock()
+
+	results, err := c.GetCollectionTracks(
+		ctx,
+		"VLPL4fGSI1pDJn6puJdseH2Rt9sMvt9E2M4i",
+		"PL4fGSI1pDJn6puJdseH2Rt9sMvt9E2M4i",
+		"",
+		"",
+		"",
+	)
+	if err != nil || len(results) < 10 {
+		if tree, chartErr := c.postInnerTube(ctx, "browse", map[string]any{
+			"context":  ytWebRemixContext(),
+			"browseId": "FEmusic_charts",
+		}); chartErr == nil {
+			seen := map[string]struct{}{}
+			for _, t := range results {
+				seen[t.VideoID] = struct{}{}
+			}
+			extractResponsiveItems(tree, &results, seen)
+		}
+	}
+	if len(results) < 10 {
+		if feed, feedErr := c.GetHomeFeed(ctx); feedErr == nil && len(feed.Tracks) > 0 {
+			seen := map[string]struct{}{}
+			for _, t := range results {
+				seen[t.VideoID] = struct{}{}
+			}
+			for _, t := range feed.Tracks {
+				if _, ok := seen[t.VideoID]; !ok {
+					seen[t.VideoID] = struct{}{}
+					results = append(results, t)
+				}
+			}
+		}
+	}
+	if len(results) > 100 {
+		results = results[:100]
+	}
+	if len(results) > 0 {
+		c.mu.Lock()
+		c.top100Cache = make([]YTMusicTrack, len(results))
+		copy(c.top100Cache, results)
+		c.top100Expires = time.Now().Add(30 * time.Minute)
+		c.mu.Unlock()
+	}
+	return results, nil
+}
+
+// GetTop100Recommended picks 10 random tracks from Top 100 YouTube Music and enriches their album metadata.
+func (c *YTMusicClient) GetTop100Recommended(ctx context.Context, excludeVideoIDs []string) ([]YTMusicTrack, error) {
+	all, err := c.GetTop100Tracks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	excluded := make(map[string]struct{}, len(excludeVideoIDs))
+	for _, id := range excludeVideoIDs {
+		if id != "" {
+			excluded[id] = struct{}{}
+		}
+	}
+	pool := make([]YTMusicTrack, 0, len(all))
+	for _, t := range all {
+		if _, skip := excluded[t.VideoID]; !skip {
+			pool = append(pool, t)
+		}
+	}
+	if len(pool) == 0 {
+		return []YTMusicTrack{}, nil
+	}
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	r.Shuffle(len(pool), func(i, j int) {
+		pool[i], pool[j] = pool[j], pool[i]
+	})
+	if len(pool) > 10 {
+		pool = pool[:10]
+	}
+
+	var wg sync.WaitGroup
+	enriched := make(map[string]YTMusicTrack)
+	var enrichMu sync.Mutex
+
+	for i := range pool {
+		if pool[i].Album != "" && pool[i].Album != "YouTube Music" {
+			continue
+		}
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			tr := pool[idx]
+			subCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+
+			q := strings.TrimSpace(tr.Title + " " + tr.Artist)
+			if hits, sErr := c.Search(subCtx, q); sErr == nil {
+				for _, h := range hits {
+					if h.Album != "" && h.Album != "YouTube Music" {
+						tr.Album = h.Album
+						if h.CoverURL != "" {
+							tr.CoverURL = h.CoverURL
+						}
+						break
+					}
+				}
+			}
+			if tr.Album == "" || tr.Album == "YouTube Music" {
+				if tree, nErr := c.postInnerTube(subCtx, "next", map[string]any{
+					"context": ytWebRemixContext(),
+					"videoId": tr.VideoID,
+				}); nErr == nil {
+					_, albTitle, _, _, _ := extractAlbumArtistFromNext(tree)
+					if albTitle != "" && albTitle != "YouTube Music" {
+						tr.Album = albTitle
+					}
+				}
+			}
+			if tr.Album == "" || tr.Album == "YouTube Music" {
+				tr.Album = "Single"
+			}
+			pool[idx] = tr
+			enrichMu.Lock()
+			enriched[tr.VideoID] = tr
+			enrichMu.Unlock()
+		}(i)
+	}
+	wg.Wait()
+
+	if len(enriched) > 0 {
+		c.mu.Lock()
+		for i := range c.top100Cache {
+			if upd, ok := enriched[c.top100Cache[i].VideoID]; ok {
+				c.top100Cache[i].Album = upd.Album
+				c.top100Cache[i].CoverURL = upd.CoverURL
+			}
+		}
+		c.mu.Unlock()
+	}
+
+	return pool, nil
+}
+
 func (c *YTMusicClient) GetCollectionTracks(ctx context.Context, browseID, playlistID, fallbackArtist, fallbackAlbum, fallbackCover string) ([]YTMusicTrack, error) {
 	targetID := strings.TrimSpace(browseID)
 	pid := strings.TrimSpace(playlistID)
@@ -964,7 +1118,7 @@ func parsePlaylistPanelItem(r map[string]any) (YTMusicTrack, bool) {
 				if rm, ok := item.(map[string]any); ok {
 					txt, _ := rm["text"].(string)
 					txt = strings.TrimSpace(txt)
-					if txt == "" || txt == "•" || txt == "," || txt == "&" {
+					if txt == "" || txt == "â€¢" || txt == "," || txt == "&" {
 						continue
 					}
 					parts = append(parts, txt)
@@ -1005,7 +1159,7 @@ func parsePlaylistPanelItem(r map[string]any) (YTMusicTrack, bool) {
 
 func cleanCollectionSubtitle(sub string) string {
 	s := strings.TrimSpace(sub)
-	for _, prefix := range []string{"Album • ", "Single • ", "EP • ", "Playlist • "} {
+	for _, prefix := range []string{"Album â€¢ ", "Single â€¢ ", "EP â€¢ ", "Playlist â€¢ "} {
 		if strings.HasPrefix(s, prefix) {
 			return strings.TrimSpace(strings.TrimPrefix(s, prefix))
 		}
@@ -1248,12 +1402,30 @@ func parseResponsiveListItem(r map[string]any) (YTMusicTrack, bool) {
 		if len(cols) > 0 {
 			title = extractColumnText(cols[0])
 		}
-		if len(cols) > 1 {
+		if len(cols) > 2 {
+			// Playlist / chart table layout: col 1 = artist(s), col 2 = album
+			col1Text := strings.TrimSpace(extractColumnText(cols[1]))
+			if col1Text != "" {
+				artist = col1Text
+			}
+			col2Text := strings.TrimSpace(extractColumnText(cols[2]))
+			col2Lower := strings.ToLower(col2Text)
+			if col2Text != "" && parseDurationString(col2Text) == 0 &&
+				!strings.Contains(col2Lower, "pemutaran") &&
+				!strings.Contains(col2Lower, "ditonton") &&
+				!strings.HasSuffix(col2Lower, "plays") &&
+				!strings.HasSuffix(col2Lower, "views") {
+				album = col2Text
+			}
+		} else if len(cols) > 1 {
 			meta := extractColumnRuns(cols[1])
 			var parts []string
 			for _, p := range meta {
 				p = strings.TrimSpace(p)
-				if p == "" || p == "•" || p == "Song" || p == "Video" {
+				pLower := strings.ToLower(p)
+				if p == "" || p == "\u2022" || p == "\u00b7" || p == "," || p == "&" || p == "Song" || p == "Video" || p == "Lagu" ||
+					strings.Contains(pLower, "pemutaran") || strings.Contains(pLower, "ditonton") ||
+					strings.HasSuffix(pLower, "plays") || strings.HasSuffix(pLower, "views") {
 					continue
 				}
 				if d := parseDurationString(p); d > 0 {

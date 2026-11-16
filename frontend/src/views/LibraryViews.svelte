@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { extractDominantColor, formatDuration, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
+  import { formatDuration, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
   import { svelteMotionEnter } from '../lib/motion';
   import type { Album, Artist, Playlist, Track, ViewRoute, YTMusicTrack } from '../lib/types';
   import Icon from '../components/Icon.svelte';
@@ -82,13 +82,10 @@
     onNavigate
   }: Props = $props();
 
-  let localFilterText = $state('');
-  let albumFilterText = $state('');
   let artistFilterText = $state('');
   let ytQuery = $state('');
   let showAllArtists = $state(false);
   let albumsScrolled = $state(false);
-  let heroDominantColor = $state<string | null>(null);
 
   $effect(() => {
     if (mode === 'search' && searchQuery) {
@@ -96,15 +93,7 @@
     }
   });
 
-  const likedTracks = $derived(
-    tracks.filter(
-      (t) =>
-        t.isFavorite &&
-        (!localFilterText.trim() ||
-          t.title.toLowerCase().includes(localFilterText.toLowerCase()) ||
-          t.artistName.toLowerCase().includes(localFilterText.toLowerCase()))
-    )
-  );
+  const likedTracks = $derived(tracks.filter((t) => t.isFavorite));
 
   const searchMatchedLocal = $derived(
     tracks.filter((t) => {
@@ -147,44 +136,14 @@
     topYTMatch ? ytResults.filter((t) => t.videoId !== topYTMatch.videoId) : ytResults
   );
 
-  const favoriteAlbumsCount = $derived(albums.filter((a) => a.isFavorite).length);
+  const displayedAlbums = $derived(albums.filter((a) => a.isFavorite));
+  const favoriteAlbumsCount = $derived(displayedAlbums.length);
 
-  const displayedAlbums = $derived.by(() => {
-    const base = albums.filter((a) => a.isFavorite);
-    const q = albumFilterText.trim().toLowerCase();
-    if (!q) return base;
-    return base.filter((a) => a.title.toLowerCase().includes(q) || a.artistName.toLowerCase().includes(q));
-  });
-
-  const heroAlbumCovers = $derived.by(() => {
-    const source = displayedAlbums.length > 0 ? displayedAlbums : albums.filter((a) => a.isFavorite);
-    const covers: string[] = [];
-    for (const al of source) {
-      const c = resolveCoverUrl(al.coverUrl, mediaBaseUrl);
-      if (c && !covers.includes(c)) {
-        covers.push(c);
-        if (covers.length >= 4) break;
-      }
-    }
-    return covers;
-  });
-
-  $effect(() => {
-    const topCover = heroAlbumCovers[0];
-    if (!topCover) {
-      heroDominantColor = null;
-      return;
-    }
-    let cancelled = false;
-    extractDominantColor(topCover).then((color) => {
-      if (!cancelled) {
-        heroDominantColor = color;
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  });
+  function playShuffledAlbum() {
+    if (displayedAlbums.length === 0 || !onPlayAlbum) return;
+    const rand = displayedAlbums[Math.floor(Math.random() * displayedAlbums.length)];
+    onPlayAlbum(rand.id);
+  }
 
   const displayedArtists = $derived.by(() => {
     const base = showAllArtists ? artists : artists.filter((a) => a.isFavorite);
@@ -224,26 +183,29 @@
 </script>
 
 {#if mode === 'liked-songs'}
-  <div class="relative min-h-full flex flex-col" use:svelteMotionEnter={{ y: 8 }}>
-    <div
-      class="pointer-events-none absolute inset-x-0 top-0 h-60"
-      style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-tertiary-container) 60%, transparent) 0%, transparent 100%);"
-    ></div>
-
-    <div class="relative z-10 p-6 flex-1 flex flex-col gap-6">
+  <div
+    class="relative h-full w-full overflow-y-auto rounded-xl select-none flex flex-col"
+    style="background-color: var(--md-sys-color-surface-container-low);"
+    use:svelteMotionEnter={{ y: 8 }}
+  >
+    <!-- Hero Banner (gradasi oren senada, dibatasi garis pemisah di bawah) -->
+    <section
+      class="relative z-10 px-6 sm:px-7 pt-7 pb-7"
+      style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-tertiary) 36%, var(--md-sys-color-tertiary-container)) 0%, color-mix(in srgb, var(--md-sys-color-tertiary-container) 74%, var(--md-sys-color-surface-container-low)) 100%);"
+    >
       <div class="flex flex-wrap items-end justify-between gap-5">
         <div class="flex flex-wrap items-end gap-5">
           <div
-            class="w-28 h-28 rounded-lg flex items-center justify-center shrink-0 shadow-lg"
-            style="background: linear-gradient(135deg, var(--md-sys-color-tertiary-container), var(--md-sys-color-surface-container-highest));"
+            class="w-28 h-28 rounded-lg flex items-center justify-center shrink-0 shadow-[0_12px_36px_rgba(0,0,0,0.42)]"
+            style="background: linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-tertiary) 92%, #ff5500) 0%, color-mix(in srgb, var(--md-sys-color-tertiary) 75%, #ffffff) 52%, color-mix(in srgb, var(--md-sys-color-on-tertiary-container) 88%, #ffffff) 100%);"
           >
-            <Icon name="heart" weight="fill" size={44} style="color: var(--md-sys-color-on-tertiary-container);" />
+            <Icon name="heart" weight="fill" size={44} class="text-white drop-shadow-sm" />
           </div>
-          <div class="space-y-1.5 min-w-[200px]">
+          <div class="space-y-1.5 min-w-[200px] mb-[4px]">
             <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--md-sys-color-tertiary)]">
               Favorites • Music
             </div>
-            <h1 class="text-3xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+            <h1 class="text-3xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
               Favorite music
             </h1>
             <p class="text-xs tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
@@ -252,71 +214,56 @@
           </div>
         </div>
 
-        <div class="flex flex-wrap items-center gap-2.5">
-          <div class="relative w-64">
-            <span
-              class="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
-              style="color: var(--md-sys-color-on-surface-variant);"
-            >
-              <Icon name="magnifying-glass" size={14} />
-            </span>
-            <input
-              type="search"
-              bind:value={localFilterText}
-              placeholder="Filter favorite music..."
-              class="w-full h-9 pl-9 pr-4 rounded-full text-xs outline-none bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface)] placeholder:text-[var(--md-sys-color-on-surface-variant)]"
-            />
-          </div>
-
+        <!-- Tombol Play All & Shuffle di sisi kanan sejajar dengan teks -->
+        <div class="mb-[4px] flex items-center gap-2.5">
           <button
             type="button"
             disabled={likedTracks.length === 0}
             onclick={() => likedTracks[0] && onPlayTrack(likedTracks[0], likedTracks)}
-            class="h-9 px-5 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] text-xs font-bold flex items-center gap-1.5 cursor-pointer hover:brightness-105 disabled:opacity-40"
+            title="Putar Semua"
+            aria-label="Putar Semua"
+            class="w-11 h-11 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] inline-flex items-center justify-center cursor-pointer transition-transform duration-150 hover:scale-[1.04] active:scale-95 disabled:opacity-40"
           >
-            <Icon name="play" weight="fill" size={15} /> Play All
+            <Icon name="play" weight="fill" size={18} />
           </button>
 
           <button
             type="button"
             disabled={likedTracks.length === 0}
             onclick={() => playShuffled(likedTracks)}
-            class="h-9 px-4 rounded-full text-xs font-semibold flex items-center gap-1.5 cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] disabled:opacity-40"
+            title="Acak (Shuffle)"
+            aria-label="Acak (Shuffle)"
+            class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors disabled:opacity-40"
             style="color: var(--md-sys-color-on-surface);"
           >
-            <Icon name="shuffle" size={15} /> Shuffle
+            <Icon name="shuffle" size={18} />
           </button>
         </div>
       </div>
+    </section>
 
+    <div
+      class="relative z-10 px-6 sm:px-8 pt-5 pb-8 flex-1 flex flex-col"
+      style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-tertiary-container) 48%, var(--md-sys-color-surface-container-low)) 0%, color-mix(in srgb, var(--md-sys-color-tertiary-container) 28%, var(--md-sys-color-surface-container-low)) 120px, color-mix(in srgb, var(--md-sys-color-tertiary-container) 11%, var(--md-sys-color-surface-container-low)) 240px, var(--md-sys-color-surface-container-low) 340px);"
+    >
       {#if likedTracks.length === 0}
         <div class="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
-          <div
-            class="w-14 h-14 mb-4 rounded-2xl flex items-center justify-center"
-            style={localFilterText.trim()
-              ? 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant);'
-              : 'background-color: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container);'}
-          >
-            <Icon name={localFilterText.trim() ? 'magnifying-glass' : 'heart'} weight="fill" size={26} />
+          <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
+            <Icon name="heart" weight="fill" size={38} />
           </div>
-          <div class="space-y-1.5">
-            <p class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
-              {localFilterText.trim() ? 'Lagu tidak ditemukan' : 'Belum ada lagu favorit'}
-            </p>
-            <p class="text-xs max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-              {localFilterText.trim()
-                ? `Tidak ada lagu yang cocok dengan "${localFilterText.trim()}".`
-                : 'Klik ikon hati pada lagu untuk menyimpannya di sini.'}
-            </p>
-          </div>
+          <h2 class="text-2xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+            Belum ada lagu favorit
+          </h2>
+          <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
+            Simpan lagu dengan mengetuk ikon hati.
+          </p>
           <button
             type="button"
-            onclick={() => (localFilterText.trim() ? (localFilterText = '') : onNavigate?.({ name: 'home', filter: 'musik' }))}
-            class="mt-5 h-9 px-5 rounded-full text-xs font-bold flex items-center gap-2 cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
-            style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
+            onclick={() => onNavigate?.({ name: 'home', filter: 'musik' })}
+            class="mt-6 h-10 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
+            style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
           >
-            <Icon name={localFilterText.trim() ? 'x' : 'house'} weight="fill" size={14} />
-            <span>{localFilterText.trim() ? 'Reset Filter' : 'Jelajahi Lagu'}</span>
+            Cari lagu
           </button>
         </div>
       {:else}
@@ -341,7 +288,7 @@
 {:else if mode === 'favorite-albums'}
   <div
     onscroll={(e) => (albumsScrolled = (e.currentTarget as HTMLElement).scrollTop > 8)}
-    class="relative h-full w-full overflow-y-auto rounded-xl select-none"
+    class="relative h-full w-full overflow-y-auto rounded-xl select-none flex flex-col"
     style="background-color: var(--md-sys-color-surface-container-low);"
     use:svelteMotionEnter={{ y: 8 }}
   >
@@ -351,57 +298,25 @@
       style="opacity: {albumsScrolled ? 1 : 0}; background: linear-gradient(to bottom, var(--md-sys-color-surface) 0%, var(--md-sys-color-surface) 38%, color-mix(in srgb, var(--md-sys-color-surface) 82%, transparent) 58%, color-mix(in srgb, var(--md-sys-color-surface) 42%, transparent) 80%, transparent 100%);"
     ></div>
 
-    <!-- Ambient Album Backdrop (dinamis dari warna gambar album teratas) -->
-    <div class="pointer-events-none absolute inset-x-0 top-0 h-64 overflow-hidden">
-      {#if heroAlbumCovers.length > 0}
-        <img
-          src={heroAlbumCovers[0]}
-          alt=""
-          aria-hidden="true"
-          class="w-full h-full object-cover scale-125 blur-3xl opacity-35"
-        />
-      {/if}
-      <div
-        class="absolute inset-0 transition-colors duration-500"
-        style="background: linear-gradient(180deg, {heroDominantColor
-          ? `color-mix(in srgb, ${heroDominantColor} 45%, rgba(11, 12, 14, 0.3))`
-          : heroAlbumCovers.length > 0
-            ? 'rgba(11, 12, 14, 0.35)'
-            : 'color-mix(in srgb, var(--md-sys-color-primary-container) 55%, rgba(11, 12, 14, 0.25))'} 0%, var(--md-sys-color-surface-container-low) 100%);"
-      ></div>
-    </div>
-
-    <div class="relative z-10 p-6 min-h-full flex flex-col gap-6">
-      <!-- Header Seimbang (ukuran artwork w-28 h-28 sama seperti Favorite tracks) -->
+    <!-- Hero Banner (gradasi biru senada, dibatasi garis pemisah di bawah) -->
+    <section
+      class="relative z-10 px-6 sm:px-7 pt-7 pb-7"
+      style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-primary) 30%, var(--md-sys-color-primary-container)) 0%, color-mix(in srgb, var(--md-sys-color-primary-container) 74%, var(--md-sys-color-surface-container-low)) 100%);"
+    >
       <div class="flex flex-wrap items-end justify-between gap-5">
         <div class="flex flex-wrap items-end gap-5">
           <div
-            class="w-28 h-28 rounded-lg overflow-hidden shadow-lg shrink-0 flex items-center justify-center"
-            style="background: linear-gradient(135deg, var(--md-sys-color-primary-container), var(--md-sys-color-surface-container-highest));"
+            class="w-28 h-28 rounded-lg shrink-0 shadow-[0_12px_36px_rgba(0,0,0,0.42)] flex items-center justify-center"
+            style="background: linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-primary) 45%, #0077b6) 0%, color-mix(in srgb, var(--md-sys-color-primary) 82%, #38bdf8) 52%, color-mix(in srgb, var(--md-sys-color-on-primary-container) 88%, #ffffff) 100%);"
           >
-            {#if heroAlbumCovers.length >= 4}
-              <div class="grid grid-cols-2 grid-rows-2 w-full h-full">
-                {#each heroAlbumCovers.slice(0, 4) as cov, idx (idx)}
-                  <img src={cov} alt="" class="w-full h-full object-cover" />
-                {/each}
-              </div>
-            {:else if heroAlbumCovers.length >= 1}
-              <img
-                src={heroAlbumCovers[0]}
-                alt="Favorite albums"
-                class="block w-full h-full object-cover object-center"
-                class:velora-yt-video-thumb={isYTVideoThumb(heroAlbumCovers[0])}
-              />
-            {:else}
-              <Icon name="vinyl-record" weight="fill" size={44} style="color: var(--md-sys-color-on-primary-container);" />
-            {/if}
+            <Icon name="vinyl-record" weight="fill" size={44} class="text-white drop-shadow-sm" />
           </div>
 
-          <div class="space-y-1.5 min-w-[200px]">
+          <div class="space-y-1.5 min-w-[200px] mb-[4px]">
             <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--md-sys-color-primary)]">
               Favorites • Albums
             </div>
-            <h1 class="text-3xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+            <h1 class="text-3xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
               Favorite albums
             </h1>
             <p class="text-xs tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
@@ -410,94 +325,57 @@
           </div>
         </div>
 
-        <div class="flex flex-wrap items-center gap-2.5">
-          <div class="relative w-60">
-            <span
-              class="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
-              style="color: var(--md-sys-color-on-surface-variant);"
-            >
-              <Icon name="magnifying-glass" size={14} />
-            </span>
-            <input
-              type="search"
-              bind:value={albumFilterText}
-              placeholder="Cari album atau artis..."
-              class="m3-input w-full h-9 pl-9 pr-8 rounded-full text-xs outline-none placeholder:text-[var(--md-sys-color-on-surface-variant)]"
-            />
-            {#if albumFilterText}
-              <button
-                type="button"
-                onclick={() => (albumFilterText = '')}
-                aria-label="Hapus pencarian"
-                class="absolute right-2.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full flex items-center justify-center cursor-pointer hover:bg-white/10"
-                style="color: var(--md-sys-color-on-surface-variant);"
-              >
-                <Icon name="x" size={12} />
-              </button>
-            {/if}
-          </div>
+        <!-- Tombol Play All & Shuffle di sisi kanan sejajar dengan teks -->
+        <div class="mb-[4px] flex items-center gap-2.5">
+          <button
+            type="button"
+            disabled={displayedAlbums.length === 0 || !onPlayAlbum}
+            onclick={() => displayedAlbums[0] && onPlayAlbum?.(displayedAlbums[0].id)}
+            title="Putar Semua"
+            aria-label="Putar Semua"
+            class="w-11 h-11 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] inline-flex items-center justify-center cursor-pointer transition-transform duration-150 hover:scale-[1.04] active:scale-95 disabled:opacity-40"
+          >
+            <Icon name="play" weight="fill" size={18} />
+          </button>
 
-          {#if displayedAlbums.length > 0 && onPlayAlbum}
-            <button
-              type="button"
-              onclick={() => onPlayAlbum?.(displayedAlbums[0].id)}
-              class="h-9 px-5 rounded-full text-xs font-bold flex items-center gap-2 cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
-              style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
-            >
-              <Icon name="play" weight="fill" size={14} />
-              <span>Putar</span>
-            </button>
-          {/if}
+          <button
+            type="button"
+            disabled={displayedAlbums.length === 0 || !onPlayAlbum}
+            onclick={playShuffledAlbum}
+            title="Acak (Shuffle)"
+            aria-label="Acak (Shuffle)"
+            class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors disabled:opacity-40"
+            style="color: var(--md-sys-color-on-surface);"
+          >
+            <Icon name="shuffle" size={18} />
+          </button>
         </div>
       </div>
+    </section>
 
+    <div
+      class="relative z-10 px-6 sm:px-8 pt-5 pb-10 flex-1 flex flex-col"
+      style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-primary-container) 48%, var(--md-sys-color-surface-container-low)) 0%, color-mix(in srgb, var(--md-sys-color-primary-container) 28%, var(--md-sys-color-surface-container-low)) 120px, color-mix(in srgb, var(--md-sys-color-primary-container) 11%, var(--md-sys-color-surface-container-low)) 240px, var(--md-sys-color-surface-container-low) 340px);"
+    >
       {#if displayedAlbums.length === 0}
         <div class="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
-          <div
-            class="w-14 h-14 mb-4 rounded-2xl flex items-center justify-center"
-            style={albumFilterText.trim() && favoriteAlbumsCount > 0
-              ? 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant);'
-              : 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'}
-          >
-            <Icon name={albumFilterText.trim() && favoriteAlbumsCount > 0 ? 'magnifying-glass' : 'vinyl-record'} weight="fill" size={28} />
+          <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
+            <Icon name="vinyl-record" weight="fill" size={38} />
           </div>
-          {#if albumFilterText.trim() && favoriteAlbumsCount > 0}
-            <div class="space-y-1.5">
-              <p class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
-                Album tidak ditemukan
-              </p>
-              <p class="text-xs max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-                Tidak ada album yang cocok dengan "{albumFilterText.trim()}".
-              </p>
-            </div>
-            <button
-              type="button"
-              onclick={() => (albumFilterText = '')}
-              class="mt-5 h-9 px-5 rounded-full text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
-              style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
-            >
-              <Icon name="x" size={14} />
-              <span>Reset Filter</span>
-            </button>
-          {:else}
-            <div class="space-y-1.5">
-              <p class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
-                Belum ada album favorit
-              </p>
-              <p class="text-xs max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-                Klik ikon hati pada album untuk menyimpannya di sini.
-              </p>
-            </div>
-            <button
-              type="button"
-              onclick={() => onNavigate?.({ name: 'home', filter: 'album' })}
-              class="mt-5 h-9 px-5 rounded-full text-xs font-bold flex items-center gap-2 cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
-              style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
-            >
-              <Icon name="house" weight="fill" size={14} />
-              <span>Jelajahi Album</span>
-            </button>
-          {/if}
+          <h2 class="text-2xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+            Belum ada album favorit
+          </h2>
+          <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
+            Simpan album dengan mengetuk ikon hati.
+          </p>
+          <button
+            type="button"
+            onclick={() => onNavigate?.({ name: 'home', filter: 'album' })}
+            class="mt-6 h-10 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
+            style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
+          >
+            Jelajahi album
+          </button>
         </div>
       {:else}
         <div class="velora-card-grid">
@@ -562,50 +440,30 @@
     </div>
   </div>
 {:else if mode === 'favorite-artists'}
-  <div class="p-6 min-h-full flex flex-col gap-6" use:svelteMotionEnter={{ y: 8 }}>
+  <div class="p-6 min-h-full flex flex-col gap-5" use:svelteMotionEnter={{ y: 8 }}>
     <div class="flex flex-wrap items-center justify-between gap-4">
-      <div>
-        <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--md-sys-color-primary)]">Favorites • Artists</div>
-        <h1 class="text-2xl font-bold tracking-tight mt-0.5" style="color: var(--md-sys-color-on-surface);">
-          Favorite artists
-        </h1>
-        <p class="text-xs mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-          Artis favorit dari koleksi lokal & YouTube Music
-        </p>
-      </div>
+      <h1 class="text-2xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+        Favorite artists
+      </h1>
 
       <div class="flex flex-wrap items-center gap-2">
-        <div class="relative w-56">
-          <span
-            class="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
-            style="color: var(--md-sys-color-on-surface-variant);"
-          >
-            <Icon name="magnifying-glass" size={14} />
-          </span>
-          <input
-            type="search"
-            bind:value={artistFilterText}
-            placeholder="Filter artists..."
-            class="w-full h-9 pl-9 pr-3.5 rounded-full text-xs outline-none bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface)] placeholder:text-[var(--md-sys-color-on-surface-variant)]"
-          />
-        </div>
         <button
           type="button"
           onclick={() => (showAllArtists = false)}
-          class="px-4 py-1.5 rounded-full text-xs font-semibold cursor-pointer transition-colors"
+          class="h-8 px-3.5 rounded-full text-xs font-semibold cursor-pointer transition-colors"
           style={!showAllArtists
             ? 'background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);'
-            : 'background-color: rgba(128, 128, 128, 0.16); color: var(--md-sys-color-on-surface);'}
+            : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);'}
         >
           Favorit ({artists.filter((a) => a.isFavorite).length})
         </button>
         <button
           type="button"
           onclick={() => (showAllArtists = true)}
-          class="px-4 py-1.5 rounded-full text-xs font-semibold cursor-pointer transition-colors"
+          class="h-8 px-3.5 rounded-full text-xs font-semibold cursor-pointer transition-colors"
           style={showAllArtists
             ? 'background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);'
-            : 'background-color: rgba(128, 128, 128, 0.16); color: var(--md-sys-color-on-surface);'}
+            : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);'}
         >
           Semua Artis ({artists.length})
         </button>
@@ -614,46 +472,38 @@
 
     {#if displayedArtists.length === 0}
       <div class="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
-        <div
-          class="w-14 h-14 mb-4 rounded-2xl flex items-center justify-center"
-          style={artistFilterText.trim()
-            ? 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant);'
-            : 'background-color: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);'}
-        >
-          <Icon name={artistFilterText.trim() ? 'magnifying-glass' : 'users'} weight="fill" size={26} />
+        <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
+          <Icon name="users" weight="fill" size={38} />
         </div>
-        <div class="space-y-1.5">
-          <p class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
-            {artistFilterText.trim() ? 'Artis tidak ditemukan' : 'Belum ada artis favorit'}
-          </p>
-          <p class="text-xs max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-            {artistFilterText.trim()
-              ? `Tidak ada artis yang cocok dengan "${artistFilterText.trim()}".`
-              : 'Pilih artis favoritmu dari daftar semua artis.'}
-          </p>
-        </div>
+        <h2 class="text-2xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+          Belum ada artis favorit
+        </h2>
+        <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
+          Pilih artis favoritmu dari daftar semua artis.
+        </p>
         <button
           type="button"
-          onclick={() => (artistFilterText.trim() ? (artistFilterText = '') : (showAllArtists = true))}
-          class="mt-5 h-9 px-5 rounded-full text-xs font-bold flex items-center gap-2 cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
-          style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
+          onclick={() => (showAllArtists = true)}
+          class="mt-6 h-10 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
+          style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
         >
-          <Icon name={artistFilterText.trim() ? 'x' : 'users'} weight="fill" size={14} />
-          <span>{artistFilterText.trim() ? 'Reset Filter' : 'Lihat Semua Artis'}</span>
+          Lihat semua artis
         </button>
       </div>
     {:else}
       <div class="velora-card-grid">
         {#each displayedArtists as ar (ar.id)}
           {@const avatar = resolveCoverUrl(ar.avatarUrl, mediaBaseUrl)}
-          <div class="group w-[172px] flex flex-col justify-start items-stretch self-start p-2.5 rounded-lg relative transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)] text-center">
-            <div class="relative w-[152px] h-[152px] shrink-0 mb-2.5 mx-auto">
+          <div class="group w-[172px] flex flex-col justify-start items-stretch self-start p-2.5 rounded-xl relative transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]">
+            <div
+              class="velora-card-artwork mb-2.5 flex items-center justify-center shadow-md"
+              style="background: linear-gradient(135deg, var(--md-sys-color-primary-container), var(--md-sys-color-surface-container-highest));"
+            >
               <button
                 type="button"
                 onclick={() => onOpenArtist(ar.id)}
                 aria-label="Buka artis {ar.name}"
-                class="relative w-full h-full rounded-full overflow-clip flex items-center justify-center cursor-pointer"
-                style="background: linear-gradient(135deg, var(--md-sys-color-primary-container), var(--md-sys-color-surface-container-highest));"
+                class="velora-card-artwork-hit cursor-pointer"
               >
                 {#if avatar}
                   <img
@@ -661,7 +511,7 @@
                     alt={ar.name}
                     loading="lazy"
                     decoding="async"
-                    class="absolute inset-0 block w-full h-full object-cover object-center"
+                    class="transition-transform duration-300 group-hover:scale-[1.03]"
                     class:velora-yt-video-thumb={isYTVideoThumb(avatar)}
                   />
                 {:else}
@@ -672,18 +522,15 @@
                 type="button"
                 onclick={() => (onPlayArtist ? onPlayArtist(ar.id) : onOpenArtist(ar.id))}
                 aria-label="Putar lagu {ar.name}"
-                class="absolute bottom-2 right-2 w-10 h-10 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 hover:scale-105"
+                class="absolute bottom-2 right-2 w-10 h-10 rounded-full border-0 outline-none shadow-lg bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 hover:scale-105"
               >
                 <Icon name="play" weight="fill" size={18} />
               </button>
             </div>
 
-            <button type="button" onclick={() => onOpenArtist(ar.id)} class="w-full flex flex-col justify-start items-stretch text-center cursor-pointer">
+            <button type="button" onclick={() => onOpenArtist(ar.id)} class="w-full text-left cursor-pointer">
               <div class="text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
                 {ar.name}
-              </div>
-              <div class="text-[11px] leading-snug line-clamp-2 mt-0.5 tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
-                Artis • {ar.trackCount} lagu
               </div>
             </button>
 
@@ -691,15 +538,15 @@
               type="button"
               onclick={() => onToggleFavoriteArtist(ar.id)}
               aria-label="Favoritkan artis {ar.name}"
-              class="border-0 shadow-none absolute top-4 right-4 w-8 h-8 rounded-full bg-black/55 backdrop-blur-xs flex items-center justify-center cursor-pointer transition-opacity {ar.isFavorite
+              class="border-0 shadow-none absolute top-4 right-4 w-8 h-8 rounded-full backdrop-blur-xs flex items-center justify-center cursor-pointer transition-opacity {ar.isFavorite
                 ? 'opacity-100'
                 : 'opacity-0 group-hover:opacity-100'}"
+              style="background-color: color-mix(in srgb, var(--md-sys-color-surface-container-highest) 78%, transparent); color: {ar.isFavorite ? 'var(--md-sys-color-tertiary)' : 'var(--md-sys-color-on-surface-variant)'};"
             >
               <Icon
                 name="heart"
                 weight={ar.isFavorite ? 'fill' : 'regular'}
                 size={15}
-                class={ar.isFavorite ? 'text-rose-400' : 'text-[var(--md-sys-color-on-surface-variant)]'}
               />
             </button>
           </div>
