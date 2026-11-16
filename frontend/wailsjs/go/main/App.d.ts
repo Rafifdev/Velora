@@ -78,6 +78,8 @@ export function SaveYTMusicTrack(arg1:sources.YTMusicTrack):Promise<db.Track>;
 
 export function SearchYouTubeMusic(arg1:string):Promise<Array<sources.YTMusicTrack>>;
 
+export function SearchYouTubeMusicAlbums(arg1:string):Promise<Array<sources.YTMusicCard>>;
+
 export function SearchYouTubeMusicPlaylists(arg1:string):Promise<Array<sources.YTMusicCard>>;
 
 export function ToggleFavoriteAlbum(arg1:number):Promise<boolean>;
@@ -85,6 +87,8 @@ export function ToggleFavoriteAlbum(arg1:number):Promise<boolean>;
 export function ToggleFavoriteArtist(arg1:number):Promise<boolean>;
 
 export function ToggleFavoriteTrack(arg1:number):Promise<boolean>;
+
+export function ToggleFavoriteYTMusicAlbum(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number):Promise<db.Album>;
 
 export function UpdatePlaylist(arg1:number,arg2:string,arg3:string,arg4:string):Promise<db.Playlist>;
 

@@ -171,6 +171,10 @@ func (a *App) ToggleFavoriteAlbum(id int64) (bool, error) {
 	return a.store.ToggleFavoriteAlbum(id)
 }
 
+func (a *App) ToggleFavoriteYTMusicAlbum(browseID, title, artistName, coverURL string, releaseYear int) (db.Album, error) {
+	return a.store.ToggleFavoriteYTMusicAlbum(browseID, title, artistName, coverURL, releaseYear)
+}
+
 func (a *App) ToggleFavoriteArtist(id int64) (bool, error) {
 	return a.store.ToggleFavoriteArtist(id)
 }
@@ -309,6 +313,16 @@ func (a *App) SearchYouTubeMusicPlaylists(query string) ([]sources.YTMusicCard, 
 	reqCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
 	return a.ytClient.SearchPlaylists(reqCtx, query)
+}
+
+func (a *App) SearchYouTubeMusicAlbums(query string) ([]sources.YTMusicCard, error) {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	return a.ytClient.SearchAlbums(reqCtx, query)
 }
 
 func (a *App) GetYTMusicHome() (sources.YTMusicHomeFeed, error) {

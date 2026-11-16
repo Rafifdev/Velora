@@ -417,6 +417,59 @@ func (s *Store) ToggleFavoriteAlbum(id int64) (bool, error) {
 	return next == 1, nil
 }
 
+func (s *Store) ToggleFavoriteYTMusicAlbum(browseID, title, artistName, coverURL string, releaseYear int) (Album, error) {
+	browseID = strings.TrimSpace(browseID)
+	title = strings.TrimSpace(title)
+	artistName = strings.TrimSpace(artistName)
+	if title == "" {
+		title = "Unknown Album"
+	}
+	if artistName == "" {
+		artistName = "YouTube Music"
+	}
+
+	var id int64
+	if browseID != "" {
+		_ = s.db.QueryRow(
+			`SELECT id FROM albums WHERE source_type = 'ytmusic' AND external_id = ? LIMIT 1`,
+			browseID,
+		).Scan(&id)
+	}
+	if id == 0 {
+		artistID, err := s.ensureArtist(artistName, coverURL, "ytmusic", "")
+		if err != nil {
+			return Album{}, err
+		}
+		id, err = s.ensureAlbum(title, artistID, artistName, coverURL, releaseYear, "ytmusic", browseID)
+		if err != nil {
+			return Album{}, err
+		}
+	}
+	if browseID != "" {
+		_, _ = s.db.Exec(`UPDATE albums SET external_id = ? WHERE id = ? AND external_id = ''`, browseID, id)
+	}
+	if coverURL != "" {
+		_, _ = s.db.Exec(`UPDATE albums SET cover_url = ? WHERE id = ? AND cover_url = ''`, coverURL, id)
+	}
+
+	if _, err := s.ToggleFavoriteAlbum(id); err != nil {
+		return Album{}, err
+	}
+
+	var al Album
+	var fav int
+	err := s.db.QueryRow(`
+		SELECT a.id, a.title, a.artist_id, a.artist_name, a.cover_url, a.release_year, a.source_type, a.external_id, a.is_favorite,
+		       (SELECT COUNT(*) FROM tracks t WHERE t.album_id = a.id) AS track_count
+		FROM albums a WHERE a.id = ?`, id,
+	).Scan(&al.ID, &al.Title, &al.ArtistID, &al.ArtistName, &al.CoverURL, &al.ReleaseYear, &al.SourceType, &al.ExternalID, &fav, &al.TrackCount)
+	if err != nil {
+		return Album{}, err
+	}
+	al.IsFavorite = fav == 1
+	return al, nil
+}
+
 func (s *Store) GetArtists(favoritesOnly bool) ([]Artist, error) {
 	query := `
 		SELECT ar.id, ar.name, ar.avatar_url, ar.bio, ar.source_type, ar.external_id, ar.is_favorite,

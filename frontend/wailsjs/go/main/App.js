@@ -146,6 +146,10 @@ export function SearchYouTubeMusic(arg1) {
   return window['go']['main']['App']['SearchYouTubeMusic'](arg1);
 }
 
+export function SearchYouTubeMusicAlbums(arg1) {
+  return window['go']['main']['App']['SearchYouTubeMusicAlbums'](arg1);
+}
+
 export function SearchYouTubeMusicPlaylists(arg1) {
   return window['go']['main']['App']['SearchYouTubeMusicPlaylists'](arg1);
 }
@@ -160,6 +164,10 @@ export function ToggleFavoriteArtist(arg1) {
 
 export function ToggleFavoriteTrack(arg1) {
   return window['go']['main']['App']['ToggleFavoriteTrack'](arg1);
+}
+
+export function ToggleFavoriteYTMusicAlbum(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['ToggleFavoriteYTMusicAlbum'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function UpdatePlaylist(arg1, arg2, arg3, arg4) {
