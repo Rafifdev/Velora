@@ -11,7 +11,7 @@
     getPrefValue,
     type SettingItemDef
   } from '../lib/nuclearPrefs';
-  import type { FireStreakStatus, ListeningStats, PlayHistoryItem, Track } from '../lib/types';
+  import type { FireStreakStatus, ListeningStats, PlayHistoryItem, Track, ViewRoute } from '../lib/types';
   import Icon from '../components/Icon.svelte';
 
   interface Props {
@@ -29,6 +29,7 @@
     onClearHistory: () => void;
     onSavePreferences: (prefs: Record<string, string>) => void;
     onClearCache: () => void;
+    onNavigate?: (route: ViewRoute) => void;
   }
 
   let {
@@ -45,7 +46,8 @@
     onPlayTrack,
     onClearHistory,
     onSavePreferences,
-    onClearCache
+    onClearCache,
+    onNavigate
   }: Props = $props();
 
   let savedToast = $state('');
@@ -294,7 +296,7 @@
 {/snippet}
 
 {#if mode === 'history'}
-  <div class="px-5 py-4 space-y-5" use:svelteMotionEnter={{ y: 8 }}>
+  <div class="px-5 py-4 min-h-full flex flex-col gap-5" use:svelteMotionEnter={{ y: 8 }}>
     <!-- Nuclear Music Player Header + Tabs -->
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div class="flex items-center gap-3.5 min-w-0">
@@ -376,13 +378,35 @@
         </div>
       </div>
 
-      {#if history.length === 0}
-        <div class="rounded-lg bg-[var(--md-sys-color-surface-container-low)] px-6 py-12 text-center text-xs text-[var(--md-sys-color-on-surface-variant)]">
-          Belum ada riwayat pemutaran. Putar lagu apa saja untuk merekam History.
-        </div>
-      {:else if filteredHistory.length === 0}
-        <div class="rounded-lg bg-[var(--md-sys-color-surface-container-low)] px-6 py-10 text-center text-xs text-[var(--md-sys-color-on-surface-variant)]">
-          Tidak ada riwayat yang cocok dengan "{historyFilter}".
+      {#if history.length === 0 || filteredHistory.length === 0}
+        <div class="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
+          <div
+            class="w-14 h-14 mb-4 rounded-2xl flex items-center justify-center"
+            style={history.length === 0
+              ? 'background-color: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);'
+              : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant);'}
+          >
+            <Icon name={history.length === 0 ? 'clock-counter-clockwise' : 'magnifying-glass'} weight="fill" size={26} />
+          </div>
+          <div class="space-y-1.5">
+            <p class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
+              {history.length === 0 ? 'Belum ada riwayat putar' : 'Riwayat tidak ditemukan'}
+            </p>
+            <p class="text-xs max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
+              {history.length === 0
+                ? 'Lagu yang kamu putar akan muncul di sini.'
+                : `Tidak ada riwayat yang cocok dengan "${historyFilter.trim()}".`}
+            </p>
+          </div>
+          <button
+            type="button"
+            onclick={() => (history.length === 0 ? onNavigate?.({ name: 'home' }) : (historyFilter = ''))}
+            class="mt-5 h-9 px-5 rounded-full text-xs font-bold flex items-center gap-2 cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
+            style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
+          >
+            <Icon name={history.length === 0 ? 'house' : 'x'} weight="fill" size={14} />
+            <span>{history.length === 0 ? 'Mulai Dengarkan' : 'Reset Filter'}</span>
+          </button>
         </div>
       {:else}
         <div class="space-y-1">

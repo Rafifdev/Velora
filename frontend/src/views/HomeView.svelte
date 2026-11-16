@@ -1,7 +1,7 @@
 <script lang="ts">
   import { isYTVideoThumb, resolveCoverUrl } from '../lib/api';
   import { svelteMotionEnter } from '../lib/motion';
-  import type { Album, Playlist, ViewRoute, YTMusicCard, YTMusicShelf, YTMusicTrack } from '../lib/types';
+  import type { Album, HomeFilter, Playlist, ViewRoute, YTMusicCard, YTMusicShelf, YTMusicTrack } from '../lib/types';
   import Icon from '../components/Icon.svelte';
 
   interface Props {
@@ -10,6 +10,8 @@
     ytShelves: YTMusicShelf[];
     ytResults: YTMusicTrack[];
     ytPlaylistResults?: YTMusicCard[];
+    ytAlbumResults?: YTMusicCard[];
+    initialFilter?: HomeFilter;
     ytLoading: boolean;
     ytHomeLoading: boolean;
     ytLoadingMore?: boolean;
@@ -17,12 +19,14 @@
     mediaBaseUrl: string;
     onPlayYTMusic: (yt: YTMusicTrack) => void;
     onPlayYTCollection: (card: YTMusicCard) => void;
+    onOpenYTAlbum?: (card: YTMusicCard) => void;
     onPlayPlaylist?: (playlistId: number) => void;
     onPlayAlbum?: (albumId: number) => void;
     onSearchYTMusic: (query: string) => void;
     onSearchYTMusicPlaylists?: (query: string) => void;
+    onSearchYTMusicAlbums?: (query: string) => void;
     onRefreshYTMusicHome: () => void;
-    onLoadMoreYTMusic?: (category: 'semua' | 'musik' | 'playlist' | 'podcast' | 'buku') => void;
+    onLoadMoreYTMusic?: (category: HomeFilter) => void;
     onNavigate: (route: ViewRoute) => void;
   }
 
@@ -31,6 +35,8 @@
     ytShelves,
     ytResults,
     ytPlaylistResults = [],
+    ytAlbumResults = [],
+    initialFilter,
     ytLoading,
     ytHomeLoading,
     ytLoadingMore = false,
@@ -38,19 +44,34 @@
     mediaBaseUrl,
     onPlayYTMusic,
     onPlayYTCollection,
+    onOpenYTAlbum,
     onPlayPlaylist,
     onSearchYTMusic,
     onSearchYTMusicPlaylists,
+    onSearchYTMusicAlbums,
     onRefreshYTMusicHome,
     onLoadMoreYTMusic,
     onNavigate
   }: Props = $props();
 
-  let activeFilterPill = $state<'semua' | 'musik' | 'playlist' | 'podcast' | 'buku'>('semua');
+  let activeFilterPill = $state<HomeFilter>('semua');
   let filteredMoreLoaded = $state(false);
   let expandedShelves = $state<Record<string, boolean>>({ 'yt-Lagu Lainnya untuk Anda': true });
   let stickyContainerEl: HTMLElement | undefined = $state();
   let pillsStuck = $state(false);
+
+  $effect(() => {
+    if (!initialFilter) return;
+    activeFilterPill = initialFilter;
+    filteredMoreLoaded = false;
+    if (initialFilter === 'album' && ytAlbumResults.length === 0) {
+      onSearchYTMusicAlbums?.('');
+    } else if (initialFilter === 'musik' && ytResults.length === 0) {
+      onSearchYTMusic('Trending Pop Music Indonesia');
+    } else if (initialFilter === 'playlist' && ytPlaylistResults.length === 0) {
+      onSearchYTMusicPlaylists?.('Top Hits Indonesia Playlist');
+    }
+  });
 
   $effect(() => {
     const el = stickyContainerEl;
@@ -104,6 +125,7 @@
   const filterPills = [
     { id: 'semua', label: 'Semua' },
     { id: 'musik', label: 'Musik' },
+    { id: 'album', label: 'Album' },
     { id: 'playlist', label: 'Playlist' },
     { id: 'podcast', label: 'Podcast' },
     { id: 'buku', label: 'Buku Audio' }
@@ -112,12 +134,23 @@
   const pillHeading = $derived(
     activeFilterPill === 'musik'
       ? 'Musik YouTube Music'
-      : activeFilterPill === 'playlist'
-        ? 'Playlist YouTube Music'
-        : activeFilterPill === 'podcast'
-          ? 'Podcast'
-          : 'Buku Audio'
+      : activeFilterPill === 'album'
+        ? 'Album YouTube Music'
+        : activeFilterPill === 'playlist'
+          ? 'Playlist YouTube Music'
+          : activeFilterPill === 'podcast'
+            ? 'Podcast'
+            : 'Buku Audio'
   );
+
+  const displayedFilteredAlbums = $derived.by(() => {
+    if (ytAlbumResults.length <= 7) return ytAlbumResults;
+    const fullRows = Math.floor(ytAlbumResults.length / 7) * 7;
+    if (!filteredMoreLoaded) {
+      return ytAlbumResults.slice(0, Math.min(21, fullRows));
+    }
+    return ytAlbumResults.slice(0, fullRows);
+  });
 
   const displayedFilteredPlaylists = $derived.by(() => {
     if (ytPlaylistResults.length <= 7) return ytPlaylistResults;
@@ -185,6 +218,8 @@
               if (ytShelves.length === 0) onRefreshYTMusicHome();
             } else if (pill.id === 'musik') {
               onSearchYTMusic('Trending Pop Music Indonesia');
+            } else if (pill.id === 'album') {
+              onSearchYTMusicAlbums?.('');
             } else if (pill.id === 'playlist') {
               onSearchYTMusicPlaylists?.('Top Hits Indonesia Playlist');
             } else if (pill.id === 'podcast') {
@@ -382,12 +417,17 @@
                         ? 'opacity-100 translate-y-0'
                         : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'}"
                     >
-                      <Icon
-                        name={isItemLoading ? 'spinner' : 'play'}
-                        weight={isItemLoading ? 'bold' : 'fill'}
-                        size={18}
-                        class={isItemLoading ? 'animate-spin' : ''}
-                      />
+                      {#if isItemLoading}
+                        <span class="velora-eq-loader" style="--loader-color: currentColor; transform: scale(0.75);" aria-hidden="true">
+                          <span class="velora-eq-bar"></span>
+                          <span class="velora-eq-bar"></span>
+                          <span class="velora-eq-bar"></span>
+                          <span class="velora-eq-bar"></span>
+                          <span class="velora-eq-bar"></span>
+                        </span>
+                      {:else}
+                        <Icon name="play" weight="fill" size={18} />
+                      {/if}
                     </span>
                   </div>
 
@@ -420,13 +460,126 @@
               </div>
             {/each}
           </div>
+        {:else if activeFilterPill === 'album'}
+          {#if ytAlbumResults.length === 0}
+            <div class="flex flex-col items-center justify-center text-center py-14 px-4">
+              <div
+                class="w-14 h-14 mb-4 rounded-2xl flex items-center justify-center"
+                style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
+              >
+                <Icon name="vinyl-record" weight="fill" size={26} />
+              </div>
+              <div class="space-y-1.5">
+                <p class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
+                  Belum ada album
+                </p>
+                <p class="text-xs max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
+                  Album untuk kategori ini belum tersedia.
+                </p>
+              </div>
+              <button
+                type="button"
+                onclick={() => onSearchYTMusicAlbums?.('')}
+                class="mt-5 h-9 px-5 rounded-full text-xs font-bold flex items-center gap-2 cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
+                style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
+              >
+                <Icon name="arrow-clockwise" weight="bold" size={14} />
+                <span>Muat Ulang</span>
+              </button>
+            </div>
+          {:else}
+            <div class="velora-card-grid-7">
+              {#each displayedFilteredAlbums as item (item.id)}
+                {@const cover = resolveCoverUrl(item.coverUrl, mediaBaseUrl)}
+                {@const isItemLoading = loadingCollectionId === item.id}
+                <div
+                  role="group"
+                  class="group w-full min-w-0 flex flex-col justify-start items-stretch self-start p-2.5 rounded-lg text-left transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]"
+                >
+                  <div class="velora-card-artwork mb-2.5 flex items-center justify-center" style="background: linear-gradient(135deg, var(--md-sys-color-primary-container), var(--md-sys-color-surface-container-highest));">
+                    <button
+                      type="button"
+                      onclick={() => (onOpenYTAlbum ? onOpenYTAlbum(item) : onPlayYTCollection(item))}
+                      aria-label="Buka album {item.title}"
+                      class="velora-card-artwork-hit cursor-pointer"
+                    >
+                      {#if cover}
+                        <img
+                          src={cover}
+                          alt={item.title}
+                          loading="lazy"
+                          decoding="async"
+                          class:velora-yt-video-thumb={isYTVideoThumb(cover)}
+                        />
+                      {:else}
+                        <Icon name="vinyl-record" weight="fill" size={44} style="color: var(--md-sys-color-on-primary-container); opacity: 0.55;" />
+                      {/if}
+                    </button>
+
+                    <button
+                      type="button"
+                      onclick={() => onPlayYTCollection(item)}
+                      aria-label="Putar album {item.title}"
+                      class="absolute bottom-2 right-2 w-10 h-10 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer transition-all duration-200 {isItemLoading
+                        ? 'opacity-100 translate-y-0'
+                        : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'}"
+                    >
+                      {#if isItemLoading}
+                        <span class="velora-eq-loader" style="--loader-color: currentColor; transform: scale(0.75);" aria-hidden="true">
+                          <span class="velora-eq-bar"></span>
+                          <span class="velora-eq-bar"></span>
+                          <span class="velora-eq-bar"></span>
+                          <span class="velora-eq-bar"></span>
+                          <span class="velora-eq-bar"></span>
+                        </span>
+                      {:else}
+                        <Icon name="play" weight="fill" size={18} />
+                      {/if}
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onclick={() => (onOpenYTAlbum ? onOpenYTAlbum(item) : onPlayYTCollection(item))}
+                    class="w-full text-left cursor-pointer"
+                  >
+                    <div class="text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
+                      {item.title}
+                    </div>
+                    <div class="text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
+                      {item.subtitle || 'Album • YouTube Music'}
+                    </div>
+                  </button>
+                </div>
+              {/each}
+            </div>
+          {/if}
         {:else if activeFilterPill === 'playlist'}
           {#if ytPlaylistResults.length === 0}
-            <div class="p-8 rounded-lg text-center space-y-2" style="background-color: var(--md-sys-color-surface-container-low);">
-              <Icon name="playlist" weight="fill" size={36} class="mx-auto opacity-50" />
-              <p class="text-xs" style="color: var(--md-sys-color-on-surface-variant);">
-                Belum ada playlist dari YouTube Music untuk kategori ini.
-              </p>
+            <div class="flex flex-col items-center justify-center text-center py-14 px-4">
+              <div
+                class="w-14 h-14 mb-4 rounded-2xl flex items-center justify-center"
+                style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
+              >
+                <Icon name="playlist" weight="fill" size={26} />
+              </div>
+              <div class="space-y-1.5">
+                <p class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
+                  Belum ada playlist
+                </p>
+                <p class="text-xs max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
+                  Playlist untuk kategori ini belum tersedia.
+                </p>
+              </div>
+              <button
+                type="button"
+                onclick={() => onSearchYTMusicPlaylists?.('Top Hits Indonesia Playlist')}
+                class="mt-5 h-9 px-5 rounded-full text-xs font-bold flex items-center gap-2 cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
+                style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
+              >
+                <Icon name="arrow-clockwise" weight="bold" size={14} />
+                <span>Muat Ulang</span>
+              </button>
             </div>
           {:else}
             <div class="velora-card-grid-7">
@@ -456,12 +609,17 @@
                         ? 'opacity-100 translate-y-0'
                         : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'}"
                     >
-                      <Icon
-                        name={isItemLoading ? 'spinner' : 'play'}
-                        weight={isItemLoading ? 'bold' : 'fill'}
-                        size={18}
-                        class={isItemLoading ? 'animate-spin' : ''}
-                      />
+                      {#if isItemLoading}
+                        <span class="velora-eq-loader" style="--loader-color: currentColor; transform: scale(0.75);" aria-hidden="true">
+                          <span class="velora-eq-bar"></span>
+                          <span class="velora-eq-bar"></span>
+                          <span class="velora-eq-bar"></span>
+                          <span class="velora-eq-bar"></span>
+                          <span class="velora-eq-bar"></span>
+                        </span>
+                      {:else}
+                        <Icon name="play" weight="fill" size={18} />
+                      {/if}
                     </span>
                   </div>
 
@@ -476,11 +634,37 @@
             </div>
           {/if}
         {:else if ytResults.length === 0}
-          <div class="p-8 rounded-lg text-center space-y-2" style="background-color: var(--md-sys-color-surface-container-low);">
-            <Icon name="music-notes" weight="fill" size={36} class="mx-auto opacity-50" />
-            <p class="text-xs" style="color: var(--md-sys-color-on-surface-variant);">
-              Belum ada hasil dari YouTube Music untuk kategori ini.
-            </p>
+          <div class="flex flex-col items-center justify-center text-center py-14 px-4">
+            <div
+              class="w-14 h-14 mb-4 rounded-2xl flex items-center justify-center"
+              style="background-color: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container);"
+            >
+              <Icon name="music-notes" weight="fill" size={26} />
+            </div>
+            <div class="space-y-1.5">
+              <p class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
+                Belum ada lagu
+              </p>
+              <p class="text-xs max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
+                Hasil untuk kategori ini belum tersedia.
+              </p>
+            </div>
+            <button
+              type="button"
+              onclick={() =>
+                onSearchYTMusic(
+                  activeFilterPill === 'podcast'
+                    ? 'Podcast Musik Indonesia'
+                    : activeFilterPill === 'buku'
+                      ? 'Audiobook Chill Ambient'
+                      : 'Trending Pop Music Indonesia'
+                )}
+              class="mt-5 h-9 px-5 rounded-full text-xs font-bold flex items-center gap-2 cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
+              style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
+            >
+              <Icon name="arrow-clockwise" weight="bold" size={14} />
+              <span>Muat Ulang</span>
+            </button>
           </div>
         {:else}
           <div class="velora-card-grid-7">
@@ -524,12 +708,18 @@
       </section>
     {/if}
 
-    {#if !(activeFilterPill === 'semua' && ytHomeLoading && ytShelves.length === 0) && !(activeFilterPill !== 'semua' && ytLoading && (activeFilterPill === 'playlist' ? ytPlaylistResults.length === 0 : ytResults.length === 0))}
+    {#if !(activeFilterPill === 'semua' && ytHomeLoading && ytShelves.length === 0) && !(activeFilterPill !== 'semua' && ytLoading && (activeFilterPill === 'playlist' ? ytPlaylistResults.length === 0 : activeFilterPill === 'album' ? ytAlbumResults.length === 0 : ytResults.length === 0))}
       <div class="pt-2 pb-6 flex justify-center">
         <button
           type="button"
           disabled={ytLoadingMore}
-          aria-label={ytLoadingMore ? 'Memuat' : activeFilterPill === 'playlist' ? 'Muat lebih banyak playlist' : 'Muat lebih banyak lagu'}
+          aria-label={ytLoadingMore
+            ? 'Memuat'
+            : activeFilterPill === 'playlist'
+              ? 'Muat lebih banyak playlist'
+              : activeFilterPill === 'album'
+                ? 'Muat lebih banyak album'
+                : 'Muat lebih banyak lagu'}
           onclick={() => {
             if (activeFilterPill === 'semua') {
               expandedShelves = {
@@ -554,6 +744,8 @@
             </span>
           {:else if activeFilterPill === 'playlist'}
             Muat lebih banyak playlist
+          {:else if activeFilterPill === 'album'}
+            Muat lebih banyak album
           {:else}
             Muat lebih banyak lagu
           {/if}

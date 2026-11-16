@@ -8,8 +8,8 @@
 
   let { onComplete, isDark = true }: Props = $props();
 
-  // Animasi dirender dengan Remotion (lihat splash-remotion/) menjadi WebM ber-alpha
-  // untuk tema gelap & terang, lalu diputar sinkron agar pergantian tema tetap mulus.
+  // Animasi dirender menjadi WebM ber-alpha untuk tema gelap & terang,
+  // lalu diputar sinkron agar pergantian tema tetap mulus.
   let darkVideo = $state<HTMLVideoElement | null>(null);
   let lightVideo = $state<HTMLVideoElement | null>(null);
   let ready = $state(false);

@@ -382,7 +382,7 @@
   </div>
 {:else}
   <!-- Nuclear Playlists Overview (Borderless) -->
-  <div class="p-6 space-y-6" use:svelteMotionEnter={{ y: 8 }}>
+  <div class="p-6 min-h-full flex flex-col gap-6" use:svelteMotionEnter={{ y: 8 }}>
     <div class="flex flex-wrap items-center justify-between gap-4">
       <div>
         <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--md-sys-color-primary)]">Collection • Playlists</div>
@@ -456,12 +456,34 @@
     </div>
 
     {#if visiblePlaylists.length === 0}
-      <div class="p-10 text-center space-y-2 rounded-lg" style="background-color: var(--md-sys-color-surface-container-low);">
-        <Icon name="playlist" weight="fill" size={32} class="mx-auto opacity-50" />
-        <p class="text-sm font-semibold">Belum ada playlist di kategori ini</p>
-        <p class="text-xs" style="color: var(--md-sys-color-on-surface-variant);">
-          Buat playlist baru atau impor file .m3u untuk mengoleksi daftar putarmu.
-        </p>
+      <div class="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
+        <div
+          class="w-14 h-14 mb-4 rounded-2xl flex items-center justify-center"
+          style={playlistSearch.trim()
+            ? 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant);'
+            : 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'}
+        >
+          <Icon name={playlistSearch.trim() ? 'magnifying-glass' : 'playlist'} weight="fill" size={26} />
+        </div>
+        <div class="space-y-1.5">
+          <p class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
+            {playlistSearch.trim() ? 'Playlist tidak ditemukan' : 'Belum ada playlist'}
+          </p>
+          <p class="text-xs max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
+            {playlistSearch.trim()
+              ? `Tidak ada playlist yang cocok dengan "${playlistSearch.trim()}".`
+              : 'Buat playlist baru untuk mengumpulkan lagu favoritmu.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          onclick={() => (playlistSearch.trim() ? (playlistSearch = '') : onCreatePlaylist(false))}
+          class="mt-5 h-9 px-5 rounded-full text-xs font-bold flex items-center gap-2 cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
+          style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
+        >
+          <Icon name={playlistSearch.trim() ? 'x' : 'plus'} weight="bold" size={14} />
+          <span>{playlistSearch.trim() ? 'Reset Filter' : 'Buat Playlist'}</span>
+        </button>
       </div>
     {:else}
       <div class="velora-card-grid">

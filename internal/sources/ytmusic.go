@@ -218,6 +218,133 @@ func (c *YTMusicClient) SearchPlaylists(ctx context.Context, query string) ([]YT
 	return results, nil
 }
 
+// SearchAlbums searches YouTube Music for albums (plus new releases when query is empty/default).
+func (c *YTMusicClient) SearchAlbums(ctx context.Context, query string) ([]YTMusicCard, error) {
+	query = strings.TrimSpace(query)
+	var results []YTMusicCard
+	seen := map[string]struct{}{}
+
+	if query == "" {
+		if tree, err := c.postInnerTube(ctx, "browse", map[string]any{
+			"context":  ytWebRemixContext(),
+			"browseId": "FEmusic_new_releases_albums",
+		}); err == nil {
+			extractAlbumSearchItems(tree, &results, seen)
+		}
+		query = "Top Pop Indonesia Album"
+	}
+
+	if len(results) < 28 {
+		payload := map[string]any{
+			"context": ytWebRemixContext(),
+			"query":   query,
+			"params":  "EgWKAQIYAWoMEAMQBBAJEAoQBRAV",
+		}
+		if tree, err := c.postInnerTube(ctx, "search", payload); err == nil {
+			extractAlbumSearchItems(tree, &results, seen)
+		}
+	}
+
+	if len(results) > 28 {
+		results = results[:28]
+	}
+	if results == nil {
+		results = []YTMusicCard{}
+	}
+	return results, nil
+}
+
+func extractAlbumSearchItems(node any, out *[]YTMusicCard, seen map[string]struct{}) {
+	switch v := node.(type) {
+	case map[string]any:
+		if mr, ok := v["musicResponsiveListItemRenderer"].(map[string]any); ok {
+			if card, ok := parseResponsiveAlbumItem(mr); ok {
+				if _, dup := seen[card.BrowseID]; !dup {
+					seen[card.BrowseID] = struct{}{}
+					*out = append(*out, card)
+				}
+			}
+			return
+		}
+		if tr, ok := v["musicTwoRowItemRenderer"].(map[string]any); ok {
+			if card, ok := parseTwoRowItem(tr); ok && card.Kind == "album" && card.BrowseID != "" {
+				if _, dup := seen[card.BrowseID]; !dup {
+					seen[card.BrowseID] = struct{}{}
+					*out = append(*out, card)
+				}
+			}
+			return
+		}
+		for _, child := range v {
+			extractAlbumSearchItems(child, out, seen)
+		}
+	case []any:
+		for _, child := range v {
+			extractAlbumSearchItems(child, out, seen)
+		}
+	}
+}
+
+func parseResponsiveAlbumItem(r map[string]any) (YTMusicCard, bool) {
+	browseID := ""
+	pageType := ""
+	playlistID := ""
+
+	if nav, ok := r["navigationEndpoint"].(map[string]any); ok {
+		if be, ok := nav["browseEndpoint"].(map[string]any); ok {
+			browseID, _ = be["browseId"].(string)
+			if cfg, ok := be["browseEndpointContextSupportedConfigs"].(map[string]any); ok {
+				if mc, ok := cfg["browseEndpointContextMusicConfig"].(map[string]any); ok {
+					pageType, _ = mc["pageType"].(string)
+				}
+			}
+		}
+	}
+	if overlay, ok := r["overlay"].(map[string]any); ok {
+		if to, ok := overlay["musicItemThumbnailOverlayRenderer"].(map[string]any); ok {
+			if content, ok := to["content"].(map[string]any); ok {
+				if btn, ok := content["musicPlayButtonRenderer"].(map[string]any); ok {
+					if pnav, ok := btn["playNavigationEndpoint"].(map[string]any); ok {
+						if wpe, ok := pnav["watchPlaylistEndpoint"].(map[string]any); ok {
+							if pid, ok := wpe["playlistId"].(string); ok && pid != "" {
+								playlistID = pid
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if browseID == "" || (!strings.HasPrefix(browseID, "MPREb_") && pageType != "MUSIC_PAGE_TYPE_ALBUM") {
+		return YTMusicCard{}, false
+	}
+
+	title := ""
+	subtitle := ""
+	if cols, ok := r["flexColumns"].([]any); ok {
+		if len(cols) > 0 {
+			title = extractColumnText(cols[0])
+		}
+		if len(cols) > 1 {
+			subtitle = extractColumnText(cols[1])
+		}
+	}
+	if title == "" {
+		return YTMusicCard{}, false
+	}
+	cover := findLastThumbnailURL(r)
+	return YTMusicCard{
+		ID:         browseID,
+		Title:      title,
+		Subtitle:   subtitle,
+		CoverURL:   cover,
+		Kind:       "album",
+		BrowseID:   browseID,
+		PlaylistID: playlistID,
+	}, true
+}
+
 func extractPlaylistSearchItems(node any, out *[]YTMusicCard, seen map[string]struct{}) {
 	switch v := node.(type) {
 	case map[string]any:

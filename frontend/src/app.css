@@ -718,13 +718,18 @@ input[type='search']::-webkit-search-cancel-button {
   gap: 2px;
   height: 14px;
   width: 16px;
+  color: var(--md-sys-color-tertiary);
+}
+
+.group:hover .velora-playing-eq {
+  display: none;
 }
 
 .velora-playing-eq span {
   width: 2.5px;
   height: 14px;
   border-radius: 9999px;
-  background-color: var(--md-sys-color-tertiary);
+  background-color: currentColor;
   transform-origin: bottom;
   animation: velora-playing-wave 0.9s ease-in-out infinite;
 }

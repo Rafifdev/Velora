@@ -29,6 +29,13 @@
     ytAlbum?: YTMusicAlbumView | null;
     ytAlbumLoading?: boolean;
     onOpenYTAlbum?: (card: YTMusicCard) => void;
+    onToggleFavoriteYTMusicAlbum?: (payload: {
+      browseId: string;
+      title: string;
+      artist: string;
+      coverUrl: string;
+      releaseYear: number;
+    }) => void;
   }
 
   let {
@@ -54,7 +61,8 @@
     onOpenAlbum,
     ytAlbum = null,
     ytAlbumLoading = false,
-    onOpenYTAlbum
+    onOpenYTAlbum,
+    onToggleFavoriteYTMusicAlbum
   }: Props = $props();
 
   const displayTitle = $derived(ytAlbum?.title || album?.title || track?.albumTitle || track?.title || 'Album');
@@ -62,6 +70,20 @@
   const displayArtistId = $derived(ytAlbum ? 0 : track?.artistId || 0);
   const rawCover = $derived(ytAlbum?.coverUrl || album?.coverUrl || track?.coverUrl || '');
   const cover = $derived(resolveCoverUrl(rawCover, mediaBaseUrl));
+
+  const isYTFavAlbum = $derived.by(() => {
+    if (!ytAlbum) return false;
+    const bid = (ytAlbum.browseId || '').trim();
+    const tLow = displayTitle.trim().toLowerCase();
+    const aLow = displayArtist.trim().toLowerCase();
+    return albums.some(
+      (a) =>
+        a.isFavorite &&
+        a.sourceType === 'ytmusic' &&
+        ((bid !== '' && a.externalId === bid) ||
+          (a.title.trim().toLowerCase() === tLow && a.artistName.trim().toLowerCase() === aLow))
+    );
+  });
 
   const listTracks = $derived.by(() => {
     if (ytAlbum && ytAlbum.tracks.length > 0) return ytAlbum.tracks;
@@ -321,7 +343,27 @@
             >
               <Icon name="heart" weight={album.isFavorite ? 'fill' : 'regular'} size={18} />
             </button>
-          {:else if track}
+          {:else if ytAlbum && onToggleFavoriteYTMusicAlbum}
+            <button
+              type="button"
+              onclick={() =>
+                onToggleFavoriteYTMusicAlbum({
+                  browseId: ytAlbum.browseId || '',
+                  title: displayTitle,
+                  artist: displayArtist,
+                  coverUrl: rawCover,
+                  releaseYear: 0
+                })}
+              class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110"
+              style="background-color: var(--md-sys-color-surface-container-high); color: {isYTFavAlbum
+                ? 'var(--md-sys-color-tertiary)'
+                : 'var(--md-sys-color-on-surface)'};"
+              title={isYTFavAlbum ? 'Hapus Album dari Favorit' : 'Sukai Album'}
+              aria-label={isYTFavAlbum ? 'Hapus Album dari Favorit' : 'Sukai Album'}
+            >
+              <Icon name="heart" weight={isYTFavAlbum ? 'fill' : 'regular'} size={18} />
+            </button>
+          {:else if track && !ytAlbumLoading}
             <button
               type="button"
               onclick={() => onToggleFavoriteTrack(track.id)}
@@ -343,15 +385,56 @@
   <!-- TRACK LIST (seperti di page album) -->
   <div class="px-6 sm:px-10 pb-8">
     {#if ytAlbumLoading}
-      <div class="py-10 flex flex-col items-center justify-center gap-3 text-sm" style="color: var(--md-sys-color-on-surface-variant);">
-        <span class="velora-eq-loader" aria-hidden="true">
-          <span class="velora-eq-bar"></span>
-          <span class="velora-eq-bar"></span>
-          <span class="velora-eq-bar"></span>
-          <span class="velora-eq-bar"></span>
-          <span class="velora-eq-bar"></span>
-        </span>
-        <span>Memuat daftar lagu album...</span>
+      <div class="w-full animate-pulse" aria-busy="true" aria-label="Memuat daftar lagu album">
+        <!-- Header Skeleton (sama seperti TrackTable) -->
+        <div
+          class="grid grid-cols-[36px_1.4fr_1fr_92px_96px] gap-3 px-3.5 py-2 text-[11px] font-bold uppercase tracking-wider"
+          style="color: var(--md-sys-color-on-surface-variant);"
+        >
+          <div class="text-center">#</div>
+          <div>Title</div>
+          <div class="hidden sm:block">Album</div>
+          <div>Source</div>
+          <div class="text-right">Time</div>
+        </div>
+
+        <!-- Track Rows Skeleton -->
+        <div class="space-y-1.5 mt-1">
+          {#each [62, 48, 70, 54, 66, 44] as titleW, idx (idx)}
+            <div class="grid grid-cols-[36px_1.4fr_1fr_92px_96px] gap-3 px-3.5 py-2.5 items-center rounded-lg">
+              <div class="flex justify-center">
+                <div class="w-4 h-3 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
+              </div>
+              <div class="space-y-1.5 min-w-0">
+                <div class="h-3.5 rounded bg-[var(--md-sys-color-surface-container-highest)]" style="width: {titleW}%;"></div>
+                <div class="h-2.5 w-28 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
+              </div>
+              <div class="hidden sm:block">
+                <div class="h-3 w-32 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
+              </div>
+              <div>
+                <div class="h-5 w-16 rounded-full bg-[var(--md-sys-color-surface-container-high)]"></div>
+              </div>
+              <div class="flex justify-end">
+                <div class="h-3 w-9 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
+              </div>
+            </div>
+          {/each}
+        </div>
+
+        <!-- Artist Releases Skeleton -->
+        <div class="mt-8 space-y-4">
+          <div class="h-5 w-44 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+          <div class="flex gap-3 overflow-hidden">
+            {#each Array.from({ length: 6 }, (_, i) => i) as idx (idx)}
+              <div class="w-[172px] shrink-0 p-2.5 space-y-2.5">
+                <div class="w-[152px] h-[152px] rounded-md bg-[var(--md-sys-color-surface-container-high)]"></div>
+                <div class="h-3.5 w-3/4 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+                <div class="h-2.5 w-1/2 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
+              </div>
+            {/each}
+          </div>
+        </div>
       </div>
     {:else}
       <TrackTable

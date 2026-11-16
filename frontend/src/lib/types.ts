@@ -215,8 +215,10 @@ export interface BootstrapData {
   mediaBaseUrl: string;
 }
 
+export type HomeFilter = 'semua' | 'musik' | 'album' | 'playlist' | 'podcast' | 'buku';
+
 export type ViewRoute =
-  | { name: 'home' }
+  | { name: 'home'; filter?: HomeFilter }
   | { name: 'search'; query: string }
   | { name: 'liked-songs' }
   | { name: 'favorite-albums' }
