@@ -27,6 +27,11 @@
     onPlayLocalTrack?: (track: Track) => void;
     onPlayYTMusic?: (track: YTMusicTrack) => void;
     onToggleFavoriteArtist?: (artistId: number) => void;
+    onToggleFavoriteYTMusicArtist?: (payload: {
+      externalId: string;
+      name: string;
+      avatarUrl: string;
+    }) => void;
     onToggleTheme: () => void;
     onOpenStreakModal: () => void;
     onResetZoom?: () => void;
@@ -54,6 +59,7 @@
     onPlayLocalTrack,
     onPlayYTMusic,
     onToggleFavoriteArtist,
+    onToggleFavoriteYTMusicArtist,
     onToggleTheme,
     onOpenStreakModal,
     onResetZoom
@@ -579,13 +585,12 @@
                         {item.artist}
                       </div>
                     </div>
-                    <Icon
-                      name="plus"
-                      weight="bold"
-                      size={16}
-                      class="shrink-0 opacity-75"
+                    <span
+                      class="w-7 h-7 flex items-center justify-center shrink-0 opacity-75"
                       style="color: var(--md-sys-color-on-surface-variant);"
-                    />
+                    >
+                      <Icon name="plus" weight="bold" size={16} />
+                    </span>
                   </button>
                 {:else}
                   {@const art = entry.artist}
@@ -645,6 +650,12 @@
                         e.stopPropagation();
                         if (art.id !== null) {
                           onToggleFavoriteArtist?.(art.id);
+                        } else if (onToggleFavoriteYTMusicArtist) {
+                          onToggleFavoriteYTMusicArtist({
+                            externalId: '',
+                            name: art.name,
+                            avatarUrl: art.avatar
+                          });
                         } else {
                           const key = art.name.toLowerCase();
                           transientFavArtists = {

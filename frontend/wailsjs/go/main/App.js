@@ -10,6 +10,10 @@ export function AddTrackToPlaylist(arg1, arg2) {
   return window['go']['main']['App']['AddTrackToPlaylist'](arg1, arg2);
 }
 
+export function CancelDownload(arg1) {
+  return window['go']['main']['App']['CancelDownload'](arg1);
+}
+
 export function ClearCache() {
   return window['go']['main']['App']['ClearCache']();
 }
@@ -24,6 +28,14 @@ export function CreatePlaylist(arg1, arg2, arg3, arg4) {
 
 export function DeletePlaylist(arg1) {
   return window['go']['main']['App']['DeletePlaylist'](arg1);
+}
+
+export function DownloadTrack(arg1) {
+  return window['go']['main']['App']['DownloadTrack'](arg1);
+}
+
+export function DownloadYTMusicTrack(arg1) {
+  return window['go']['main']['App']['DownloadYTMusicTrack'](arg1);
 }
 
 export function ExportLocalPlaylistM3U(arg1) {
@@ -48,6 +60,14 @@ export function GetArtists(arg1) {
 
 export function GetBootstrapData() {
   return window['go']['main']['App']['GetBootstrapData']();
+}
+
+export function GetDownloadStates() {
+  return window['go']['main']['App']['GetDownloadStates']();
+}
+
+export function GetDownloadedTracks() {
+  return window['go']['main']['App']['GetDownloadedTracks']();
 }
 
 export function GetFireStreak() {
@@ -110,6 +130,10 @@ export function ImportLocalPlaylistM3U() {
   return window['go']['main']['App']['ImportLocalPlaylistM3U']();
 }
 
+export function ImportSpotifyPlaylist(arg1) {
+  return window['go']['main']['App']['ImportSpotifyPlaylist'](arg1);
+}
+
 export function PlayYTMusicCollection(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['PlayYTMusicCollection'](arg1, arg2, arg3, arg4, arg5);
 }
@@ -124,6 +148,10 @@ export function PlayerControl(arg1, arg2, arg3) {
 
 export function RecordListenProgress(arg1, arg2, arg3) {
   return window['go']['main']['App']['RecordListenProgress'](arg1, arg2, arg3);
+}
+
+export function RemoveDownloadedTrack(arg1) {
+  return window['go']['main']['App']['RemoveDownloadedTrack'](arg1);
 }
 
 export function RemoveSource(arg1) {
@@ -158,6 +186,10 @@ export function SearchYouTubeMusicAlbums(arg1) {
   return window['go']['main']['App']['SearchYouTubeMusicAlbums'](arg1);
 }
 
+export function SearchYouTubeMusicArtists(arg1) {
+  return window['go']['main']['App']['SearchYouTubeMusicArtists'](arg1);
+}
+
 export function SearchYouTubeMusicPlaylists(arg1) {
   return window['go']['main']['App']['SearchYouTubeMusicPlaylists'](arg1);
 }
@@ -176,6 +208,10 @@ export function ToggleFavoriteTrack(arg1) {
 
 export function ToggleFavoriteYTMusicAlbum(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['ToggleFavoriteYTMusicAlbum'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function ToggleFavoriteYTMusicArtist(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ToggleFavoriteYTMusicArtist'](arg1, arg2, arg3);
 }
 
 export function UpdatePlaylist(arg1, arg2, arg3, arg4) {

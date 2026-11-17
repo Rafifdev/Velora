@@ -7,6 +7,7 @@
   import type {
     Album,
     Artist,
+    DownloadProgress,
     FireStreakStatus,
     HomeFilter,
     ListeningStats,
@@ -40,6 +41,7 @@
   import AnalyticsAndSettingsViews from './views/AnalyticsAndSettingsViews.svelte';
 
   let tracks = $state<Track[]>([]);
+  let downloadStates = $state<Record<number, DownloadProgress>>({});
   let ytAlbumDetail = $state<YTMusicAlbumView | null>(null);
   let ytAlbumLoading = $state(false);
   let ytAlbumReqSeq = 0;
@@ -95,6 +97,7 @@
   let ytResults = $state<YTMusicTrack[]>([]);
   let ytPlaylistResults = $state<YTMusicCard[]>([]);
   let ytAlbumResults = $state<YTMusicCard[]>([]);
+  let ytArtistResults = $state<YTMusicCard[]>([]);
   let ytLoading = $state(false);
   let ytHomeLoading = $state(false);
   let ytLoadingMore = $state(false);
@@ -277,6 +280,33 @@
         void togglePlay();
       }
     });
+    const offDownload = EventsOn('download:progress', (p: DownloadProgress) => {
+      if (!p || !p.trackId) return;
+      if (p.status === 'completed') {
+        const next = { ...downloadStates };
+        delete next[p.trackId];
+        downloadStates = next;
+        void api.getTracks('all', '').then((list) => {
+          tracks = list;
+          const updated = list.find((t) => t.id === p.trackId);
+          if (updated) {
+            detailTracks = detailTracks.map((t) => (t.id === p.trackId ? updated : t));
+            if (selectedPlaylistDetail) {
+              selectedPlaylistDetail = {
+                ...selectedPlaylistDetail,
+                tracks: selectedPlaylistDetail.tracks.map((t) => (t.id === p.trackId ? updated : t))
+              };
+            }
+          }
+        });
+      } else if (p.status === 'cancelled') {
+        const next = { ...downloadStates };
+        delete next[p.trackId];
+        downloadStates = next;
+      } else {
+        downloadStates = { ...downloadStates, [p.trackId]: p };
+      }
+    });
     return () => {
       window.removeEventListener('wheel', onWheel);
       document.removeEventListener('mouseover', onMouseOver, true);
@@ -285,6 +315,7 @@
       document.removeEventListener('scroll', hideTooltip, true);
       hideTooltip();
       offTaskbar?.();
+      offDownload?.();
     };
   });
 
@@ -306,6 +337,49 @@
     } finally {
       ytHomeLoading = false;
     }
+  }
+
+  async function handleDownloadTrack(tr: Track) {
+    if (!tr) return;
+    if (tr.id > 0) {
+      await api.downloadTrack(tr.id);
+      return;
+    }
+    if (tr.externalId) {
+      await api.downloadYTMusicTrack({
+        videoId: tr.externalId,
+        title: tr.title,
+        artist: tr.artistName,
+        album: tr.albumTitle,
+        durationSec: tr.durationSec,
+        coverUrl: tr.coverUrl,
+        format: tr.format || 'OPUS'
+      });
+    }
+  }
+
+  async function handleDownloadYTMusicTrack(yt: YTMusicTrack) {
+    if (!yt?.videoId) return;
+    await api.downloadYTMusicTrack(yt);
+  }
+
+  async function handleRemoveDownload(trackId: number) {
+    const updated = await api.removeDownloadedTrack(trackId);
+    tracks = tracks.map((t) => (t.id === trackId ? updated : t));
+    detailTracks = detailTracks.map((t) => (t.id === trackId ? updated : t));
+    if (selectedPlaylistDetail) {
+      selectedPlaylistDetail = {
+        ...selectedPlaylistDetail,
+        tracks: selectedPlaylistDetail.tracks.map((t) => (t.id === trackId ? updated : t))
+      };
+    }
+  }
+
+  async function handleCancelDownload(trackId: number) {
+    await api.cancelDownload(trackId);
+    const next = { ...downloadStates };
+    delete next[trackId];
+    downloadStates = next;
   }
 
   async function refreshAll() {
@@ -561,6 +635,25 @@
     }
   }
 
+  async function handleSearchYTMusicArtists(q: string) {
+    const seq = ++ytSearchSeq;
+    ytLoading = true;
+    try {
+      const res = await api.searchYouTubeMusicArtists(q);
+      if (seq === ytSearchSeq) {
+        ytArtistResults = res || [];
+      }
+    } catch {
+      if (seq === ytSearchSeq) {
+        ytArtistResults = [];
+      }
+    } finally {
+      if (seq === ytSearchSeq) {
+        ytLoading = false;
+      }
+    }
+  }
+
   const MORESONGS_QUERIES = [
     'Lagu Indonesia Populer Terbaru',
     'Top Global Hits Music',
@@ -572,12 +665,18 @@
     'Electronic & Synthwave Music'
   ];
 
-  const CATEGORY_MORE_QUERIES: Record<'musik' | 'album' | 'playlist' | 'podcast' | 'buku', string[]> = {
+  const CATEGORY_MORE_QUERIES: Record<'musik' | 'artis' | 'album' | 'playlist' | 'podcast' | 'buku', string[]> = {
     musik: [
       'Trending Pop Music Indonesia',
       'Top Hits Indonesia 2025 2026',
       'Viral Pop & R&B Hits',
       'Best Acoustic Pop Hits'
+    ],
+    artis: [
+      'Popular Indonesian Singers',
+      'Top Global Pop Artists',
+      'Best Indie Artists Indonesia',
+      'Top R&B & Soul Artists'
     ],
     album: [
       'Top Pop Indonesia Album',
@@ -619,6 +718,22 @@
         });
         if (unique.length > 0) {
           ytAlbumResults = [...ytAlbumResults, ...unique];
+        }
+        return;
+      }
+
+      if (activeCategory === 'artis') {
+        const page = ytMorePage++;
+        const q = CATEGORY_MORE_QUERIES.artis[page % CATEGORY_MORE_QUERIES.artis.length];
+        const moreArtists = await api.searchYouTubeMusicArtists(q);
+        if (!moreArtists || moreArtists.length === 0) return;
+        const existingKeys = new Set(ytArtistResults.map((c) => c.browseId || c.id));
+        const unique = moreArtists.filter((c) => {
+          const k = c.browseId || c.id;
+          return k && !existingKeys.has(k);
+        });
+        if (unique.length > 0) {
+          ytArtistResults = [...ytArtistResults, ...unique];
         }
         return;
       }
@@ -1387,6 +1502,22 @@
     artists = artists.map((a) => (a.id === id ? { ...a, isFavorite: fav } : a));
   }
 
+  async function handleToggleFavoriteYTMusicArtist(payload: {
+    externalId: string;
+    name: string;
+    avatarUrl: string;
+  }) {
+    const updated = await api.toggleFavoriteYTMusicArtist(
+      payload.externalId,
+      payload.name,
+      payload.avatarUrl
+    );
+    const exists = artists.some((a) => a.id === updated.id);
+    artists = exists
+      ? artists.map((a) => (a.id === updated.id ? updated : a))
+      : [updated, ...artists];
+  }
+
   async function handleCreatePlaylist(name: string, desc: string, isLocal: boolean, color: string) {
     const created = await api.createPlaylist(name, desc, isLocal, color);
     playlists = await api.getPlaylists(false);
@@ -1457,9 +1588,23 @@
     onNavigate={navigate}
     onSearch={handleGlobalSearch}
     onSuggestSearch={handleSearchSuggestions}
-    onPlayLocalTrack={(tr) => playTrack(tr, tracks)}
-    onPlayYTMusic={playYTMusicSingle}
+    onPlayLocalTrack={(tr) => {
+      void playTrack(tr, tracks);
+      void openTrackAlbumDetail(tr);
+    }}
+    onPlayYTMusic={(yt) => {
+      void playYTMusicSingle(yt);
+      void navigate({
+        name: 'yt-album-detail',
+        videoId: yt.videoId,
+        title: yt.title,
+        artist: yt.artist,
+        albumTitle: yt.album,
+        coverUrl: yt.coverUrl
+      });
+    }}
     onToggleFavoriteArtist={handleToggleFavoriteArtist}
+    onToggleFavoriteYTMusicArtist={handleToggleFavoriteYTMusicArtist}
     onToggleTheme={() => patchPrefs({ 'theme.dark': isDark ? 'false' : 'true' })}
     onOpenStreakModal={() => (showStreakModal = true)}
     onResetZoom={() => applyZoom(1)}
@@ -1486,6 +1631,7 @@
       favoriteTracksCount={tracks.filter((t) => t.isFavorite).length}
       favoriteArtistsCount={artists.filter((a) => a.isFavorite).length}
       playlistsCount={playlists.length}
+      downloadedCount={tracks.filter((t) => t.isDownloaded).length}
       sourcesCount={sources.length}
       isPreferencesMode={currentRoute.name === 'preferences'}
       bind:activePrefTab
@@ -1517,11 +1663,14 @@
       {#if currentRoute.name === 'home'}
         <HomeView
           {albums}
+          {artists}
+          {tracks}
           {playlists}
           {ytShelves}
           {ytResults}
           {ytPlaylistResults}
           {ytAlbumResults}
+          {ytArtistResults}
           initialFilter={currentRoute.name === 'home' ? currentRoute.filter : undefined}
           {ytLoading}
           {ytHomeLoading}
@@ -1533,14 +1682,18 @@
           onOpenYTAlbum={openYTAlbumCard}
           onPlayPlaylist={handlePlayPlaylist}
           onPlayAlbum={handlePlayAlbum}
+          onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
+          onToggleFavoriteArtist={handleToggleFavoriteArtist}
+          onToggleFavoriteYTMusicArtist={handleToggleFavoriteYTMusicArtist}
           onSearchYTMusic={handleSearchYTMusic}
           onSearchYTMusicPlaylists={handleSearchYTMusicPlaylists}
           onSearchYTMusicAlbums={handleSearchYTMusicAlbums}
+          onSearchYTMusicArtists={handleSearchYTMusicArtists}
           onRefreshYTMusicHome={loadYTMusicHome}
           onLoadMoreYTMusic={handleLoadMoreYTMusic}
           onNavigate={navigate}
         />
-      {:else if currentRoute.name === 'search' || currentRoute.name === 'liked-songs' || currentRoute.name === 'favorite-albums' || currentRoute.name === 'favorite-artists' || currentRoute.name === 'artist-detail'}
+      {:else if currentRoute.name === 'search' || currentRoute.name === 'liked-songs' || currentRoute.name === 'downloaded' || currentRoute.name === 'favorite-albums' || currentRoute.name === 'favorite-artists' || currentRoute.name === 'artist-detail'}
         <LibraryViews
           mode={currentRoute.name}
           {searchQuery}
@@ -1554,6 +1707,7 @@
           {ytResults}
           {ytLoading}
           {playlists}
+          {downloadStates}
           currentTrackId={currentTrack?.id ?? null}
           currentExternalId={currentTrack?.externalId ?? null}
           currentTrackTitle={currentTrack?.title ?? null}
@@ -1578,6 +1732,10 @@
             await api.addTrackToPlaylist(pid, tid);
             playlists = await api.getPlaylists(false);
           }}
+          onDownloadTrack={handleDownloadTrack}
+          onDownloadYTMusic={handleDownloadYTMusicTrack}
+          onRemoveDownload={handleRemoveDownload}
+          onCancelDownload={handleCancelDownload}
           onOpenAlbum={handleOpenAlbum}
           onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
           onOpenTrackAlbum={openTrackAlbumDetail}
@@ -1655,11 +1813,21 @@
               queue = [...queue, tr];
             }
           }}
+          onDownloadTrack={handleDownloadTrack}
+          onRemoveDownload={handleRemoveDownload}
           onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
           onOpenTrackAlbum={openTrackAlbumDetail}
           onExportM3U={(pid) => api.exportLocalPlaylistM3U(pid)}
           onImportM3U={async () => {
             const pl = await api.importLocalPlaylistM3U();
+            if (pl?.id) {
+              playlists = await api.getPlaylists(false);
+              await refreshAll();
+              await navigate({ name: 'playlist-detail', playlistId: pl.id });
+            }
+          }}
+          onImportSpotify={async (url) => {
+            const pl = await api.importSpotifyPlaylist(url);
             if (pl?.id) {
               playlists = await api.getPlaylists(false);
               await refreshAll();
@@ -1752,6 +1920,13 @@
           onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
           onOpenAlbum={handleOpenAlbum}
           onOpenYTAlbum={(card) => void openYTAlbumCard(card)}
+          onDownloadTrack={handleDownloadTrack}
+          onRemoveDownload={handleRemoveDownload}
+          onAddToQueue={(tr) => {
+            if (!queue.some((q) => q.id === tr.id)) {
+              queue = [...queue, tr];
+            }
+          }}
         />
       {:else if currentRoute.name === 'lyrics'}
         <LyricsView

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { formatDuration, resolveCoverUrl } from '../lib/api';
-  import type { Playlist, Track } from '../lib/types';
+  import type { DownloadProgress, Playlist, Track } from '../lib/types';
   import Icon from './Icon.svelte';
 
   interface Props {
@@ -13,10 +13,13 @@
     mediaBaseUrl: string;
     accentColor: string;
     playlists: Playlist[];
+    downloadStates?: Record<number, DownloadProgress>;
     onPlayTrack: (track: Track, list: Track[]) => void;
     onTogglePlay?: () => void;
     onToggleFavorite: (trackId: number) => void;
     onAddToPlaylist: (playlistId: number, trackId: number) => void;
+    onDownloadTrack?: (track: Track) => void;
+    onRemoveDownload?: (trackId: number) => void;
     onOpenTrackAlbum?: (track: Track) => void;
     showCover?: boolean;
   }
@@ -30,10 +33,13 @@
     isPlaying,
     mediaBaseUrl,
     playlists,
+    downloadStates = {},
     onPlayTrack,
     onTogglePlay,
     onToggleFavorite,
     onAddToPlaylist,
+    onDownloadTrack,
+    onRemoveDownload,
     onOpenTrackAlbum,
     showCover = true
   }: Props = $props();
@@ -186,11 +192,44 @@
             class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold"
             style="background-color: rgba(255, 255, 255, 0.08); color: var(--md-sys-color-on-surface-variant);"
           >
-            {tr.sourceType === 'ytmusic' ? 'YT Music' : tr.format}
+            {tr.isDownloaded ? 'Offline' : tr.sourceType === 'ytmusic' ? 'YT Music' : 'Lokal'}
           </span>
         </div>
 
-        <div class="flex items-center justify-end gap-2 relative">
+        <div class="flex items-center justify-end gap-1.5 relative">
+          {#if onDownloadTrack || onRemoveDownload}
+            {@const dlState = downloadStates[tr.id]}
+            {@const isDlActive = dlState && (dlState.status === 'queued' || dlState.status === 'downloading')}
+            {#if isDlActive}
+              <span
+                class="inline-flex items-center justify-center w-7 h-7 text-[10px] font-bold tabular-nums text-[var(--md-sys-color-primary)]"
+                title="Mengunduh ({Math.round(dlState.progress || 0)}%)"
+              >
+                {Math.round(dlState.progress || 0)}%
+              </span>
+            {:else if tr.isDownloaded}
+              <button
+                type="button"
+                onclick={() => onRemoveDownload?.(tr.id)}
+                title="Tersimpan offline • Klik untuk hapus unduhan"
+                aria-label="Hapus unduhan {tr.title}"
+                class="m3-icon-btn w-7 h-7 flex items-center justify-center transition cursor-pointer text-[var(--md-sys-color-primary)] opacity-90 hover:opacity-100"
+              >
+                <Icon name="check-circle" weight="fill" size={15} />
+              </button>
+            {:else if onDownloadTrack}
+              <button
+                type="button"
+                onclick={() => onDownloadTrack(tr)}
+                title="Unduh untuk offline"
+                aria-label="Unduh {tr.title}"
+                class="m3-icon-btn w-7 h-7 flex items-center justify-center opacity-0 group-hover:opacity-100 transition cursor-pointer"
+              >
+                <Icon name="download-simple" size={15} />
+              </button>
+            {/if}
+          {/if}
+
           <button
             type="button"
             onclick={() => onToggleFavorite(tr.id)}

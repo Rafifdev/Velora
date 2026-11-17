@@ -10,6 +10,7 @@ import type {
   Source,
   Track,
   TrackLyrics,
+  DownloadProgress,
   YTMusicAlbumView,
   YTMusicCard,
   YTMusicHomeFeed,
@@ -107,6 +108,13 @@ export const api = {
   async toggleFavoriteArtist(id: number): Promise<boolean> {
     return appBridge().ToggleFavoriteArtist(id);
   },
+  async toggleFavoriteYTMusicArtist(
+    externalId: string,
+    name: string,
+    avatarUrl: string
+  ): Promise<Artist> {
+    return appBridge().ToggleFavoriteYTMusicArtist(externalId, name, avatarUrl);
+  },
   async getPlaylists(localOnly: boolean): Promise<Playlist[]> {
     return appBridge().GetPlaylists(localOnly);
   },
@@ -137,6 +145,9 @@ export const api = {
   async importLocalPlaylistM3U(): Promise<Playlist> {
     return appBridge().ImportLocalPlaylistM3U();
   },
+  async importSpotifyPlaylist(url: string): Promise<Playlist> {
+    return appBridge().ImportSpotifyPlaylist(url);
+  },
   async uploadLocalFiles(): Promise<Track[]> {
     return appBridge().UploadLocalFiles();
   },
@@ -163,6 +174,9 @@ export const api = {
   },
   async searchYouTubeMusicAlbums(query: string): Promise<YTMusicCard[]> {
     return appBridge().SearchYouTubeMusicAlbums(query);
+  },
+  async searchYouTubeMusicArtists(query: string): Promise<YTMusicCard[]> {
+    return appBridge().SearchYouTubeMusicArtists(query);
   },
   async getYTMusicHome(): Promise<YTMusicHomeFeed> {
     return appBridge().GetYTMusicHome();
@@ -233,6 +247,24 @@ export const api = {
   },
   async clearCache(): Promise<number> {
     return appBridge().ClearCache();
+  },
+  async downloadTrack(trackId: number): Promise<Track> {
+    return appBridge().DownloadTrack(trackId);
+  },
+  async downloadYTMusicTrack(track: YTMusicTrack): Promise<Track> {
+    return appBridge().DownloadYTMusicTrack(track);
+  },
+  async removeDownloadedTrack(trackId: number): Promise<Track> {
+    return appBridge().RemoveDownloadedTrack(trackId);
+  },
+  async cancelDownload(trackId: number): Promise<void> {
+    return appBridge().CancelDownload(trackId);
+  },
+  async getDownloadedTracks(): Promise<Track[]> {
+    return appBridge().GetDownloadedTracks();
+  },
+  async getDownloadStates(): Promise<DownloadProgress[]> {
+    return appBridge().GetDownloadStates();
   },
   windowMinimize(): void {
     appBridge()?.WindowMinimize();

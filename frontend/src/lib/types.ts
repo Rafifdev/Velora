@@ -14,7 +14,20 @@ export interface Track {
   coverUrl: string;
   isFavorite: boolean;
   playCount: number;
+  isDownloaded?: boolean;
+  downloadedAt?: string;
+  globalPlays?: string;
   createdAt: string;
+}
+
+export interface DownloadProgress {
+  trackId: number;
+  externalId: string;
+  title: string;
+  artist: string;
+  status: 'queued' | 'downloading' | 'completed' | 'failed' | 'cancelled' | string;
+  progress: number;
+  error?: string;
 }
 
 export interface Album {
@@ -150,6 +163,7 @@ export interface YTMusicTrack {
   durationSec: number;
   coverUrl: string;
   format: string;
+  playCountText?: string;
 }
 
 export interface YTMusicCard {
@@ -215,7 +229,7 @@ export interface BootstrapData {
   mediaBaseUrl: string;
 }
 
-export type HomeFilter = 'semua' | 'musik' | 'album' | 'playlist' | 'podcast' | 'buku';
+export type HomeFilter = 'semua' | 'musik' | 'artis' | 'album' | 'playlist' | 'podcast' | 'buku';
 
 export type ViewRoute =
   | { name: 'home'; filter?: HomeFilter }
@@ -227,6 +241,7 @@ export type ViewRoute =
   | { name: 'artist-detail'; artistId: number }
   | { name: 'playlists' }
   | { name: 'local-playlists' }
+  | { name: 'downloaded' }
   | { name: 'playlist-detail'; playlistId: number }
   | { name: 'history' }
   | { name: 'sources' }

@@ -209,6 +209,9 @@ export namespace db {
 	    coverUrl: string;
 	    isFavorite: boolean;
 	    playCount: number;
+	    isDownloaded: boolean;
+	    downloadedAt: string;
+	    globalPlays?: string;
 	    createdAt: string;
 	
 	    static createFrom(source: any = {}) {
@@ -232,6 +235,9 @@ export namespace db {
 	        this.coverUrl = source["coverUrl"];
 	        this.isFavorite = source["isFavorite"];
 	        this.playCount = source["playCount"];
+	        this.isDownloaded = source["isDownloaded"];
+	        this.downloadedAt = source["downloadedAt"];
+	        this.globalPlays = source["globalPlays"];
 	        this.createdAt = source["createdAt"];
 	    }
 	}
@@ -397,6 +403,30 @@ export namespace main {
 
 export namespace sources {
 	
+	export class DownloadProgress {
+	    trackId: number;
+	    externalId: string;
+	    title: string;
+	    artist: string;
+	    status: string;
+	    progress: number;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DownloadProgress(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.trackId = source["trackId"];
+	        this.externalId = source["externalId"];
+	        this.title = source["title"];
+	        this.artist = source["artist"];
+	        this.status = source["status"];
+	        this.progress = source["progress"];
+	        this.error = source["error"];
+	    }
+	}
 	export class LyricLine {
 	    timeSec: number;
 	    text: string;
@@ -491,6 +521,7 @@ export namespace sources {
 	    durationSec: number;
 	    coverUrl: string;
 	    format: string;
+	    playCountText?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new YTMusicTrack(source);
@@ -505,6 +536,7 @@ export namespace sources {
 	        this.durationSec = source["durationSec"];
 	        this.coverUrl = source["coverUrl"];
 	        this.format = source["format"];
+	        this.playCountText = source["playCountText"];
 	    }
 	}
 	export class YTMusicShelf {

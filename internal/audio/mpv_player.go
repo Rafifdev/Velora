@@ -116,6 +116,11 @@ func (p *PlayerController) BaseURL() string {
 }
 
 func (p *PlayerController) GetStreamURL(track db.Track) string {
+	if track.ID > 0 && track.FilePath != "" {
+		if st, err := os.Stat(track.FilePath); err == nil && !st.IsDir() {
+			return fmt.Sprintf("%s/media/local?id=%d", p.baseURL, track.ID)
+		}
+	}
 	if track.SourceType == "local" && track.ID > 0 {
 		return fmt.Sprintf("%s/media/local?id=%d", p.baseURL, track.ID)
 	}
@@ -137,7 +142,15 @@ func (p *PlayerController) handleLocalMedia(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "track not found", http.StatusNotFound)
 		return
 	}
-	f, err := os.Open(tr.FilePath)
+	servePath := tr.FilePath
+	ext := strings.ToLower(filepath.Ext(tr.FilePath))
+	if !isWebViewNativeAudioExt(ext) {
+		if transcoded, tErr := ensureTranscodedAudio(r.Context(), tr.FilePath); tErr == nil && transcoded != "" {
+			servePath = transcoded
+		}
+	}
+
+	f, err := os.Open(servePath)
 	if err != nil {
 		http.Error(w, "file missing", http.StatusNotFound)
 		return
@@ -148,7 +161,50 @@ func (p *PlayerController) handleLocalMedia(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "stat failed", http.StatusInternalServerError)
 		return
 	}
-	http.ServeContent(w, r, filepath.Base(tr.FilePath), stat.ModTime(), f)
+	http.ServeContent(w, r, filepath.Base(servePath), stat.ModTime(), f)
+}
+
+func isWebViewNativeAudioExt(ext string) bool {
+	switch ext {
+	case ".mp3", ".flac", ".m4a", ".m4b", ".mp4", ".aac", ".ogg", ".oga", ".opus", ".wav", ".wave", ".webm":
+		return true
+	default:
+		return false
+	}
+}
+
+var transcodeLocks sync.Map
+
+func ensureTranscodedAudio(ctx context.Context, srcPath string) (string, error) {
+	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		return "", err
+	}
+	cacheDir := filepath.Join(os.TempDir(), "velora-transcode")
+	_ = os.MkdirAll(cacheDir, 0o755)
+	sum := sha256.Sum256([]byte(srcPath))
+	outPath := filepath.Join(cacheDir, hex.EncodeToString(sum[:])+".mp3")
+
+	lockIface, _ := transcodeLocks.LoadOrStore(outPath, &sync.Mutex{})
+	mu := lockIface.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+
+	if st, sErr := os.Stat(outPath); sErr == nil && st.Size() > 0 {
+		return outPath, nil
+	}
+
+	tmpPath := outPath + ".tmp.mp3"
+	cmd := exec.CommandContext(ctx, ffmpegPath, "-y", "-v", "error", "-i", srcPath, "-vn", "-c:a", "libmp3lame", "-q:a", "2", tmpPath)
+	if runErr := cmd.Run(); runErr != nil {
+		_ = os.Remove(tmpPath)
+		return "", runErr
+	}
+	if renErr := os.Rename(tmpPath, outPath); renErr != nil {
+		_ = os.Remove(tmpPath)
+		return "", renErr
+	}
+	return outPath, nil
 }
 
 func parseByteRange(header string) (start, end int64, hasRange bool, valid bool) {

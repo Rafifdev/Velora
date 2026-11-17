@@ -32,14 +32,16 @@ type BootstrapData struct {
 }
 
 type App struct {
-	ctx        context.Context
-	dataDir    string
-	uploadsDir string
-	artworkDir string
-	store      *db.Store
-	statsSvc   *stats.Service
-	localSrc   *sources.LocalScanner
+	ctx          context.Context
+	dataDir      string
+	uploadsDir   string
+	artworkDir   string
+	downloadsDir string
+	store        *db.Store
+	statsSvc     *stats.Service
+	localSrc     *sources.LocalScanner
 	ytClient     *sources.YTMusicClient
+	downloader   *sources.DownloadManager
 	player       *audio.PlayerController
 	ytHomeMu     sync.Mutex
 	ytHomeDone   chan struct{}
@@ -62,9 +64,11 @@ func (a *App) startup(ctx context.Context) {
 	a.dataDir = filepath.Join(cfgDir, "Velora")
 	a.uploadsDir = filepath.Join(a.dataDir, "uploads")
 	a.artworkDir = filepath.Join(a.dataDir, "artwork_cache")
+	a.downloadsDir = filepath.Join(a.dataDir, "downloads")
 	_ = os.MkdirAll(a.dataDir, 0o755)
 	_ = os.MkdirAll(a.uploadsDir, 0o755)
 	_ = os.MkdirAll(a.artworkDir, 0o755)
+	_ = os.MkdirAll(a.downloadsDir, 0o755)
 
 	store, err := db.Open(filepath.Join(a.dataDir, "velora.db"))
 	if err != nil {
@@ -76,6 +80,11 @@ func (a *App) startup(ctx context.Context) {
 	a.statsSvc = stats.NewService(store)
 	a.localSrc = sources.NewLocalScanner(store, a.uploadsDir, a.artworkDir)
 	a.ytClient = sources.NewYTMusicClient()
+	a.downloader = sources.NewDownloadManager(store, a.ytClient, a.downloadsDir, func(eventName string, data any) {
+		if a.ctx != nil {
+			runtime.EventsEmit(a.ctx, eventName, data)
+		}
+	})
 	a.startYTMusicHomePrefetch()
 	a.player = audio.NewPlayerController(store, a.ytClient, a.artworkDir)
 	_, _ = a.player.StartMediaServer()
@@ -179,6 +188,10 @@ func (a *App) ToggleFavoriteArtist(id int64) (bool, error) {
 	return a.store.ToggleFavoriteArtist(id)
 }
 
+func (a *App) ToggleFavoriteYTMusicArtist(externalID, name, avatarURL string) (db.Artist, error) {
+	return a.store.ToggleFavoriteYTMusicArtist(externalID, name, avatarURL)
+}
+
 func (a *App) GetPlaylists(localOnly bool) ([]db.Playlist, error) {
 	return a.store.GetPlaylists(localOnly)
 }
@@ -246,13 +259,62 @@ func (a *App) ImportLocalPlaylistM3U() (db.Playlist, error) {
 	return pl, err
 }
 
+func (a *App) ImportSpotifyPlaylist(spotifyURL string) (db.Playlist, error) {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	defer cancel()
+
+	sp, err := sources.FetchSpotifyPlaylist(reqCtx, spotifyURL)
+	if err != nil {
+		return db.Playlist{}, err
+	}
+
+	pl, err := a.store.CreatePlaylist(sp.Name, "Imported from Spotify", true, "#1DB954")
+	if err != nil {
+		return db.Playlist{}, err
+	}
+	if sp.CoverURL != "" {
+		a.store.UpdatePlaylistCover(pl.ID, sp.CoverURL)
+	}
+
+	ytTracks := sources.ResolveSpotifyTracksToYTMusic(reqCtx, a.ytClient, sp.Tracks)
+	for _, yt := range ytTracks {
+		if saved, err := a.store.UpsertTrack(db.Track{
+			Title:       yt.Title,
+			ArtistName:  yt.Artist,
+			AlbumTitle:  yt.Album,
+			DurationSec: yt.DurationSec,
+			Format:      yt.Format,
+			Bitrate:     160,
+			SourceType:  "ytmusic",
+			ExternalID:  yt.VideoID,
+			CoverURL:    yt.CoverURL,
+		}); err == nil {
+			_ = a.store.AddTrackToPlaylist(pl.ID, saved.ID)
+		}
+	}
+
+	detail, err := a.store.GetPlaylistDetail(pl.ID)
+	if err != nil {
+		return pl, nil
+	}
+	return detail.Playlist, nil
+}
+
 func (a *App) UploadLocalFiles() ([]db.Track, error) {
 	files, err := runtime.OpenMultipleFilesDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "Upload Audio Files ke Velora",
 		Filters: []runtime.FileFilter{
 			{
-				DisplayName: "Audio Files (MP3, FLAC, M4A, AAC, OPUS, OGG, WAV, WebM)",
-				Pattern:     "*.mp3;*.flac;*.m4a;*.aac;*.ogg;*.opus;*.wav;*.wma;*.webm",
+				DisplayName: "All Supported Audio Files",
+				Pattern:     "*.mp3;*.mp2;*.mp1;*.mpa;*.flac;*.m4a;*.m4b;*.m4p;*.mp4;*.alac;*.aac;*.ogg;*.oga;*.opus;*.spx;*.wav;*.wave;*.aiff;*.aif;*.aifc;*.caf;*.au;*.snd;*.wma;*.asf;*.webm;*.mka;*.ape;*.wv;*.mpc;*.tak;*.tta;*.dsf;*.dff;*.ac3;*.dts;*.amr;*.awb;*.3gp;*.mid;*.midi",
+			},
+			{
+				DisplayName: "All Files (*.*)",
+				Pattern:     "*.*",
 			},
 		},
 	})
@@ -325,6 +387,16 @@ func (a *App) SearchYouTubeMusicAlbums(query string) ([]sources.YTMusicCard, err
 	return a.ytClient.SearchAlbums(reqCtx, query)
 }
 
+func (a *App) SearchYouTubeMusicArtists(query string) ([]sources.YTMusicCard, error) {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	return a.ytClient.SearchArtists(reqCtx, query)
+}
+
 func (a *App) GetYTMusicTop100() ([]sources.YTMusicTrack, error) {
 	ctx := a.ctx
 	if ctx == nil {
@@ -342,7 +414,18 @@ func (a *App) GetYTMusicTop100Recommended(excludeVideoIDs []string) ([]sources.Y
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	return a.ytClient.GetTop100Recommended(reqCtx, excludeVideoIDs)
+
+	var seeds []sources.HistorySeed
+	if recent, err := a.store.GetRecentSeedTracks(12); err == nil {
+		for _, tr := range recent {
+			seeds = append(seeds, sources.HistorySeed{
+				VideoID: strings.TrimSpace(tr.ExternalID),
+				Title:   tr.Title,
+				Artist:  tr.ArtistName,
+			})
+		}
+	}
+	return a.ytClient.GetHistoryBasedRecommended(reqCtx, seeds, excludeVideoIDs)
 }
 
 func (a *App) GetYTMusicHome() (sources.YTMusicHomeFeed, error) {
@@ -449,6 +532,7 @@ func (a *App) GetYTMusicTrackAlbum(videoID, browseID, title, artist, albumTitle,
 	for i := 0; i < limit; i++ {
 		tr, err := a.SaveYTMusicTrack(detail.Tracks[i])
 		if err == nil {
+			tr.GlobalPlays = detail.Tracks[i].PlayCountText
 			saved = append(saved, tr)
 		}
 	}
@@ -512,6 +596,31 @@ func (a *App) GetTrackLyrics(trackID int64, title, artist, album string, duratio
 }
 
 func (a *App) SaveYTMusicTrack(yt sources.YTMusicTrack) (db.Track, error) {
+	if strings.TrimSpace(yt.Album) == "" || strings.EqualFold(strings.TrimSpace(yt.Album), "YouTube Music") {
+		ctx := a.ctx
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		reqCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		q := strings.TrimSpace(yt.Title + " " + yt.Artist)
+		if q != "" {
+			if hits, err := a.ytClient.Search(reqCtx, q); err == nil {
+				for _, h := range hits {
+					if h.Album != "" && !strings.EqualFold(h.Album, "YouTube Music") {
+						yt.Album = h.Album
+						if yt.CoverURL == "" && h.CoverURL != "" {
+							yt.CoverURL = h.CoverURL
+						}
+						break
+					}
+				}
+			}
+		}
+		if strings.TrimSpace(yt.Album) == "" || strings.EqualFold(strings.TrimSpace(yt.Album), "YouTube Music") {
+			yt.Album = "Single"
+		}
+	}
 	return a.store.UpsertTrack(db.Track{
 		Title:       yt.Title,
 		ArtistName:  yt.Artist,
@@ -607,4 +716,36 @@ func (a *App) WindowIsMaximized() bool {
 
 func (a *App) WindowClose() {
 	runtime.Quit(a.ctx)
+}
+
+func (a *App) DownloadTrack(trackID int64) (db.Track, error) {
+	tr, err := a.store.GetTrackByID(trackID)
+	if err != nil {
+		return db.Track{}, err
+	}
+	return a.downloader.Enqueue(tr)
+}
+
+func (a *App) DownloadYTMusicTrack(yt sources.YTMusicTrack) (db.Track, error) {
+	tr, err := a.SaveYTMusicTrack(yt)
+	if err != nil {
+		return db.Track{}, err
+	}
+	return a.downloader.Enqueue(tr)
+}
+
+func (a *App) RemoveDownloadedTrack(trackID int64) (db.Track, error) {
+	return a.downloader.Remove(trackID)
+}
+
+func (a *App) CancelDownload(trackID int64) {
+	a.downloader.Cancel(trackID)
+}
+
+func (a *App) GetDownloadedTracks() ([]db.Track, error) {
+	return a.store.GetDownloadedTracks()
+}
+
+func (a *App) GetDownloadStates() []sources.DownloadProgress {
+	return a.downloader.GetStates()
 }

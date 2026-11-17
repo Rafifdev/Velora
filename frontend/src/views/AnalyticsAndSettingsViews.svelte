@@ -318,7 +318,7 @@
             <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--md-sys-color-secondary)]">
               Playback Archive
             </div>
-            <h1 class="text-3xl font-extrabold tracking-tight text-[var(--md-sys-color-on-surface)]">Listening History</h1>
+            <h1 class="text-3xl font-extrabold tracking-tight text-[var(--md-sys-color-on-surface)]">History</h1>
             <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] tabular-nums">
               {history.length} recent streams • {listeningStats.totalMinutes} min listened
             </p>
@@ -445,9 +445,6 @@
               </button>
 
               <div class="flex items-center gap-3 shrink-0 text-xs tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
-                <span class="hidden sm:inline px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface-variant)] uppercase">
-                  {item.format || 'AUDIO'}
-                </span>
                 <span class="text-[11px]">{formatDuration(item.durationListenedSec)}</span>
                 <span class="hidden md:inline text-[11px] text-[var(--md-sys-color-on-surface-variant)] opacity-70">{item.playedAt}</span>
                 <button

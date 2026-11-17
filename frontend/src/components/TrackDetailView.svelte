@@ -3,7 +3,6 @@
   import { formatDuration, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
   import type { Album, Playlist, Track, YTMusicAlbumView, YTMusicCard } from '../lib/types';
   import Icon from './Icon.svelte';
-  import TrackTable from './TrackTable.svelte';
 
   interface Props {
     track: Track | null;
@@ -24,6 +23,9 @@
     onToggleFavoriteTrack: (id: number) => void;
     onToggleFavoriteAlbum: (id: number) => void;
     onAddToPlaylist: (playlistId: number, trackId: number) => void;
+    onAddToQueue?: (tr: Track) => void;
+    onDownloadTrack?: (tr: Track) => void;
+    onRemoveDownload?: (trackId: number) => void;
     onOpenArtist: (artistId: number) => void;
     onOpenAlbum: (albumId: number) => void;
     ytAlbum?: YTMusicAlbumView | null;
@@ -57,6 +59,9 @@
     onToggleFavoriteTrack,
     onToggleFavoriteAlbum,
     onAddToPlaylist,
+    onAddToQueue,
+    onDownloadTrack,
+    onRemoveDownload,
     onOpenArtist,
     onOpenAlbum,
     ytAlbum = null,
@@ -100,6 +105,47 @@
   );
 
   let albumScrolled = $state(false);
+  let openActionTrackId = $state<number | null>(null);
+  let showPlaylistSubmenu = $state(false);
+
+  const releaseDateLabel = $derived.by(() => {
+    const y = (ytAlbum?.year || '').trim();
+    if (y) return y;
+    if (album?.releaseYear && album.releaseYear > 0) return String(album.releaseYear);
+    return '—';
+  });
+
+  function normTitle(s: string): string {
+    return (s || '')
+      .toLowerCase()
+      .replace(/\s*[\(\[](?:official|audio|video|mv|lyrics?|hd|4k).*?[\)\]]/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function isTrackActive(tr: Track): boolean {
+    if (tr.id === currentTrackId) return true;
+    if (currentExternalId && tr.externalId === currentExternalId) return true;
+    if (currentTrackTitle) {
+      const nt = normTitle(tr.title);
+      const nc = normTitle(currentTrackTitle);
+      if (nt && nc && nt === nc) {
+        if (!currentTrackArtist) return true;
+        const a1 = (tr.artistName || '').toLowerCase();
+        const a2 = currentTrackArtist.toLowerCase();
+        if (a1.includes(a2) || a2.includes(a1)) return true;
+      }
+    }
+    return false;
+  }
+
+  function handleRowPlayClick(tr: Track, active: boolean) {
+    if (active) {
+      onTogglePlay();
+    } else {
+      onPlayTrack(tr, listTracks);
+    }
+  }
 
   function playShuffled(list: Track[]) {
     if (list.length === 0) return;
@@ -204,6 +250,11 @@
 <div
   in:fade={{ duration: 180 }}
   onscroll={(e) => (albumScrolled = (e.currentTarget as HTMLElement).scrollTop > 8)}
+  onclick={() => {
+    openActionTrackId = null;
+    showPlaylistSubmenu = false;
+  }}
+  role="presentation"
   class="relative h-full w-full overflow-y-auto rounded-xl select-none"
   style="background-color: var(--md-sys-color-surface-container-low);"
 >
@@ -404,22 +455,25 @@
   <div class="px-6 sm:px-10 pb-8">
     {#if ytAlbumLoading}
       <div class="w-full animate-pulse" aria-busy="true" aria-label="Memuat daftar lagu album">
-        <!-- Header Skeleton (sama seperti TrackTable) -->
+        <!-- Header Skeleton -->
         <div
-          class="grid grid-cols-[36px_1.4fr_1fr_92px_96px] gap-3 px-3.5 py-2 text-[11px] font-bold uppercase tracking-wider"
+          class="-mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] gap-4 px-3 py-2 text-[11px] font-bold uppercase tracking-wider"
           style="color: var(--md-sys-color-on-surface-variant);"
         >
           <div class="text-center">#</div>
           <div>Title</div>
-          <div class="hidden sm:block">Album</div>
-          <div>Source</div>
-          <div class="text-right">Time</div>
+          <div class="hidden md:block">Rilis</div>
+          <div class="hidden md:block">Pemutaran</div>
+          <div class="flex justify-end pr-1">
+            <Icon name="clock" size={14} />
+          </div>
+          <div></div>
         </div>
 
         <!-- Track Rows Skeleton -->
         <div class="space-y-1.5 mt-1">
           {#each [62, 48, 70, 54, 66, 44] as titleW, idx (idx)}
-            <div class="grid grid-cols-[36px_1.4fr_1fr_92px_96px] gap-3 px-3.5 py-2.5 items-center rounded-lg">
+            <div class="-mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] gap-4 px-3 py-2.5 items-center rounded-lg">
               <div class="flex justify-center">
                 <div class="w-4 h-3 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
               </div>
@@ -427,15 +481,16 @@
                 <div class="h-3.5 rounded bg-[var(--md-sys-color-surface-container-highest)]" style="width: {titleW}%;"></div>
                 <div class="h-2.5 w-28 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
               </div>
-              <div class="hidden sm:block">
-                <div class="h-3 w-32 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
+              <div class="hidden md:block">
+                <div class="h-3 w-12 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
               </div>
-              <div>
-                <div class="h-5 w-16 rounded-full bg-[var(--md-sys-color-surface-container-high)]"></div>
+              <div class="hidden md:block">
+                <div class="h-3 w-14 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
               </div>
-              <div class="flex justify-end">
+              <div class="flex justify-end pr-1">
                 <div class="h-3 w-9 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
               </div>
+              <div></div>
             </div>
           {/each}
         </div>
@@ -455,22 +510,244 @@
         </div>
       </div>
     {:else}
-      <TrackTable
-        tracks={listTracks}
-        {currentTrackId}
-        {currentExternalId}
-        {currentTrackTitle}
-        {currentTrackArtist}
-        {isPlaying}
-        {mediaBaseUrl}
-        {accentColor}
-        {playlists}
-        showCover={false}
-        {onPlayTrack}
-        {onTogglePlay}
-        onToggleFavorite={onToggleFavoriteTrack}
-        {onAddToPlaylist}
-      />
+      <div class="w-full space-y-1">
+        <!-- Column Header: #, Title, Rilis, Pemutaran, Durasi, Aksi -->
+        <div
+          class="-mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] items-center gap-4 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider"
+          style="color: var(--md-sys-color-on-surface-variant);"
+        >
+          <span class="text-center">#</span>
+          <span>Title</span>
+          <span class="hidden md:block">Rilis</span>
+          <span class="hidden md:block">Pemutaran</span>
+          <span class="flex justify-end pr-1">
+            <Icon name="clock" size={14} />
+          </span>
+          <span></span>
+        </div>
+
+        <div class="space-y-0.5" role="list">
+          {#each listTracks as tr, idx (tr.id + '-' + idx)}
+            {@const active = isTrackActive(tr)}
+            {@const menuOpen = openActionTrackId === tr.id}
+            <div
+              role="listitem"
+              class="group relative -mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] items-center gap-4 px-3 py-2 rounded-lg transition-colors duration-150 {active
+                ? 'bg-[var(--md-sys-color-state-active)]'
+                : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
+              style="color: var(--md-sys-color-on-surface);"
+            >
+              <!-- Nomor / Play Indicator -->
+              <div class="flex items-center justify-center">
+                {#if active && isPlaying}
+                  <span class="velora-playing-eq group-hover:hidden" aria-hidden="true">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </span>
+                  <button
+                    type="button"
+                    onclick={() => handleRowPlayClick(tr, active)}
+                    aria-label="Jeda {tr.title}"
+                    class="hidden group-hover:flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
+                  >
+                    <Icon name="pause" weight="fill" size={14} />
+                  </button>
+                {:else if active && !isPlaying}
+                  <button
+                    type="button"
+                    onclick={() => handleRowPlayClick(tr, active)}
+                    aria-label="Putar {tr.title}"
+                    class="flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
+                  >
+                    <Icon name="play" weight="fill" size={14} />
+                  </button>
+                {:else}
+                  <span class="text-xs font-medium tabular-nums group-hover:hidden opacity-65">
+                    {idx + 1}
+                  </span>
+                  <button
+                    type="button"
+                    onclick={() => handleRowPlayClick(tr, active)}
+                    aria-label="Putar {tr.title}"
+                    class="hidden group-hover:flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
+                  >
+                    <Icon name="play" weight="fill" size={14} />
+                  </button>
+                {/if}
+              </div>
+
+              <!-- Title + Artist -->
+              <button
+                type="button"
+                onclick={() => handleRowPlayClick(tr, active)}
+                class="min-w-0 pr-4 text-left cursor-pointer"
+              >
+                <div class="text-xs font-bold line-clamp-2 whitespace-normal leading-snug {active ? 'text-[var(--md-sys-color-primary)]' : ''}">
+                  {tr.title}
+                </div>
+                <div class="text-[11px] truncate opacity-75 mt-0.5">
+                  {tr.artistName}
+                </div>
+              </button>
+
+              <!-- Rilis -->
+              <div class="hidden md:block text-xs tabular-nums truncate opacity-75">
+                {releaseDateLabel}
+              </div>
+
+              <!-- Pemutaran -->
+              <div class="hidden md:block text-xs tabular-nums truncate opacity-75">
+                {tr.globalPlays || '-'}
+              </div>
+
+              <!-- Durasi -->
+              <span class="text-[11px] font-medium tabular-nums text-right opacity-75 pr-1">
+                {formatDuration(tr.durationSec)}
+              </span>
+
+              <!-- Action Column (...): BG transparan, hover hanya pada ikon titik tiga -->
+              <div class="relative flex items-center justify-end">
+                <button
+                  type="button"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    if (menuOpen) {
+                      openActionTrackId = null;
+                      showPlaylistSubmenu = false;
+                    } else {
+                      openActionTrackId = tr.id;
+                      showPlaylistSubmenu = false;
+                    }
+                  }}
+                  aria-label="Aksi lagu"
+                  class="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-transparent cursor-pointer transition-colors {menuOpen
+                    ? 'opacity-100 text-[var(--md-sys-color-on-surface)]'
+                    : 'opacity-65 hover:opacity-100 text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'}"
+                >
+                  <Icon name="dots-three-vertical" weight="bold" size={18} />
+                </button>
+
+                {#if menuOpen}
+                  <div
+                    onclick={(e) => e.stopPropagation()}
+                    role="menu"
+                    tabindex="-1"
+                    class="absolute right-0 top-9 z-40 w-60 p-1.5 rounded-xl shadow-2xl text-xs"
+                    style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+                  >
+                    {#if playlists.length > 0}
+                      <div class="relative">
+                        <button
+                          type="button"
+                          onclick={() => (showPlaylistSubmenu = !showPlaylistSubmenu)}
+                          class="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
+                        >
+                          <span class="flex items-center gap-2.5">
+                            <Icon name="plus" size={15} />
+                            <span>Tambah ke playlist</span>
+                          </span>
+                          <Icon name="caret-right" size={12} />
+                        </button>
+                        {#if showPlaylistSubmenu}
+                          <div class="mt-0.5 mb-1 pl-3 space-y-0.5 max-h-36 overflow-y-auto">
+                            {#each playlists as pl (pl.id)}
+                              <button
+                                type="button"
+                                onclick={() => {
+                                  onAddToPlaylist(pl.id, tr.id);
+                                  openActionTrackId = null;
+                                  showPlaylistSubmenu = false;
+                                }}
+                                class="w-full text-left px-3 py-1.5 rounded-md hover:bg-[var(--md-sys-color-state-hover)] truncate cursor-pointer opacity-90"
+                              >
+                                {pl.name}
+                              </button>
+                            {/each}
+                          </div>
+                        {/if}
+                      </div>
+                    {/if}
+
+                    <button
+                      type="button"
+                      onclick={() => {
+                        onToggleFavoriteTrack(tr.id);
+                        openActionTrackId = null;
+                      }}
+                      class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
+                    >
+                      <Icon
+                        name="heart"
+                        weight={tr.isFavorite ? 'fill' : 'regular'}
+                        size={15}
+                        class={tr.isFavorite ? 'text-[var(--md-sys-color-tertiary)]' : ''}
+                      />
+                      <span>{tr.isFavorite ? 'Hapus dari Lagu yang Disukai' : 'Tambahkan ke Lagu yang Disukai'}</span>
+                    </button>
+
+                    {#if tr.isDownloaded && onRemoveDownload}
+                      <button
+                        type="button"
+                        onclick={() => {
+                          onRemoveDownload(tr.id);
+                          openActionTrackId = null;
+                        }}
+                        class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
+                      >
+                        <Icon name="check-circle" weight="fill" size={15} class="text-[var(--md-sys-color-primary)]" />
+                        <span>Hapus unduhan</span>
+                      </button>
+                    {:else if onDownloadTrack}
+                      <button
+                        type="button"
+                        onclick={() => {
+                          onDownloadTrack(tr);
+                          openActionTrackId = null;
+                        }}
+                        class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
+                      >
+                        <Icon name="download-simple" size={15} />
+                        <span>Unduh untuk offline</span>
+                      </button>
+                    {/if}
+
+                    {#if onAddToQueue}
+                      <button
+                        type="button"
+                        onclick={() => {
+                          onAddToQueue(tr);
+                          openActionTrackId = null;
+                        }}
+                        class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
+                      >
+                        <Icon name="queue" size={15} />
+                        <span>Tambahkan ke antrean</span>
+                      </button>
+                    {/if}
+
+                    {#if tr.artistId > 0}
+                      <div class="my-1 h-px opacity-15" style="background-color: var(--md-sys-color-on-surface);"></div>
+                      <button
+                        type="button"
+                        onclick={() => {
+                          onOpenArtist(tr.artistId);
+                          openActionTrackId = null;
+                        }}
+                        class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
+                      >
+                        <Icon name="user" size={15} />
+                        <span>Buka artis</span>
+                      </button>
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+            </div>
+          {/each}
+        </div>
+      </div>
     {/if}
   </div>
 
