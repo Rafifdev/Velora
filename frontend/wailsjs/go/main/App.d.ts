@@ -4,7 +4,9 @@ import {db} from '../models';
 import {sources} from '../models';
 import {main} from '../models';
 import {stats} from '../models';
+import {jam} from '../models';
 import {audio} from '../models';
+import {fs} from '../models';
 
 export function AddLocalFolder():Promise<Array<db.Track>>;
 
@@ -41,6 +43,8 @@ export function GetDownloadStates():Promise<Array<sources.DownloadProgress>>;
 export function GetDownloadedTracks():Promise<Array<db.Track>>;
 
 export function GetFireStreak():Promise<stats.FireStreakStatus>;
+
+export function GetJamStatus():Promise<jam.Status>;
 
 export function GetListeningStats():Promise<stats.ListeningStats>;
 
@@ -102,6 +106,14 @@ export function SearchYouTubeMusicArtists(arg1:string):Promise<Array<sources.YTM
 
 export function SearchYouTubeMusicPlaylists(arg1:string):Promise<Array<sources.YTMusicCard>>;
 
+export function SetFrontendFS(arg1:fs.FS):Promise<void>;
+
+export function SetTrayIcon(arg1:Array<number>):Promise<void>;
+
+export function StartJam():Promise<jam.Status>;
+
+export function StopJam():Promise<jam.Status>;
+
 export function ToggleFavoriteAlbum(arg1:number):Promise<boolean>;
 
 export function ToggleFavoriteArtist(arg1:number):Promise<boolean>;
@@ -111,6 +123,8 @@ export function ToggleFavoriteTrack(arg1:number):Promise<boolean>;
 export function ToggleFavoriteYTMusicAlbum(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number):Promise<db.Album>;
 
 export function ToggleFavoriteYTMusicArtist(arg1:string,arg2:string,arg3:string):Promise<db.Artist>;
+
+export function UpdateJamState(arg1:jam.PlaybackSnapshot):Promise<void>;
 
 export function UpdatePlaylist(arg1:number,arg2:string,arg3:string,arg4:string):Promise<db.Playlist>;
 

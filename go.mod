@@ -3,8 +3,10 @@ module velora
 go 1.26.0
 
 require (
+	fyne.io/systray v1.12.2
 	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
 	github.com/go-ole/go-ole v1.3.0
+	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/wailsapp/wails/v2 v2.17.1
 	golang.org/x/sys v0.48.0
 	modernc.org/sqlite v1.33.1
@@ -34,7 +36,6 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/samber/lo v1.49.1 // indirect
-	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e // indirect
 	github.com/tkrajina/go-reflector v0.5.8 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect

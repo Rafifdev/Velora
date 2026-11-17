@@ -11,14 +11,60 @@ import type {
   Track,
   TrackLyrics,
   DownloadProgress,
+  JamPlaybackSnapshot,
+  JamStatus,
   YTMusicAlbumView,
   YTMusicCard,
   YTMusicHomeFeed,
   YTMusicTrack
 } from './types';
 
+export const isJamRemote =
+  typeof window !== 'undefined' && !(window as any)?.go?.main?.App;
+
+const jamRpcProxy = new Proxy(
+  {},
+  {
+    get(_target, prop) {
+      const method = String(prop);
+      return async (...args: any[]) => {
+        const res = await fetch(`/api/rpc/${encodeURIComponent(method)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ args })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data?.error || `RPC ${method} failed (${res.status})`);
+        }
+        return data;
+      };
+    }
+  }
+);
+
 function appBridge(): any {
-  return (window as any)?.go?.main?.App;
+  return (window as any)?.go?.main?.App ?? jamRpcProxy;
+}
+
+export function safeEventsOn(eventName: string, callback: (...args: any[]) => void): () => void {
+  const fn = (window as any)?.runtime?.EventsOn;
+  if (typeof fn === 'function') {
+    return fn(eventName, callback);
+  }
+  return () => {};
+}
+
+export async function sendJamCommand(action: string, payload: Record<string, any> | number = {}): Promise<void> {
+  try {
+    await fetch(`/api/playback/${encodeURIComponent(action)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(typeof payload === 'number' ? { value: payload } : payload)
+    });
+  } catch {
+    // ignore network errors
+  }
 }
 
 export function formatDuration(seconds: number): string {
@@ -266,13 +312,29 @@ export const api = {
   async getDownloadStates(): Promise<DownloadProgress[]> {
     return appBridge().GetDownloadStates();
   },
+  async startJam(): Promise<JamStatus> {
+    return appBridge().StartJam();
+  },
+  async stopJam(): Promise<JamStatus> {
+    return appBridge().StopJam();
+  },
+  async getJamStatus(): Promise<JamStatus> {
+    return appBridge().GetJamStatus();
+  },
+  updateJamState(snap: JamPlaybackSnapshot): void {
+    if (isJamRemote) return;
+    appBridge()?.UpdateJamState?.(snap);
+  },
   windowMinimize(): void {
+    if (isJamRemote) return;
     appBridge()?.WindowMinimize();
   },
   windowMaximize(): void {
+    if (isJamRemote) return;
     appBridge()?.WindowMaximize();
   },
   async windowIsMaximized(): Promise<boolean> {
+    if (isJamRemote) return false;
     try {
       if (appBridge()?.WindowIsMaximized) {
         return await appBridge().WindowIsMaximized();
@@ -286,9 +348,11 @@ export const api = {
     return window.outerWidth >= window.screen.availWidth - 8 && window.outerHeight >= window.screen.availHeight - 8;
   },
   windowClose(): void {
+    if (isJamRemote) return;
     appBridge()?.WindowClose();
   },
   updateTaskbarState(title: string, artist: string, coverUrl: string, isPlaying: boolean): void {
+    if (isJamRemote) return;
     appBridge()?.UpdateTaskbarState?.(title, artist, coverUrl, isPlaying);
   }
 };

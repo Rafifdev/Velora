@@ -81,13 +81,13 @@
 
 <div class="w-full">
   <div
-    class="grid grid-cols-[36px_1.4fr_1fr_92px_96px] gap-3 px-3.5 py-2 text-[11px] font-bold uppercase tracking-wider"
+    class="grid grid-cols-[28px_minmax(0,1fr)_auto] sm:grid-cols-[36px_1.4fr_1fr_92px_96px] gap-2 sm:gap-3 px-2 sm:px-3.5 py-2 text-[11px] font-bold uppercase tracking-wider"
     style="color: var(--md-sys-color-on-surface-variant);"
   >
     <div class="text-center">#</div>
     <div>Title</div>
     <div class="hidden sm:block">Album</div>
-    <div>Source</div>
+    <div class="hidden sm:block">Source</div>
     <div class="text-right">Time</div>
   </div>
 
@@ -96,7 +96,7 @@
       {@const active = isTrackActive(tr)}
       {@const cover = resolveCoverUrl(tr.coverUrl, mediaBaseUrl)}
       <div
-        class="group grid grid-cols-[36px_1.4fr_1fr_92px_96px] gap-3 px-3.5 py-2 items-center rounded-lg transition-colors duration-150 {active
+        class="group grid grid-cols-[28px_minmax(0,1fr)_auto] sm:grid-cols-[36px_1.4fr_1fr_92px_96px] gap-2 sm:gap-3 px-2 sm:px-3.5 py-2 items-center rounded-lg transition-colors duration-150 {active
           ? 'bg-[var(--md-sys-color-state-hover)]'
           : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
         style="color: var(--md-sys-color-on-surface);"
@@ -187,7 +187,7 @@
           {tr.albumTitle}
         </div>
 
-        <div>
+        <div class="hidden sm:block">
           <span
             class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold"
             style="background-color: rgba(255, 255, 255, 0.08); color: var(--md-sys-color-on-surface-variant);"
@@ -225,7 +225,7 @@
                 aria-label="Unduh {tr.title}"
                 class="m3-icon-btn w-7 h-7 flex items-center justify-center opacity-0 group-hover:opacity-100 transition cursor-pointer"
               >
-                <Icon name="download-simple" size={15} />
+                <Icon name="download" size={15} />
               </button>
             {/if}
           {/if}

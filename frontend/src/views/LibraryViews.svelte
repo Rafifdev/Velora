@@ -93,6 +93,14 @@
     onNavigate
   }: Props = $props();
 
+  let mobileSearchInputEl: HTMLInputElement | undefined = $state();
+
+  $effect(() => {
+    if (mode === 'search' && mobileSearchInputEl && window.innerWidth < 640) {
+      requestAnimationFrame(() => mobileSearchInputEl?.focus());
+    }
+  });
+
   let artistFilterText = $state('');
   let ytQuery = $state('');
   let albumsScrolled = $state(false);
@@ -312,7 +320,7 @@
             class="w-28 h-28 rounded-lg flex items-center justify-center shrink-0 shadow-[0_12px_36px_rgba(0,0,0,0.42)]"
             style="background: linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-primary) 45%, #0077b6) 0%, color-mix(in srgb, var(--md-sys-color-primary) 82%, #38bdf8) 52%, color-mix(in srgb, var(--md-sys-color-on-primary-container) 88%, #ffffff) 100%);"
           >
-            <Icon name="download-simple" weight="fill" size={44} class="text-white drop-shadow-sm" />
+            <Icon name="download" weight="fill" size={44} class="text-white drop-shadow-sm" />
           </div>
           <div class="space-y-1.5 min-w-[200px] mb-[4px]">
             <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--md-sys-color-primary)]">
@@ -403,7 +411,7 @@
       {#if downloadedTracks.length === 0 && activeDownloads.length === 0}
         <div class="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
           <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
-            <Icon name="download-simple" weight="fill" size={38} />
+            <Icon name="download" weight="fill" size={38} />
           </div>
           <h2 class="text-2xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
             Belum ada lagu yang diunduh
@@ -780,9 +788,117 @@
     </div>
   </div>
 {:else}
-  <!-- Search & YouTube Music View (Nuclear Borderless Style) -->
-  <div class="p-6 space-y-6" use:svelteMotionEnter={{ y: 8 }}>
-    <section class="space-y-3">
+  <!-- Search & YouTube Music View -->
+  <div class="p-3 sm:p-6 space-y-1 sm:space-y-6" use:svelteMotionEnter={{ y: 8 }}>
+    <!-- Mobile Full-Width Search Bar (Sticky at exact top with smooth dark top fade) -->
+    <form
+      onsubmit={(e) => {
+        e.preventDefault();
+        onSearchYTMusic(ytQuery);
+      }}
+      class="sm:hidden sticky top-0 z-20 -mx-3 -mt-3 px-3 pt-3 pb-2 border-0 outline-none"
+      style="background: linear-gradient(to bottom, var(--md-sys-color-surface) 0%, var(--md-sys-color-surface) 68%, color-mix(in srgb, var(--md-sys-color-surface) 78%, transparent) 86%, transparent 100%);"
+    >
+      <div
+        class="w-full h-10 px-3 rounded-md border-0 outline-none flex items-center gap-2.5"
+        style="background-color: var(--md-sys-color-surface-container-high);"
+      >
+        <Icon name="magnifying-glass" size={18} style="color: var(--md-sys-color-on-surface-variant);" class="shrink-0" />
+        <input
+          id="mobile-search-input"
+          bind:this={mobileSearchInputEl}
+          type="search"
+          bind:value={ytQuery}
+          oninput={() => onSearchYTMusic(ytQuery)}
+          placeholder="Apa yang ingin kamu putar?"
+          class="flex-1 min-w-0 bg-transparent border-0 outline-none ring-0 text-sm"
+          style="color: var(--md-sys-color-on-surface);"
+        />
+        {#if ytQuery}
+          <button
+            type="button"
+            onclick={() => {
+              ytQuery = '';
+              onSearchYTMusic('');
+            }}
+            aria-label="Hapus pencarian"
+            class="w-6 h-6 rounded-full flex items-center justify-center shrink-0 cursor-pointer border-0"
+            style="color: var(--md-sys-color-on-surface-variant);"
+          >
+            <Icon name="x-circle" weight="fill" size={17} />
+          </button>
+        {/if}
+      </div>
+    </form>
+
+    <!-- Mobile Spotify-Style Search Suggestions & Results -->
+    <div class="sm:hidden space-y-1">
+      {#if ytResults.length > 0}
+        {#each ytResults.slice(0, 5) as sug (`sug-${sug.videoId}`)}
+          <button
+            type="button"
+            onclick={() => {
+              ytQuery = sug.title;
+              onSearchYTMusic(sug.title);
+            }}
+            class="w-full flex items-center gap-3 px-2 py-2.5 rounded-md hover:bg-[var(--md-sys-color-state-hover)] text-left cursor-pointer"
+          >
+            <Icon name="magnifying-glass" size={18} style="color: var(--md-sys-color-on-surface-variant);" class="shrink-0" />
+            <span class="flex-1 min-w-0 text-sm truncate" style="color: var(--md-sys-color-on-surface);">
+              {sug.title}
+            </span>
+            <Icon name="arrow-up-left" size={16} style="color: var(--md-sys-color-on-surface-variant);" class="shrink-0" />
+          </button>
+        {/each}
+      {/if}
+
+      {#each ytResults as yt (yt.videoId)}
+        {@const mCover = resolveCoverUrl(yt.coverUrl, mediaBaseUrl)}
+        {@const mActive = isYTActive(yt)}
+        <div class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-[var(--md-sys-color-state-hover)]">
+          <button
+            type="button"
+            onclick={() => (mActive && onTogglePlay ? onTogglePlay() : onPlayYTMusic(yt))}
+            class="flex-1 min-w-0 flex items-center gap-3 text-left cursor-pointer"
+          >
+            <div class="w-12 h-12 rounded-md overflow-hidden shrink-0 bg-[var(--md-sys-color-surface-container-high)] flex items-center justify-center">
+              {#if mCover}
+                <img
+                  src={mCover}
+                  alt={yt.title}
+                  class="block w-full h-full object-cover object-center"
+                  class:velora-yt-video-thumb={isYTVideoThumb(mCover)}
+                />
+              {:else}
+                <Icon name="music-note" size={18} />
+              {/if}
+            </div>
+            <div class="min-w-0 flex-1">
+              <div
+                class="text-sm font-semibold truncate"
+                style="color: {mActive ? 'var(--md-sys-color-tertiary)' : 'var(--md-sys-color-on-surface)'};"
+              >
+                {yt.title}
+              </div>
+              <div class="text-xs truncate mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
+                Song • {yt.artist || 'YouTube Music'}
+              </div>
+            </div>
+          </button>
+          <button
+            type="button"
+            onclick={() => onSaveYTMusic(yt)}
+            aria-label="Simpan ke Library"
+            class="w-9 h-9 rounded-full flex items-center justify-center shrink-0 cursor-pointer"
+            style="color: var(--md-sys-color-on-surface-variant);"
+          >
+            <Icon name="plus-circle" size={20} />
+          </button>
+        </div>
+      {/each}
+    </div>
+
+    <section class="hidden sm:block space-y-3">
       {#if ytLoading && !topYTMatch}
         <div
           class="rounded-xl p-4 flex items-center gap-4 animate-pulse"
@@ -913,7 +1029,7 @@
                     title="Unduh untuk offline"
                     class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer"
                   >
-                    <Icon name="download-simple" size={14} />
+                    <Icon name="download" size={14} />
                   </button>
                 {/if}
                 <button

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -14,8 +16,10 @@ import (
 
 	"velora/internal/audio"
 	"velora/internal/db"
+	"velora/internal/jam"
 	"velora/internal/sources"
 	"velora/internal/stats"
+	"velora/internal/tray"
 )
 
 type BootstrapData struct {
@@ -42,6 +46,11 @@ type App struct {
 	localSrc     *sources.LocalScanner
 	ytClient     *sources.YTMusicClient
 	downloader   *sources.DownloadManager
+	jamSrv       *jam.Server
+	frontendFS   fs.FS
+	trayIcon     []byte
+	trayCtrl     *tray.Controller
+	quitting     bool
 	player       *audio.PlayerController
 	ytHomeMu     sync.Mutex
 	ytHomeDone   chan struct{}
@@ -52,6 +61,17 @@ type App struct {
 
 func NewApp() *App {
 	return &App{}
+}
+
+func (a *App) SetFrontendFS(fsys fs.FS) {
+	a.frontendFS = fsys
+	if a.jamSrv != nil && fsys != nil {
+		a.jamSrv.SetFrontendFS(fsys)
+	}
+}
+
+func (a *App) SetTrayIcon(icon []byte) {
+	a.trayIcon = icon
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -88,6 +108,104 @@ func (a *App) startup(ctx context.Context) {
 	a.startYTMusicHomePrefetch()
 	a.player = audio.NewPlayerController(store, a.ytClient, a.artworkDir)
 	_, _ = a.player.StartMediaServer()
+	a.jamSrv = jam.NewServer(
+		a.player.BaseURL(),
+		func(cmd jam.Command) {
+			if a.ctx != nil {
+				runtime.EventsEmit(a.ctx, "jam:command", cmd)
+			}
+		},
+		func(_ int) {
+			if a.ctx != nil && a.jamSrv != nil {
+				runtime.EventsEmit(a.ctx, "jam:status", a.jamSrv.Status())
+			}
+		},
+	)
+	a.jamSrv.SetSearchHandler(func(ctx context.Context, q string) ([]jam.SearchResult, error) {
+		var out []jam.SearchResult
+		seen := make(map[string]struct{})
+		if local, err := a.store.GetTracks("all", q); err == nil {
+			for _, tr := range local {
+				if len(out) >= 15 {
+					break
+				}
+				if tr.ExternalID != "" {
+					seen[tr.ExternalID] = struct{}{}
+				}
+				out = append(out, jam.SearchResult{
+					TrackID:     tr.ID,
+					ExternalID:  tr.ExternalID,
+					Title:       tr.Title,
+					Artist:      tr.ArtistName,
+					Album:       tr.AlbumTitle,
+					DurationSec: tr.DurationSec,
+					CoverURL:    tr.CoverURL,
+					SourceType:  tr.SourceType,
+				})
+			}
+		}
+		if a.ytClient != nil {
+			if ytHits, err := a.ytClient.Search(ctx, q); err == nil {
+				for _, yt := range ytHits {
+					if len(out) >= 25 {
+						break
+					}
+					if yt.VideoID != "" {
+						if _, dup := seen[yt.VideoID]; dup {
+							continue
+						}
+						seen[yt.VideoID] = struct{}{}
+					}
+					out = append(out, jam.SearchResult{
+						ExternalID:  yt.VideoID,
+						Title:       yt.Title,
+						Artist:      yt.Artist,
+						Album:       yt.Album,
+						DurationSec: yt.DurationSec,
+						CoverURL:    yt.CoverURL,
+						SourceType:  "ytmusic",
+					})
+				}
+			}
+		}
+		return out, nil
+	})
+	a.jamSrv.SetLyricsHandler(func(_ context.Context, snap jam.PlaybackSnapshot) (jam.LyricsPayload, error) {
+		lyr := a.GetTrackLyrics(snap.TrackID, snap.Title, snap.Artist, snap.Album, int(snap.DurationSec))
+		synced := make([]jam.LyricLine, 0, len(lyr.SyncedLyrics))
+		for _, line := range lyr.SyncedLyrics {
+			synced = append(synced, jam.LyricLine{TimeSec: line.TimeSec, Text: line.Text})
+		}
+		return jam.LyricsPayload{
+			PlainLyrics:  lyr.PlainLyrics,
+			SyncedLyrics: synced,
+		}, nil
+	})
+	if a.frontendFS != nil {
+		a.jamSrv.SetFrontendFS(a.frontendFS)
+	}
+	a.jamSrv.SetRPCHandler(a.handleJamRPC)
+	a.trayCtrl = tray.NewController(
+		a.trayIcon,
+		func() {
+			if a.ctx != nil {
+				runtime.WindowShow(a.ctx)
+				runtime.WindowUnminimise(a.ctx)
+			}
+		},
+		func() {
+			a.StopJam()
+		},
+		func() {
+			a.quitting = true
+			if a.ctx != nil {
+				runtime.Quit(a.ctx)
+			}
+		},
+	)
+	if prefs, pErr := a.store.GetPreferences(); pErr == nil && prefs["integrations.jam.enabled"] == "true" {
+		_, _ = a.StartJam()
+	}
 }
 
 func (a *App) startYTMusicHomePrefetch() {
@@ -117,8 +235,22 @@ func (a *App) domReady(ctx context.Context) {
 	a.initTaskbar(ctx)
 }
 
+func (a *App) beforeClose(ctx context.Context) (prevent bool) {
+	if !a.quitting && a.jamSrv != nil && a.jamSrv.Status().Running {
+		runtime.WindowHide(ctx)
+		return true
+	}
+	return false
+}
+
 func (a *App) shutdown(ctx context.Context) {
 	a.shutdownTaskbar()
+	if a.trayCtrl != nil {
+		a.trayCtrl.Shutdown()
+	}
+	if a.jamSrv != nil {
+		a.jamSrv.Stop()
+	}
 	if a.player != nil {
 		a.player.Shutdown()
 	}
@@ -748,4 +880,107 @@ func (a *App) GetDownloadedTracks() ([]db.Track, error) {
 
 func (a *App) GetDownloadStates() []sources.DownloadProgress {
 	return a.downloader.GetStates()
+}
+
+func (a *App) StartJam() (jam.Status, error) {
+	if a.jamSrv == nil {
+		return jam.Status{}, fmt.Errorf("jam server not initialized")
+	}
+	st, err := a.jamSrv.Start()
+	if err == nil && a.store != nil {
+		_ = a.store.SetPreference("integrations.jam.enabled", "true")
+		_ = a.store.SetPreference("integrations.jam.remoteUrl", st.RemoteURL)
+		_ = a.store.SetPreference("integrations.jam.apiUrl", st.APIURL)
+	}
+	if err == nil && a.trayCtrl != nil {
+		a.trayCtrl.EnsureStarted(st.Running, st.RemoteURL)
+	}
+	if a.ctx != nil {
+		runtime.EventsEmit(a.ctx, "jam:status", st)
+	}
+	return st, err
+}
+
+func (a *App) StopJam() jam.Status {
+	if a.jamSrv == nil {
+		return jam.Status{}
+	}
+	st := a.jamSrv.Stop()
+	if a.store != nil {
+		_ = a.store.SetPreference("integrations.jam.enabled", "false")
+	}
+	if a.trayCtrl != nil {
+		a.trayCtrl.UpdateJamState(false, st.RemoteURL)
+	}
+	if a.ctx != nil {
+		runtime.EventsEmit(a.ctx, "jam:status", st)
+	}
+	return st
+}
+
+func (a *App) GetJamStatus() jam.Status {
+	if a.jamSrv == nil {
+		return jam.Status{}
+	}
+	return a.jamSrv.Status()
+}
+
+func (a *App) UpdateJamState(snap jam.PlaybackSnapshot) {
+	if a.jamSrv != nil {
+		a.jamSrv.UpdateState(snap)
+	}
+}
+
+func (a *App) handleJamRPC(method string, rawArgs []json.RawMessage) (any, error) {
+	switch method {
+	case "WindowMinimize", "WindowMaximize", "WindowIsMaximized", "WindowClose", "SetFrontendFS", "StartJam", "StopJam", "UpdateJamState":
+		return nil, fmt.Errorf("method %q is not permitted over remote RPC", method)
+	}
+
+	m := reflect.ValueOf(a).MethodByName(method)
+	if !m.IsValid() {
+		return nil, fmt.Errorf("unknown method %q", method)
+	}
+
+	mt := m.Type()
+	numIn := mt.NumIn()
+	if len(rawArgs) != numIn {
+		return nil, fmt.Errorf("method %q expects %d args, got %d", method, numIn, len(rawArgs))
+	}
+
+	in := make([]reflect.Value, numIn)
+	for i := 0; i < numIn; i++ {
+		argVal := reflect.New(mt.In(i))
+		if len(rawArgs[i]) > 0 {
+			if err := json.Unmarshal(rawArgs[i], argVal.Interface()); err != nil {
+				return nil, fmt.Errorf("invalid arg %d for %q: %w", i, method, err)
+			}
+		}
+		in[i] = argVal.Elem()
+	}
+
+	out := m.Call(in)
+	if len(out) == 0 {
+		return nil, nil
+	}
+	errType := reflect.TypeOf((*error)(nil)).Elem()
+	last := out[len(out)-1]
+	if last.Type().Implements(errType) {
+		var retErr error
+		if !last.IsNil() {
+			retErr = last.Interface().(error)
+		}
+		if len(out) == 1 {
+			return nil, retErr
+		}
+		val := out[0].Interface()
+		if method == "GetBootstrapData" && retErr == nil {
+			if boot, ok := val.(BootstrapData); ok {
+				boot.MediaBaseURL = ""
+				return boot, nil
+			}
+		}
+		return val, retErr
+	}
+	return out[0].Interface(), nil
 }

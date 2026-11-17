@@ -708,7 +708,7 @@
                         }}
                         class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
                       >
-                        <Icon name="download-simple" size={15} />
+                        <Icon name="download" size={15} />
                         <span>Unduh untuk offline</span>
                       </button>
                     {/if}

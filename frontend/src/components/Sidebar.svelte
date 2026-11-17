@@ -67,7 +67,7 @@
     { id: 'liked-songs', label: 'Favorite music', icon: 'music-note' },
     { id: 'favorite-artists', label: 'Favorite artists', icon: 'user' },
     { id: 'playlists', label: 'Playlists', icon: 'playlist', count: playlistsCount },
-    { id: 'downloaded', label: 'Downloaded', icon: 'download-simple', count: downloadedCount },
+    { id: 'downloaded', label: 'Downloaded', icon: 'download', count: downloadedCount },
     { id: 'history', label: 'History', icon: 'clock-counter-clockwise' }
   ]);
 

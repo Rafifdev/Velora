@@ -30,6 +30,56 @@ export interface DownloadProgress {
   error?: string;
 }
 
+export interface JamQueueItem {
+  trackId: number;
+  externalId: string;
+  title: string;
+  artist: string;
+  durationSec: number;
+  coverUrl: string;
+}
+
+export interface JamPlaybackSnapshot {
+  trackId: number;
+  externalId: string;
+  title: string;
+  artist: string;
+  album: string;
+  coverUrl: string;
+  isPlaying: boolean;
+  positionSec: number;
+  durationSec: number;
+  volume: number;
+  muted: boolean;
+  shuffle: boolean;
+  repeatMode: string;
+  queue: JamQueueItem[];
+}
+
+export interface JamCommand {
+  action: string;
+  value: number;
+  trackId?: number;
+  externalId?: string;
+  title?: string;
+  artist?: string;
+  album?: string;
+  coverUrl?: string;
+  durationSec?: number;
+}
+
+export interface JamStatus {
+  enabled: boolean;
+  running: boolean;
+  port: number;
+  lanIp: string;
+  remoteUrl: string;
+  apiUrl: string;
+  qrDataUrl: string;
+  connectedClients: number;
+  error?: string;
+}
+
 export interface Album {
   id: number;
   title: string;

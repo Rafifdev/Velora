@@ -254,6 +254,7 @@
 <!-- Collapsible Right Panel with Spotify 1:1 Now Playing, Lyrics, and Queue Cards (Internal Scroll Only) -->
 <aside
   aria-label="Right Panel Section"
+  use:svelteMotionEnter={{ y: 8 }}
   onmouseenter={() => {
     if (collapsed) collapsedHover = true;
   }}

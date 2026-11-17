@@ -74,6 +74,10 @@ export function GetFireStreak() {
   return window['go']['main']['App']['GetFireStreak']();
 }
 
+export function GetJamStatus() {
+  return window['go']['main']['App']['GetJamStatus']();
+}
+
 export function GetListeningStats() {
   return window['go']['main']['App']['GetListeningStats']();
 }
@@ -194,6 +198,22 @@ export function SearchYouTubeMusicPlaylists(arg1) {
   return window['go']['main']['App']['SearchYouTubeMusicPlaylists'](arg1);
 }
 
+export function SetFrontendFS(arg1) {
+  return window['go']['main']['App']['SetFrontendFS'](arg1);
+}
+
+export function SetTrayIcon(arg1) {
+  return window['go']['main']['App']['SetTrayIcon'](arg1);
+}
+
+export function StartJam() {
+  return window['go']['main']['App']['StartJam']();
+}
+
+export function StopJam() {
+  return window['go']['main']['App']['StopJam']();
+}
+
 export function ToggleFavoriteAlbum(arg1) {
   return window['go']['main']['App']['ToggleFavoriteAlbum'](arg1);
 }
@@ -212,6 +232,10 @@ export function ToggleFavoriteYTMusicAlbum(arg1, arg2, arg3, arg4, arg5) {
 
 export function ToggleFavoriteYTMusicArtist(arg1, arg2, arg3) {
   return window['go']['main']['App']['ToggleFavoriteYTMusicArtist'](arg1, arg2, arg3);
+}
+
+export function UpdateJamState(arg1) {
+  return window['go']['main']['App']['UpdateJamState'](arg1);
 }
 
 export function UpdatePlaylist(arg1, arg2, arg3, arg4) {

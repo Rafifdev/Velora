@@ -492,8 +492,8 @@ select.m3-input option:checked {
 
 .velora-card-artwork {
   position: relative;
-  width: 152px;
-  height: 152px;
+  width: 100%;
+  height: auto;
   aspect-ratio: 1 / 1;
   flex-shrink: 0;
   border-radius: 6px;
@@ -778,5 +778,27 @@ input[type='search']::-webkit-search-cancel-button {
   *::after {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 1023px) {
+  .velora-card-grid-7 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .velora-card-grid,
+  .velora-card-grid-7 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+  .velora-card-grid > *,
+  .velora-card-grid .velora-card-artwork {
+    width: 100% !important;
+    height: auto !important;
+  }
+  .velora-hide-mobile {
+    display: none !important;
   }
 }

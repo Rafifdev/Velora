@@ -145,12 +145,9 @@
 
   const filterPills = [
     { id: 'semua', label: 'Semua' },
-    { id: 'musik', label: 'Musik' },
+    { id: 'musik', label: 'Music' },
     { id: 'artis', label: 'Artis' },
-    { id: 'album', label: 'Album' },
-    { id: 'playlist', label: 'Playlist' },
-    { id: 'podcast', label: 'Podcast' },
-    { id: 'buku', label: 'Buku Audio' }
+    { id: 'album', label: 'Album' }
   ] as const;
 
   const pillHeading = $derived(
@@ -304,7 +301,7 @@
     class="velora-sticky-pills-container"
     class:is-stuck={pillsStuck}
   >
-    <div class="velora-sticky-pills-bar px-6 py-3 flex flex-wrap items-center gap-2">
+    <div class="velora-sticky-pills-bar px-4 sm:px-6 py-3 flex flex-wrap items-center gap-2">
       {#each filterPills as pill (pill.id)}
         {@const active = activeFilterPill === pill.id}
         <button
@@ -320,12 +317,6 @@
               onSearchYTMusicArtists?.('');
             } else if (pill.id === 'album') {
               onSearchYTMusicAlbums?.('');
-            } else if (pill.id === 'playlist') {
-              onSearchYTMusicPlaylists?.('Top Hits Indonesia Playlist');
-            } else if (pill.id === 'podcast') {
-              onSearchYTMusic('Podcast Musik Indonesia');
-            } else if (pill.id === 'buku') {
-              onSearchYTMusic('Audiobook Chill Ambient');
             }
           }}
           class="px-3.5 py-1.5 rounded-full text-xs font-semibold transition-colors duration-200 cursor-pointer hover:brightness-110"
@@ -339,7 +330,7 @@
     </div>
   </div>
 
-  <div class="relative z-10 px-6 pt-2 pb-6 space-y-7">
+  <div class="relative z-10 px-4 sm:px-6 pt-2 pb-6 space-y-6 sm:space-y-7">
 
     {#if activeFilterPill === 'semua'}
       <!-- Saved Library Playlists Shelf (Only shown when real playlists exist) -->
@@ -366,13 +357,13 @@
             use:shelfEdgeFade
             class={plExpanded
               ? 'velora-card-grid-7'
-              : 'flex items-start justify-start gap-3 overflow-x-auto no-scrollbar velora-shelf-scroll pb-1'}
+              : 'flex items-start justify-start gap-2.5 sm:gap-3 overflow-x-auto no-scrollbar velora-shelf-scroll pb-1'}
           >
             {#each playlists as pl (pl.id)}
               {@const cover = resolveCoverUrl(pl.coverUrl, mediaBaseUrl)}
               <div
                 role="group"
-                class="group {plExpanded ? 'w-full min-w-0' : 'w-[172px] shrink-0'} flex flex-col justify-start items-stretch self-start p-2.5 rounded-lg transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]"
+                class="group {plExpanded ? 'w-full min-w-0' : 'w-[132px] sm:w-[172px] shrink-0'} flex flex-col justify-start items-stretch self-start p-2 sm:p-2.5 rounded-lg transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]"
               >
                 <div
                   class="velora-card-artwork mb-2.5 flex items-center justify-center"
@@ -433,10 +424,10 @@
         {#each [0, 1] as shelfIdx (shelfIdx)}
           <section class="min-w-0 space-y-3">
             <div class="h-6 w-48 rounded-md bg-[var(--md-sys-color-surface-container-highest)] animate-pulse"></div>
-            <div class="flex items-start justify-start gap-3 overflow-hidden pb-1">
+            <div class="flex items-start justify-start gap-2.5 sm:gap-3 overflow-hidden pb-1">
               {#each [0, 1, 2, 3, 4, 5] as cardIdx (cardIdx)}
-                <div class="w-[172px] shrink-0 p-2.5 rounded-lg space-y-2.5">
-                  <div class="w-[152px] h-[152px] rounded-md bg-[var(--md-sys-color-surface-container-high)] animate-pulse"></div>
+                <div class="w-[132px] sm:w-[172px] shrink-0 p-2 sm:p-2.5 rounded-lg space-y-2.5">
+                  <div class="w-full aspect-square rounded-md bg-[var(--md-sys-color-surface-container-high)] animate-pulse"></div>
                   <div class="h-3.5 w-3/4 rounded bg-[var(--md-sys-color-surface-container-highest)] animate-pulse"></div>
                   <div class="h-3 w-1/2 rounded bg-[var(--md-sys-color-surface-container)] animate-pulse"></div>
                 </div>
@@ -489,7 +480,7 @@
               use:shelfEdgeFade
               class={isExpanded
                 ? 'velora-card-grid-7'
-                : 'flex items-start justify-start gap-3 overflow-x-auto no-scrollbar velora-shelf-scroll pb-1'}
+                : 'flex items-start justify-start gap-2.5 sm:gap-3 overflow-x-auto no-scrollbar velora-shelf-scroll pb-1'}
             >
               {#each shelf.items as item (item.id)}
                 {@const cover = resolveCoverUrl(item.coverUrl, mediaBaseUrl)}
@@ -497,7 +488,7 @@
                 <button
                   type="button"
                   onclick={() => onPlayYTCollection(item)}
-                  class="group {isExpanded ? 'w-full min-w-0' : 'w-[172px] shrink-0'} flex flex-col justify-start items-stretch self-start p-2.5 rounded-lg text-left cursor-pointer transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]"
+                  class="group {isExpanded ? 'w-full min-w-0' : 'w-[132px] sm:w-[172px] shrink-0'} flex flex-col justify-start items-stretch self-start p-2 sm:p-2.5 rounded-lg text-left cursor-pointer transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]"
                 >
                   <div class="velora-card-artwork mb-2.5 flex items-center justify-center" style="background: linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-tertiary) 92%, #ff5500) 0%, color-mix(in srgb, var(--md-sys-color-tertiary) 75%, #ffffff) 52%, color-mix(in srgb, var(--md-sys-color-on-tertiary-container) 88%, #ffffff) 100%);">
                     {#if cover}

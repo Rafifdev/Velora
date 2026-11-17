@@ -303,7 +303,7 @@
               class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors"
               style="color: var(--md-sys-color-on-surface);"
             >
-              <Icon name="download-simple" size={18} />
+              <Icon name="download" size={18} />
             </button>
           {/if}
         </div>
@@ -519,7 +519,7 @@
                           }}
                           class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
                         >
-                          <Icon name="download-simple" size={15} />
+                          <Icon name="download" size={15} />
                           <span>Unduh untuk offline</span>
                         </button>
                       {/if}

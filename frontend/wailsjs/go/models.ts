@@ -302,6 +302,118 @@ export namespace db {
 
 }
 
+export namespace jam {
+	
+	export class QueueItem {
+	    trackId: number;
+	    externalId: string;
+	    title: string;
+	    artist: string;
+	    durationSec: number;
+	    coverUrl: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new QueueItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.trackId = source["trackId"];
+	        this.externalId = source["externalId"];
+	        this.title = source["title"];
+	        this.artist = source["artist"];
+	        this.durationSec = source["durationSec"];
+	        this.coverUrl = source["coverUrl"];
+	    }
+	}
+	export class PlaybackSnapshot {
+	    trackId: number;
+	    externalId: string;
+	    title: string;
+	    artist: string;
+	    album: string;
+	    coverUrl: string;
+	    isPlaying: boolean;
+	    positionSec: number;
+	    durationSec: number;
+	    volume: number;
+	    muted: boolean;
+	    shuffle: boolean;
+	    repeatMode: string;
+	    queue: QueueItem[];
+	
+	    static createFrom(source: any = {}) {
+	        return new PlaybackSnapshot(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.trackId = source["trackId"];
+	        this.externalId = source["externalId"];
+	        this.title = source["title"];
+	        this.artist = source["artist"];
+	        this.album = source["album"];
+	        this.coverUrl = source["coverUrl"];
+	        this.isPlaying = source["isPlaying"];
+	        this.positionSec = source["positionSec"];
+	        this.durationSec = source["durationSec"];
+	        this.volume = source["volume"];
+	        this.muted = source["muted"];
+	        this.shuffle = source["shuffle"];
+	        this.repeatMode = source["repeatMode"];
+	        this.queue = this.convertValues(source["queue"], QueueItem);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class Status {
+	    enabled: boolean;
+	    running: boolean;
+	    port: number;
+	    lanIp: string;
+	    remoteUrl: string;
+	    apiUrl: string;
+	    qrDataUrl: string;
+	    connectedClients: number;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Status(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.running = source["running"];
+	        this.port = source["port"];
+	        this.lanIp = source["lanIp"];
+	        this.remoteUrl = source["remoteUrl"];
+	        this.apiUrl = source["apiUrl"];
+	        this.qrDataUrl = source["qrDataUrl"];
+	        this.connectedClients = source["connectedClients"];
+	        this.error = source["error"];
+	    }
+	}
+
+}
+
 export namespace main {
 	
 	export class BootstrapData {
