@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS tracks (
 	cover_url TEXT DEFAULT '',
 	is_favorite INTEGER DEFAULT 0,
 	play_count INTEGER DEFAULT 0,
+	is_downloaded INTEGER DEFAULT 0,
+	downloaded_at TEXT DEFAULT '',
 	created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 

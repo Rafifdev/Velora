@@ -62,9 +62,12 @@ type Track struct {
 	FilePath    string `json:"filePath"`
 	ExternalID  string `json:"externalId"`
 	CoverURL    string `json:"coverUrl"`
-	IsFavorite  bool   `json:"isFavorite"`
-	PlayCount   int    `json:"playCount"`
-	CreatedAt   string `json:"createdAt"`
+	IsFavorite   bool   `json:"isFavorite"`
+	PlayCount    int    `json:"playCount"`
+	IsDownloaded bool   `json:"isDownloaded"`
+	DownloadedAt string `json:"downloadedAt"`
+	GlobalPlays  string `json:"globalPlays,omitempty"`
+	CreatedAt    string `json:"createdAt"`
 }
 
 type Playlist struct {
@@ -127,6 +130,8 @@ func Open(dbPath string) (*Store, error) {
 		_ = conn.Close()
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
+	_, _ = conn.Exec(`ALTER TABLE tracks ADD COLUMN is_downloaded INTEGER NOT NULL DEFAULT 0;`)
+	_, _ = conn.Exec(`ALTER TABLE tracks ADD COLUMN downloaded_at TEXT NOT NULL DEFAULT '';`)
 	return &Store{db: conn}, nil
 }
 
@@ -278,23 +283,24 @@ func (s *Store) UpsertTrack(t Track) (Track, error) {
 
 func scanTrack(scanner interface{ Scan(...any) error }) (Track, error) {
 	var t Track
-	var fav int
+	var fav, downloaded int
 	err := scanner.Scan(
 		&t.ID, &t.Title, &t.ArtistID, &t.ArtistName, &t.AlbumID, &t.AlbumTitle,
 		&t.DurationSec, &t.Format, &t.Bitrate, &t.SourceType, &t.FilePath, &t.ExternalID,
-		&t.CoverURL, &fav, &t.PlayCount, &t.CreatedAt,
+		&t.CoverURL, &fav, &t.PlayCount, &downloaded, &t.DownloadedAt, &t.CreatedAt,
 	)
 	t.IsFavorite = fav == 1
+	t.IsDownloaded = downloaded == 1
 	return t, err
 }
 
 func (s *Store) GetTrackByID(id int64) (Track, error) {
-	row := s.db.QueryRow(`SELECT id, title, artist_id, artist_name, album_id, album_title, duration_sec, format, bitrate, source_type, file_path, external_id, cover_url, is_favorite, play_count, created_at FROM tracks WHERE id = ?`, id)
+	row := s.db.QueryRow(`SELECT id, title, artist_id, artist_name, album_id, album_title, duration_sec, format, bitrate, source_type, file_path, external_id, cover_url, is_favorite, play_count, is_downloaded, downloaded_at, created_at FROM tracks WHERE id = ?`, id)
 	return scanTrack(row)
 }
 
 func (s *Store) GetTracks(filter, query string) ([]Track, error) {
-	base := `SELECT id, title, artist_id, artist_name, album_id, album_title, duration_sec, format, bitrate, source_type, file_path, external_id, cover_url, is_favorite, play_count, created_at FROM tracks`
+	base := `SELECT id, title, artist_id, artist_name, album_id, album_title, duration_sec, format, bitrate, source_type, file_path, external_id, cover_url, is_favorite, play_count, is_downloaded, downloaded_at, created_at FROM tracks`
 	var where []string
 	var args []any
 
@@ -305,6 +311,8 @@ func (s *Store) GetTracks(filter, query string) ([]Track, error) {
 		where = append(where, `source_type = 'ytmusic'`)
 	case "favorites":
 		where = append(where, `is_favorite = 1`)
+	case "downloaded":
+		where = append(where, `is_downloaded = 1`)
 	}
 
 	if q := strings.TrimSpace(query); q != "" {
@@ -386,7 +394,7 @@ func (s *Store) GetAlbums(favoritesOnly bool) ([]Album, error) {
 }
 
 func (s *Store) GetAlbumTracks(albumID int64) ([]Track, error) {
-	rows, err := s.db.Query(`SELECT id, title, artist_id, artist_name, album_id, album_title, duration_sec, format, bitrate, source_type, file_path, external_id, cover_url, is_favorite, play_count, created_at FROM tracks WHERE album_id = ? ORDER BY id ASC`, albumID)
+	rows, err := s.db.Query(`SELECT id, title, artist_id, artist_name, album_id, album_title, duration_sec, format, bitrate, source_type, file_path, external_id, cover_url, is_favorite, play_count, is_downloaded, downloaded_at, created_at FROM tracks WHERE album_id = ? ORDER BY id ASC`, albumID)
 	if err != nil {
 		return nil, err
 	}
@@ -470,6 +478,59 @@ func (s *Store) ToggleFavoriteYTMusicAlbum(browseID, title, artistName, coverURL
 	return al, nil
 }
 
+func (s *Store) ToggleFavoriteYTMusicArtist(externalID, name, avatarURL string) (Artist, error) {
+	externalID = strings.TrimSpace(externalID)
+	name = strings.TrimSpace(name)
+	avatarURL = strings.TrimSpace(avatarURL)
+	if name == "" {
+		name = "Unknown Artist"
+	}
+
+	var id int64
+	if externalID != "" {
+		_ = s.db.QueryRow(
+			`SELECT id FROM artists WHERE external_id = ? LIMIT 1`,
+			externalID,
+		).Scan(&id)
+	}
+	if id == 0 {
+		_ = s.db.QueryRow(
+			`SELECT id FROM artists WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1`,
+			name,
+		).Scan(&id)
+	}
+	if id == 0 {
+		var err error
+		id, err = s.ensureArtist(name, avatarURL, "ytmusic", externalID)
+		if err != nil {
+			return Artist{}, err
+		}
+	}
+	if externalID != "" {
+		_, _ = s.db.Exec(`UPDATE artists SET external_id = ? WHERE id = ? AND external_id = ''`, externalID, id)
+	}
+	if avatarURL != "" {
+		_, _ = s.db.Exec(`UPDATE artists SET avatar_url = ? WHERE id = ? AND avatar_url = ''`, avatarURL, id)
+	}
+
+	if _, err := s.ToggleFavoriteArtist(id); err != nil {
+		return Artist{}, err
+	}
+
+	var ar Artist
+	var fav int
+	err := s.db.QueryRow(`
+		SELECT ar.id, ar.name, ar.avatar_url, ar.bio, ar.source_type, ar.external_id, ar.is_favorite,
+		       (SELECT COUNT(*) FROM tracks t WHERE t.artist_id = ar.id) AS track_count
+		FROM artists ar WHERE ar.id = ?`, id,
+	).Scan(&ar.ID, &ar.Name, &ar.AvatarURL, &ar.Bio, &ar.SourceType, &ar.ExternalID, &fav, &ar.TrackCount)
+	if err != nil {
+		return Artist{}, err
+	}
+	ar.IsFavorite = fav == 1
+	return ar, nil
+}
+
 func (s *Store) GetArtists(favoritesOnly bool) ([]Artist, error) {
 	query := `
 		SELECT ar.id, ar.name, ar.avatar_url, ar.bio, ar.source_type, ar.external_id, ar.is_favorite,
@@ -500,7 +561,7 @@ func (s *Store) GetArtists(favoritesOnly bool) ([]Artist, error) {
 }
 
 func (s *Store) GetArtistTracks(artistID int64) ([]Track, error) {
-	rows, err := s.db.Query(`SELECT id, title, artist_id, artist_name, album_id, album_title, duration_sec, format, bitrate, source_type, file_path, external_id, cover_url, is_favorite, play_count, created_at FROM tracks WHERE artist_id = ? ORDER BY play_count DESC, id ASC`, artistID)
+	rows, err := s.db.Query(`SELECT id, title, artist_id, artist_name, album_id, album_title, duration_sec, format, bitrate, source_type, file_path, external_id, cover_url, is_favorite, play_count, is_downloaded, downloaded_at, created_at FROM tracks WHERE artist_id = ? ORDER BY play_count DESC, id ASC`, artistID)
 	if err != nil {
 		return nil, err
 	}
@@ -583,7 +644,7 @@ func (s *Store) GetPlaylistDetail(id int64) (PlaylistDetail, error) {
 	p.IsLocal = isLocal == 1
 
 	rows, err := s.db.Query(`
-		SELECT t.id, t.title, t.artist_id, t.artist_name, t.album_id, t.album_title, t.duration_sec, t.format, t.bitrate, t.source_type, t.file_path, t.external_id, t.cover_url, t.is_favorite, t.play_count, COALESCE(pt.added_at, t.created_at)
+		SELECT t.id, t.title, t.artist_id, t.artist_name, t.album_id, t.album_title, t.duration_sec, t.format, t.bitrate, t.source_type, t.file_path, t.external_id, t.cover_url, t.is_favorite, t.play_count, t.is_downloaded, t.downloaded_at, COALESCE(pt.added_at, t.created_at)
 		FROM playlist_tracks pt
 		JOIN tracks t ON t.id = pt.track_id
 		WHERE pt.playlist_id = ?
@@ -661,6 +722,13 @@ func (s *Store) RenamePlaylist(id int64, name string) (Playlist, error) {
 		return Playlist{}, err
 	}
 	return s.UpdatePlaylist(id, name, detail.Playlist.Description, detail.Playlist.CoverColor)
+}
+
+func (s *Store) UpdatePlaylistCover(id int64, coverURL string) {
+	if strings.TrimSpace(coverURL) == "" {
+		return
+	}
+	_, _ = s.db.Exec(`UPDATE playlists SET cover_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, strings.TrimSpace(coverURL), id)
 }
 
 func (s *Store) DeletePlaylist(id int64) error {
@@ -845,6 +913,36 @@ func (s *Store) GetPlayHistory(limit int) ([]PlayHistoryItem, error) {
 	return items, rows.Err()
 }
 
+// GetRecentSeedTracks returns distinct recently played tracks ordered by most recent play.
+func (s *Store) GetRecentSeedTracks(limit int) ([]Track, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	rows, err := s.db.Query(`
+		SELECT t.id, t.title, t.artist_id, t.artist_name, t.album_id, t.album_title, t.duration_sec, t.format, t.bitrate, t.source_type, t.file_path, t.external_id, t.cover_url, t.is_favorite, t.play_count, t.is_downloaded, t.downloaded_at, t.created_at
+		FROM tracks t
+		JOIN (
+			SELECT track_id, MAX(id) AS last_play_id
+			FROM play_history
+			GROUP BY track_id
+		) h ON h.track_id = t.id
+		ORDER BY h.last_play_id DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	tracks := []Track{}
+	for rows.Next() {
+		t, err := scanTrack(rows)
+		if err != nil {
+			return nil, err
+		}
+		tracks = append(tracks, t)
+	}
+	return tracks, rows.Err()
+}
+
 func (s *Store) ClearPlayHistory() error {
 	_, err := s.db.Exec(`DELETE FROM play_history`)
 	return err
@@ -922,4 +1020,70 @@ func (s *Store) SaveCachedLyrics(trackID int64, plainLyrics, syncedJSON, source 
 		   updated_at = CURRENT_TIMESTAMP`,
 		trackID, plainLyrics, syncedJSON, source,
 	)
+}
+
+func (s *Store) MarkTrackDownloaded(trackID int64, filePath, format string) (Track, error) {
+	if trackID <= 0 {
+		return Track{}, fmt.Errorf("invalid track id")
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	if strings.TrimSpace(format) != "" {
+		_, err := s.db.Exec(
+			`UPDATE tracks SET file_path = ?, format = ?, is_downloaded = 1, downloaded_at = ? WHERE id = ?`,
+			filePath, strings.ToUpper(strings.TrimSpace(format)), now, trackID,
+		)
+		if err != nil {
+			return Track{}, err
+		}
+	} else {
+		_, err := s.db.Exec(
+			`UPDATE tracks SET file_path = ?, is_downloaded = 1, downloaded_at = ? WHERE id = ?`,
+			filePath, now, trackID,
+		)
+		if err != nil {
+			return Track{}, err
+		}
+	}
+	return s.GetTrackByID(trackID)
+}
+
+func (s *Store) ClearTrackDownloaded(trackID int64) (Track, error) {
+	if trackID <= 0 {
+		return Track{}, fmt.Errorf("invalid track id")
+	}
+	_, err := s.db.Exec(
+		`UPDATE tracks
+		 SET is_downloaded = 0,
+		     downloaded_at = '',
+		     file_path = CASE WHEN source_type = 'ytmusic' THEN '' ELSE file_path END
+		 WHERE id = ?`,
+		trackID,
+	)
+	if err != nil {
+		return Track{}, err
+	}
+	return s.GetTrackByID(trackID)
+}
+
+func (s *Store) GetDownloadedTracks() ([]Track, error) {
+	rows, err := s.db.Query(
+		`SELECT id, title, artist_id, artist_name, album_id, album_title, duration_sec, format, bitrate, source_type, file_path, external_id, cover_url, is_favorite, play_count, is_downloaded, downloaded_at, created_at
+		 FROM tracks
+		 WHERE is_downloaded = 1
+		 ORDER BY downloaded_at DESC, id DESC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	tracks := []Track{}
+	for rows.Next() {
+		t, err := scanTrack(rows)
+		if err != nil {
+			return nil, err
+		}
+		tracks = append(tracks, t)
+	}
+	return tracks, rows.Err()
 }

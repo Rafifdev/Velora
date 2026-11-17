@@ -28,10 +28,13 @@
     onReorderTracks: (playlistId: number, trackIds: number[]) => void;
     onToggleFavorite: (trackId: number) => void;
     onAddToQueue?: (track: Track) => void;
+    onDownloadTrack?: (track: Track) => void;
+    onRemoveDownload?: (trackId: number) => void;
     onOpenArtist?: (artistId: number) => void;
     onOpenTrackAlbum?: (track: Track) => void;
     onExportM3U: (playlistId: number) => void;
     onImportM3U: () => void;
+    onImportSpotify?: (url: string) => Promise<void>;
   }
 
   let {
@@ -58,10 +61,13 @@
     onReorderTracks,
     onToggleFavorite,
     onAddToQueue,
+    onDownloadTrack,
+    onRemoveDownload,
     onOpenArtist,
     onOpenTrackAlbum,
     onExportM3U,
-    onImportM3U
+    onImportM3U,
+    onImportSpotify
   }: Props = $props();
 
   let editing = $state(false);
@@ -70,11 +76,40 @@
   let editDesc = $state('');
   let dragIndex = $state<number | null>(null);
   let tabFilter = $state<'all' | 'local' | 'ytmusic'>('all');
-  let playlistSearch = $state('');
   let recSeed = $state(Math.floor(Math.random() * 100000));
   let openActionTrackId = $state<number | null>(null);
   let showPlaylistSubmenu = $state(false);
   let failedRecCovers = $state<Record<string, boolean>>({});
+  let importModalOpen = $state(false);
+  let importDialogEl: HTMLDialogElement | undefined = $state();
+  let spotifyUrl = $state('');
+  let spotifyImporting = $state(false);
+  let spotifyError = $state('');
+
+  $effect(() => {
+    if (!importDialogEl) return;
+    if (importModalOpen && !importDialogEl.open) {
+      importDialogEl.showModal();
+    } else if (!importModalOpen && importDialogEl.open) {
+      importDialogEl.close();
+    }
+  });
+
+  async function handleSpotifyImportSubmit(e: Event) {
+    e.preventDefault();
+    if (!spotifyUrl.trim() || !onImportSpotify || spotifyImporting) return;
+    spotifyError = '';
+    spotifyImporting = true;
+    try {
+      await onImportSpotify(spotifyUrl.trim());
+      importModalOpen = false;
+      spotifyUrl = '';
+    } catch (err: any) {
+      spotifyError = err?.message || String(err) || 'Gagal mengimpor playlist Spotify.';
+    } finally {
+      spotifyImporting = false;
+    }
+  }
 
   $effect(() => {
     if (!editDialogEl) return;
@@ -120,9 +155,7 @@
       } else if (tabFilter === 'ytmusic' && p.isLocal) {
         return false;
       }
-      const q = playlistSearch.trim().toLowerCase();
-      if (!q) return true;
-      return p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q);
+      return true;
     })
   );
 
@@ -216,7 +249,10 @@
           </button>
 
           <div class="space-y-1.5 min-w-[200px] mb-[4px]">
-            <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--md-sys-color-primary)]">
+            <div
+              class="text-[11px] font-bold uppercase tracking-wider"
+              style="color: color-mix(in srgb, {heroTint} 78%, #ffffff);"
+            >
               Playlist
             </div>
 
@@ -240,7 +276,8 @@
             onclick={() => detail.tracks[0] && onPlayTrack(detail.tracks[0], detail.tracks)}
             title="Putar Playlist"
             aria-label="Putar Playlist"
-            class="w-11 h-11 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] inline-flex items-center justify-center cursor-pointer transition-transform duration-150 hover:scale-[1.04] active:scale-95 disabled:opacity-40"
+            class="w-11 h-11 rounded-full border-0 outline-none shadow-none inline-flex items-center justify-center cursor-pointer transition-transform duration-150 hover:scale-[1.04] active:scale-95 disabled:opacity-40"
+            style="background-color: {heroTint}; color: var(--md-sys-color-on-primary);"
           >
             <Icon name="play" weight="fill" size={18} />
           </button>
@@ -266,7 +303,7 @@
               class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors"
               style="color: var(--md-sys-color-on-surface);"
             >
-              <Icon name="download-simple" size={18} />
+              <Icon name="download" size={18} />
             </button>
           {/if}
         </div>
@@ -281,14 +318,14 @@
       <!-- Playlist Track Table (tanpa empty state jika kosong) -->
       {#if detail.tracks.length > 0}
         <div class="space-y-1">
-          <!-- Column Header: #, Judul, Album, Tanggal ditambahkan, Durasi, Aksi -->
+          <!-- Column Header: #, Judul, Pemutaran, Ditambahkan, Durasi, Aksi -->
           <div
-            class="-mx-2 grid grid-cols-[28px_minmax(0,1fr)_52px_36px] md:grid-cols-[28px_minmax(0,1.5fr)_minmax(0,1fr)_136px_52px_36px] items-center gap-3 px-2 py-2 text-[11px] font-semibold uppercase tracking-wider"
+            class="-mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] items-center gap-4 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider"
             style="color: var(--md-sys-color-on-surface-variant);"
           >
             <span class="text-center">#</span>
             <span>Judul</span>
-            <span class="hidden md:block">Album</span>
+            <span class="hidden md:block">Pemutaran</span>
             <span class="hidden md:block">Ditambahkan</span>
             <span class="flex justify-end pr-1">
               <Icon name="clock" size={14} />
@@ -307,12 +344,15 @@
                 ondragstart={() => (dragIndex = idx)}
                 ondragover={(e) => e.preventDefault()}
                 ondrop={() => handleDrop(idx)}
-                class="group relative -mx-2 grid grid-cols-[28px_minmax(0,1fr)_52px_36px] md:grid-cols-[28px_minmax(0,1.5fr)_minmax(0,1fr)_136px_52px_36px] items-center gap-3 px-2 py-2 rounded-lg transition-colors duration-150 {active
+                class="group relative -mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] items-center gap-4 px-3 py-2 rounded-lg transition-colors duration-150 {active
                   ? 'bg-[var(--md-sys-color-state-active)]'
                   : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
                 style="color: var(--md-sys-color-on-surface);"
               >
-                <span class="text-center text-xs font-medium tabular-nums opacity-70 {active ? 'text-[var(--md-sys-color-primary)] opacity-100 font-bold' : ''}">
+                <span
+                  class="text-center text-xs font-medium tabular-nums {active ? 'opacity-100 font-bold' : 'opacity-70'}"
+                  style={active ? `color: color-mix(in srgb, ${heroTint} 78%, #ffffff);` : ''}
+                >
                   {idx + 1}
                 </span>
 
@@ -332,15 +372,18 @@
                     </div>
                   {/if}
                   <div class="min-w-0 pr-4">
-                    <div class="text-xs font-bold line-clamp-2 whitespace-normal leading-snug {active ? 'text-[var(--md-sys-color-primary)]' : ''}">{tr.title}</div>
+                    <div
+                      class="text-xs font-bold line-clamp-2 whitespace-normal leading-snug"
+                      style={active ? `color: color-mix(in srgb, ${heroTint} 78%, #ffffff);` : ''}
+                    >{tr.title}</div>
                     <div class="text-[11px] truncate opacity-75 mt-0.5">
                       {tr.artistName}
                     </div>
                   </div>
                 </button>
 
-                <div class="hidden md:block text-xs truncate opacity-75">
-                  {tr.albumTitle || '—'}
+                <div class="hidden md:block text-xs tabular-nums truncate opacity-75">
+                  {tr.globalPlays || '-'}
                 </div>
 
                 <div class="hidden md:block text-xs truncate tabular-nums opacity-75">
@@ -366,7 +409,7 @@
                       }
                     }}
                     aria-label="Aksi lagu"
-                    class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer transition-opacity {menuOpen ? 'opacity-100 bg-[var(--md-sys-color-surface-container-high)]' : 'opacity-65 group-hover:opacity-100'}"
+                    class="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-transparent cursor-pointer transition-colors {menuOpen ? 'opacity-100 text-[var(--md-sys-color-on-surface)]' : 'opacity-65 hover:opacity-100 text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'}"
                   >
                     <Icon name="dots-three-vertical" weight="bold" size={18} />
                   </button>
@@ -452,6 +495,32 @@
                         >
                           <Icon name="queue" size={15} />
                           <span>Tambahkan ke antrean</span>
+                        </button>
+                      {/if}
+
+                      {#if tr.isDownloaded && onRemoveDownload}
+                        <button
+                          type="button"
+                          onclick={() => {
+                            onRemoveDownload(tr.id);
+                            openActionTrackId = null;
+                          }}
+                          class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
+                        >
+                          <Icon name="check-circle" weight="fill" size={15} class="text-[var(--md-sys-color-primary)]" />
+                          <span>Hapus unduhan</span>
+                        </button>
+                      {:else if onDownloadTrack}
+                        <button
+                          type="button"
+                          onclick={() => {
+                            onDownloadTrack(tr);
+                            openActionTrackId = null;
+                          }}
+                          class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
+                        >
+                          <Icon name="download" size={15} />
+                          <span>Unduh untuk offline</span>
                         </button>
                       {/if}
 
@@ -571,7 +640,7 @@
                 </button>
 
                 <div class="hidden md:block text-xs truncate" style="color: var(--md-sys-color-on-surface-variant);">
-                  {rec.album || 'Single'}
+                  {rec.album && rec.album !== 'YouTube Music' && rec.album !== 'Single' ? rec.album : rec.title}
                 </div>
 
                 <button
@@ -698,10 +767,14 @@
         <div class="mb-[4px] flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onclick={onImportM3U}
+            onclick={() => {
+              spotifyError = '';
+              spotifyUrl = '';
+              importModalOpen = true;
+            }}
             class="h-9 px-4 rounded-full bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
           >
-            <Icon name="upload-simple" size={14} /> Import .M3U
+            <Icon name="upload-simple" size={14} /> Import Playlist
           </button>
           <button
             type="button"
@@ -718,62 +791,43 @@
       class="relative z-10 px-6 sm:px-8 pt-5 pb-10 flex-1 flex flex-col gap-5"
       style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-primary-container) 48%, var(--md-sys-color-surface-container-low)) 0%, color-mix(in srgb, var(--md-sys-color-primary-container) 28%, var(--md-sys-color-surface-container-low)) 120px, color-mix(in srgb, var(--md-sys-color-primary-container) 11%, var(--md-sys-color-surface-container-low)) 240px, var(--md-sys-color-surface-container-low) 340px);"
     >
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="flex items-center gap-2">
-          {#each [
-            { id: 'all', label: 'Semua' },
-            { id: 'local', label: 'Local Playlists' },
-            { id: 'ytmusic', label: 'YouTube Music' }
-          ] as tab (tab.id)}
-            <button
-              type="button"
-              onclick={() => (tabFilter = tab.id as 'all' | 'local' | 'ytmusic')}
-              class="px-4 py-1.5 rounded-full text-xs font-semibold cursor-pointer transition-colors"
-              style={tabFilter === tab.id
-                ? 'background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);'
-                : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);'}
-            >
-              {tab.label}
-            </button>
-          {/each}
-        </div>
-
-        <div class="relative w-60">
-          <span
-            class="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
-            style="color: var(--md-sys-color-on-surface-variant);"
+      <div class="flex flex-wrap items-center gap-2">
+        {#each [
+          { id: 'all', label: 'Semua' },
+          { id: 'local', label: 'Local Playlists' },
+          { id: 'ytmusic', label: 'YouTube Music' }
+        ] as tab (tab.id)}
+          <button
+            type="button"
+            onclick={() => (tabFilter = tab.id as 'all' | 'local' | 'ytmusic')}
+            class="px-4 py-1.5 rounded-full text-xs font-semibold cursor-pointer transition-colors"
+            style={tabFilter === tab.id
+              ? 'background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);'
+              : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);'}
           >
-            <Icon name="magnifying-glass" size={14} />
-          </span>
-          <input
-            type="search"
-            bind:value={playlistSearch}
-            placeholder="Filter playlists..."
-            class="w-full h-9 pl-9 pr-3.5 rounded-full text-xs outline-none bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface)] placeholder:text-[var(--md-sys-color-on-surface-variant)]"
-          />
-        </div>
+            {tab.label}
+          </button>
+        {/each}
       </div>
 
       {#if visiblePlaylists.length === 0}
         <div class="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
           <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
-            <Icon name={playlistSearch.trim() ? 'magnifying-glass' : 'playlist'} weight="fill" size={38} />
+            <Icon name="playlist" weight="fill" size={38} />
           </div>
           <h2 class="text-2xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-            {playlistSearch.trim() ? 'Playlist tidak ditemukan' : 'Belum ada playlist'}
+            Belum ada playlist
           </h2>
           <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-            {playlistSearch.trim()
-              ? `Tidak ada playlist yang cocok dengan "${playlistSearch.trim()}".`
-              : 'Buat playlist baru untuk mengumpulkan lagu favoritmu.'}
+            Buat playlist baru untuk mengumpulkan lagu favoritmu.
           </p>
           <button
             type="button"
-            onclick={() => (playlistSearch.trim() ? (playlistSearch = '') : onCreatePlaylist())}
+            onclick={() => onCreatePlaylist()}
             class="mt-6 h-10 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
             style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
           >
-            {playlistSearch.trim() ? 'Reset filter' : 'Buat playlist'}
+            Buat playlist
           </button>
         </div>
       {:else}
@@ -827,3 +881,92 @@
     </div>
   </div>
 {/if}
+
+<!-- Modal Import Playlist (Lokal .M3U & Link Spotify) -->
+<dialog
+  bind:this={importDialogEl}
+  onclose={() => (importModalOpen = false)}
+  closedby="any"
+  aria-labelledby="import-playlist-title"
+  class="m-auto w-full max-w-md rounded-xl shadow-2xl p-6"
+  style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+>
+  <div class="flex items-center justify-between mb-5">
+    <h2 id="import-playlist-title" class="text-lg font-extrabold tracking-tight">
+      Import Playlist
+    </h2>
+    <button
+      type="button"
+      onclick={() => (importModalOpen = false)}
+      aria-label="Tutup"
+      class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer"
+    >
+      <Icon name="x" size={18} />
+    </button>
+  </div>
+
+  <div class="space-y-5">
+    <!-- Import dari Link Spotify -->
+    <form onsubmit={handleSpotifyImportSubmit} class="space-y-2.5">
+      <label for="spotify-url-input" class="block text-xs font-bold" style="color: var(--md-sys-color-on-surface);">
+        Link Spotify
+      </label>
+      <input
+        id="spotify-url-input"
+        type="url"
+        bind:value={spotifyUrl}
+        required
+        disabled={spotifyImporting}
+        placeholder="https://open.spotify.com/playlist/..."
+        class="m3-input w-full h-11 px-4 rounded-md text-xs disabled:opacity-60"
+      />
+      {#if spotifyError}
+        <p class="text-[11px] text-rose-400">{spotifyError}</p>
+      {/if}
+      <button
+        type="submit"
+        disabled={spotifyImporting || !spotifyUrl.trim()}
+        class="m3-btn-filled w-full h-10 px-5 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+      >
+        {#if spotifyImporting}
+          <span class="velora-eq-loader" style="--loader-color: currentColor; transform: scale(0.75);" aria-hidden="true">
+            <span class="velora-eq-bar"></span>
+            <span class="velora-eq-bar"></span>
+            <span class="velora-eq-bar"></span>
+            <span class="velora-eq-bar"></span>
+            <span class="velora-eq-bar"></span>
+          </span>
+          <span>Mengimpor lagu...</span>
+        {:else}
+          <Icon name="link" size={15} />
+          <span>Import dari Spotify</span>
+        {/if}
+      </button>
+    </form>
+
+    <div class="flex items-center gap-3">
+      <div class="flex-1 h-px opacity-15" style="background-color: var(--md-sys-color-on-surface);"></div>
+      <span class="text-[11px] font-semibold uppercase tracking-wider opacity-60">Atau</span>
+      <div class="flex-1 h-px opacity-15" style="background-color: var(--md-sys-color-on-surface);"></div>
+    </div>
+
+    <!-- Import dari File Lokal -->
+    <div class="space-y-2">
+      <div class="text-xs font-bold" style="color: var(--md-sys-color-on-surface);">
+        File Lokal
+      </div>
+      <button
+        type="button"
+        disabled={spotifyImporting}
+        onclick={() => {
+          importModalOpen = false;
+          onImportM3U();
+        }}
+        class="m3-btn-outlined w-full h-10 px-5 text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+      >
+        <Icon name="folder-open" size={16} />
+        <span>Pilih File .M3U / .M3U8</span>
+      </button>
+    </div>
+  </div>
+</dialog>

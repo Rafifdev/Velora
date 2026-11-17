@@ -32,6 +32,7 @@
     onFocusRightCard: (card: 'album' | 'lyrics' | 'queue') => void;
     onOpenTrackDetail?: (track: Track) => void;
     onToggleLyrics?: () => void;
+    onOpenMobileNowPlaying?: () => void;
   }
 
   let {
@@ -60,7 +61,8 @@
     onToggleFavorite,
     onFocusRightCard,
     onOpenTrackDetail,
-    onToggleLyrics
+    onToggleLyrics,
+    onOpenMobileNowPlaying
   }: Props = $props();
 
   const effectiveDuration = $derived(
@@ -73,9 +75,81 @@
   const displayVolume = $derived(muted ? 0 : volume);
 </script>
 
-<!-- Full-Width Flat Borderless Media Player Bar -->
+<!-- Spotify-Style Floating Mini Player (Mobile Only) -->
+<div class="sm:hidden px-2 pb-1.5 shrink-0 select-none">
+  <div
+    class="relative rounded-lg overflow-hidden shadow-lg"
+    style="background-color: color-mix(in srgb, var(--md-sys-color-tertiary-container) 36%, var(--md-sys-color-surface-container-high));"
+  >
+    <div class="flex items-center justify-between gap-2.5 px-2.5 py-2">
+      <button
+        type="button"
+        onclick={() => onOpenMobileNowPlaying?.()}
+        class="flex-1 min-w-0 flex items-center gap-2.5 text-left cursor-pointer"
+      >
+        <div class="w-10 h-10 rounded-md overflow-hidden shrink-0 bg-[var(--md-sys-color-surface-container-highest)] flex items-center justify-center">
+          {#if currentTrack && resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl)}
+            {@const mCover = resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl)}
+            <img
+              src={mCover}
+              alt={currentTrack.title}
+              class="block w-full h-full object-cover object-center"
+              class:velora-yt-video-thumb={isYTVideoThumb(mCover)}
+            />
+          {:else}
+            <Icon name="music-note" size={18} />
+          {/if}
+        </div>
+        <div class="min-w-0 flex-1">
+          <div class="text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
+            {currentTrack?.title || 'Belum ada lagu diputar'}
+          </div>
+          <div class="text-[11px] truncate" style="color: var(--md-sys-color-on-surface-variant);">
+            {currentTrack?.artistName || 'Velora'}
+          </div>
+        </div>
+      </button>
+
+      <div class="flex items-center gap-1 shrink-0">
+        <button
+          type="button"
+          disabled={!currentTrack}
+          onclick={() => currentTrack && onToggleFavorite(currentTrack.id)}
+          aria-label="Sukai lagu"
+          class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer disabled:opacity-40"
+        >
+          <Icon
+            name="heart"
+            weight={currentTrack?.isFavorite ? 'fill' : 'regular'}
+            size={19}
+            style={currentTrack?.isFavorite ? 'color: var(--md-sys-color-tertiary);' : 'color: var(--md-sys-color-on-surface);'}
+          />
+        </button>
+        <button
+          type="button"
+          onclick={onTogglePlay}
+          aria-label={isPlaying ? 'Jeda' : 'Putar'}
+          class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer"
+          style="color: var(--md-sys-color-on-surface);"
+        >
+          <Icon name={isPlaying ? 'pause' : 'play'} weight="fill" size={20} />
+        </button>
+      </div>
+    </div>
+
+    <!-- Bottom 2px thin progress bar (Spotify Mobile style) -->
+    <div class="h-[2px] w-full bg-white/15">
+      <div
+        class="h-full transition-[width] duration-200"
+        style="width: {progressPct}%; background-color: var(--md-sys-color-on-surface);"
+      ></div>
+    </div>
+  </div>
+</div>
+
+<!-- Full-Width Flat Borderless Media Player Bar (Desktop & Tablet) -->
 <footer
-  class="w-full shrink-0 select-none rounded-none overflow-visible relative z-20 transition-colors duration-300"
+  class="hidden sm:block w-full shrink-0 select-none rounded-none overflow-visible relative z-20 transition-colors duration-300"
   style="background-color: var(--md-sys-color-surface-container-lowest);"
 >
   <!-- Top Edge Full-Width Seekbar + Timestamps -->
@@ -115,9 +189,9 @@
   </div>
 
   <!-- Main Player Controls Row -->
-  <div class="h-[68px] px-6 pb-2 flex items-center justify-between gap-4">
+  <div class="h-[68px] px-3 sm:px-6 pb-2 flex items-center justify-between gap-2 sm:gap-4">
     <!-- Left: Track Cover & Info (1:1 Reference Style) -->
-    <div class="w-[30%] min-w-[180px] flex items-center gap-3.5">
+    <div class="flex-1 min-w-0 sm:flex-none sm:w-[30%] sm:min-w-[180px] flex items-center gap-2.5 sm:gap-3.5">
       {#if currentTrack}
         {@const cover = resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl)}
         <button
@@ -177,13 +251,13 @@
     </div>
 
     <!-- Center: Transport Controls + M3 Primary Container Play FAB -->
-    <div class="flex items-center justify-center gap-3">
+    <div class="flex items-center justify-center gap-1 sm:gap-3 shrink-0">
       <button
         type="button"
         disabled={!currentTrack}
         onclick={() => currentTrack && onToggleFavorite(currentTrack.id)}
         aria-label="Sukai lagu"
-        class="m3-icon-btn w-9 h-9 flex items-center justify-center cursor-pointer disabled:opacity-35"
+        class="hidden sm:flex m3-icon-btn w-9 h-9 items-center justify-center cursor-pointer disabled:opacity-35"
       >
         <Icon
           name="heart"
@@ -197,7 +271,7 @@
         type="button"
         onclick={onToggleShuffle}
         aria-label="Shuffle"
-        class="m3-icon-btn w-9 h-9 flex items-center justify-center relative cursor-pointer"
+        class="hidden sm:flex m3-icon-btn w-9 h-9 items-center justify-center relative cursor-pointer"
         style={shuffle ? 'color: var(--md-sys-color-primary);' : ''}
       >
         <Icon name="shuffle" weight={shuffle ? 'bold' : 'regular'} size={18} />
@@ -242,7 +316,7 @@
         type="button"
         onclick={onCycleRepeat}
         aria-label="Repeat"
-        class="m3-icon-btn w-9 h-9 flex items-center justify-center relative cursor-pointer"
+        class="hidden sm:flex m3-icon-btn w-9 h-9 items-center justify-center relative cursor-pointer"
         style={repeatMode !== 'off' ? 'color: var(--md-sys-color-primary);' : ''}
       >
         <Icon name={repeatMode === 'one' ? 'repeat-once' : 'repeat'} weight={repeatMode !== 'off' ? 'bold' : 'regular'} size={18} />
@@ -256,7 +330,7 @@
     </div>
 
     <!-- Right: Card Focus Actions & M3 Volume Slider -->
-    <div class="w-[30%] min-w-[180px] flex items-center justify-end gap-2.5">
+    <div class="hidden sm:flex w-[30%] min-w-[180px] items-center justify-end gap-2.5">
       <div class="hidden md:flex items-center gap-1 pr-2">
         <button
           type="button"

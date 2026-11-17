@@ -492,8 +492,8 @@ select.m3-input option:checked {
 
 .velora-card-artwork {
   position: relative;
-  width: 152px;
-  height: 152px;
+  width: 100%;
+  height: auto;
   aspect-ratio: 1 / 1;
   flex-shrink: 0;
   border-radius: 6px;
@@ -573,9 +573,28 @@ img.velora-yt-video-thumb {
   opacity: 1;
 }
 
-/* Mandatory modal scroll containment */
+/* Mandatory modal scroll containment + smooth enter/exit transitions */
 dialog:modal {
   overscroll-behavior: contain;
+  opacity: 0;
+  transform: translateY(10px) scale(0.97);
+  transition:
+    opacity 220ms var(--ease-m3, cubic-bezier(0.2, 0, 0, 1)),
+    transform 220ms var(--ease-m3, cubic-bezier(0.2, 0, 0, 1)),
+    overlay 220ms allow-discrete,
+    display 220ms allow-discrete;
+}
+
+dialog[open]:modal {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+@starting-style {
+  dialog[open]:modal {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
 }
 
 dialog::backdrop {
@@ -583,6 +602,21 @@ dialog::backdrop {
   overscroll-behavior: contain;
   background: rgba(10, 9, 14, 0.64);
   backdrop-filter: blur(8px);
+  opacity: 0;
+  transition:
+    opacity 220ms var(--ease-m3, cubic-bezier(0.2, 0, 0, 1)),
+    overlay 220ms allow-discrete,
+    display 220ms allow-discrete;
+}
+
+dialog[open]::backdrop {
+  opacity: 1;
+}
+
+@starting-style {
+  dialog[open]::backdrop {
+    opacity: 0;
+  }
 }
 
 /* Material 3 Slider */
@@ -704,10 +738,10 @@ input[type='search']::-webkit-search-cancel-button {
 
 @keyframes velora-playing-wave {
   0%, 100% {
-    transform: scaleY(0.28);
+    height: 4px;
   }
   50% {
-    transform: scaleY(1);
+    height: 14px;
   }
 }
 
@@ -717,7 +751,7 @@ input[type='search']::-webkit-search-cancel-button {
   justify-content: center;
   gap: 2px;
   height: 14px;
-  width: 16px;
+  width: 18px;
   color: var(--md-sys-color-tertiary);
 }
 
@@ -726,11 +760,10 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .velora-playing-eq span {
-  width: 2.5px;
+  width: 3px;
   height: 14px;
-  border-radius: 9999px;
+  border-radius: 1.5px;
   background-color: currentColor;
-  transform-origin: bottom;
   animation: velora-playing-wave 0.9s ease-in-out infinite;
 }
 
@@ -745,5 +778,27 @@ input[type='search']::-webkit-search-cancel-button {
   *::after {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 1023px) {
+  .velora-card-grid-7 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .velora-card-grid,
+  .velora-card-grid-7 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+  .velora-card-grid > *,
+  .velora-card-grid .velora-card-artwork {
+    width: 100% !important;
+    height: auto !important;
+  }
+  .velora-hide-mobile {
+    display: none !important;
   }
 }

@@ -1,8 +1,9 @@
 <script lang="ts">
   import { fade, scale } from 'svelte/transition';
-  import { api, resolveCoverUrl, isYTVideoThumb } from '../lib/api';
-  import type { Artist, FireStreakStatus, Track, ViewRoute, YTMusicTrack } from '../lib/types';
+  import { api, isJamRemote, resolveCoverUrl, isYTVideoThumb } from '../lib/api';
+  import type { Artist, FireStreakStatus, JamStatus, Track, ViewRoute, YTMusicTrack } from '../lib/types';
   import Icon from './Icon.svelte';
+  import JamModal from './JamModal.svelte';
 
   interface Props {
     currentRoute: ViewRoute;
@@ -27,8 +28,21 @@
     onPlayLocalTrack?: (track: Track) => void;
     onPlayYTMusic?: (track: YTMusicTrack) => void;
     onToggleFavoriteArtist?: (artistId: number) => void;
+    onToggleFavoriteYTMusicArtist?: (payload: {
+      externalId: string;
+      name: string;
+      avatarUrl: string;
+    }) => void;
     onToggleTheme: () => void;
     onOpenStreakModal: () => void;
+    onOpenJam?: () => void;
+    onCloseJam?: () => void;
+    onToggleJam?: () => void;
+    jamStatus?: JamStatus;
+    jamOpen?: boolean;
+    jamLoading?: boolean;
+    jamRunning?: boolean;
+    jamConnected?: boolean;
     onResetZoom?: () => void;
   }
 
@@ -54,10 +68,39 @@
     onPlayLocalTrack,
     onPlayYTMusic,
     onToggleFavoriteArtist,
+    onToggleFavoriteYTMusicArtist,
     onToggleTheme,
     onOpenStreakModal,
+    onOpenJam,
+    onCloseJam,
+    onToggleJam,
+    jamStatus,
+    jamOpen = false,
+    jamLoading = false,
+    jamRunning = false,
+    jamConnected = false,
     onResetZoom
   }: Props = $props();
+
+  let jamAnchorEl: HTMLElement | undefined = $state();
+
+  $effect(() => {
+    if (!jamOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (jamAnchorEl && !jamAnchorEl.contains(e.target as Node)) {
+        onCloseJam?.();
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCloseJam?.();
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown, true);
+    };
+  });
 
   const SEARCH_DEBOUNCE_MS = 300;
 
@@ -393,7 +436,7 @@
 
 <!-- Borderless Spotify Top App Bar -->
 <header
-  class="wails-drag relative z-40 h-14 pl-3 pr-0 flex items-center justify-between gap-4 select-none shrink-0 transition-colors duration-300"
+  class="wails-drag relative z-40 hidden sm:flex h-14 pl-3 pr-0 items-center justify-between gap-4 select-none shrink-0 transition-colors duration-300"
   style="background-color: var(--md-sys-color-surface-container-lowest);"
 >
   <!-- Left: Navigation History Circular Icon Buttons -->
@@ -421,13 +464,13 @@
   </div>
 
   <!-- Center: 1:1 Spotify Home Circle Button + Docked Pill Search Bar -->
-  <div class="wails-no-drag flex-1 max-w-xl mx-auto flex items-center gap-2">
+  <div class="wails-no-drag flex-1 min-w-0 max-w-xl mx-auto flex items-center gap-2">
     <button
       type="button"
       onclick={() => onNavigate({ name: 'home' })}
       title="Home"
       aria-label="Home"
-      class="w-10 h-10 rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-all duration-200 hover:scale-105 hover:brightness-125"
+      class="hidden sm:flex w-10 h-10 rounded-full items-center justify-center shrink-0 cursor-pointer transition-all duration-200 hover:scale-105 hover:brightness-125"
       style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
     >
       <Icon name="house" weight={currentRoute.name === 'home' ? 'fill' : 'regular'} size={19} />
@@ -579,13 +622,12 @@
                         {item.artist}
                       </div>
                     </div>
-                    <Icon
-                      name="plus"
-                      weight="bold"
-                      size={16}
-                      class="shrink-0 opacity-75"
+                    <span
+                      class="w-7 h-7 flex items-center justify-center shrink-0 opacity-75"
                       style="color: var(--md-sys-color-on-surface-variant);"
-                    />
+                    >
+                      <Icon name="plus" weight="bold" size={16} />
+                    </span>
                   </button>
                 {:else}
                   {@const art = entry.artist}
@@ -645,6 +687,12 @@
                         e.stopPropagation();
                         if (art.id !== null) {
                           onToggleFavoriteArtist?.(art.id);
+                        } else if (onToggleFavoriteYTMusicArtist) {
+                          onToggleFavoriteYTMusicArtist({
+                            externalId: '',
+                            name: art.name,
+                            avatarUrl: art.avatar
+                          });
                         } else {
                           const key = art.name.toLowerCase();
                           transientFavArtists = {
@@ -702,16 +750,42 @@
       </button>
     {/if}
 
-    <button
-      type="button"
-      onclick={() => onNavigate({ name: 'preferences' })}
-      title="Velora Jam Remote"
-      aria-label="Remote QR & Integrations"
-      class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:brightness-125"
-      style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant);"
-    >
-      <Icon name="qr-code" size={17} />
-    </button>
+    {#if isJamRemote}
+      <div
+        class="h-9 px-2.5 sm:px-3.5 rounded-full flex items-center gap-1.5 text-xs font-semibold select-none shrink-0"
+        style={jamConnected
+          ? 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'
+          : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant);'}
+      >
+        <Icon name={jamConnected ? 'check-circle' : 'wifi-high'} weight={jamConnected ? 'fill' : 'regular'} size={15} />
+        <span class="hidden sm:inline">{jamConnected ? 'Connected' : 'Connecting'}</span>
+      </div>
+    {:else}
+      <div class="relative" bind:this={jamAnchorEl}>
+        <button
+          type="button"
+          onclick={() => (jamOpen ? onCloseJam?.() : onOpenJam ? onOpenJam() : onNavigate({ name: 'preferences' }))}
+          title={jamRunning ? 'Velora Jam Remote (Aktif)' : 'Velora Jam Remote'}
+          aria-label="Remote QR & Integrations"
+          class="relative w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:brightness-125"
+          style={jamRunning
+            ? 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'
+            : `background-color: var(--md-sys-color-surface-container-high); color: ${jamOpen ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-on-surface-variant)'};`}
+        >
+          <Icon name="qr-code" size={17} />
+        </button>
+
+        {#if jamStatus}
+          <JamModal
+            open={jamOpen}
+            status={jamStatus}
+            loading={jamLoading}
+            onClose={() => onCloseJam?.()}
+            onToggleJam={() => onToggleJam?.()}
+          />
+        {/if}
+      </div>
+    {/if}
 
     <button
       type="button"
@@ -724,47 +798,49 @@
       <Icon name={isDark ? 'sun' : 'moon'} weight="bold" size={17} />
     </button>
 
-    <div class="flex items-stretch self-stretch ml-2">
-      <button
-        type="button"
-        onclick={() => api.windowMinimize()}
-        title="Minimize"
-        aria-label="Minimize"
-        class="win-caption-btn"
-      >
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-          <line x1="0" y1="5.5" x2="10" y2="5.5" stroke="currentColor" stroke-width="1" />
-        </svg>
-      </button>
-      <button
-        type="button"
-        onclick={handleToggleMaximize}
-        title={isMaximized ? 'Restore Down' : 'Maximize'}
-        aria-label={isMaximized ? 'Restore Down' : 'Maximize'}
-        class="win-caption-btn"
-      >
-        {#if isMaximized}
+    {#if !isJamRemote}
+      <div class="flex items-stretch self-stretch ml-2">
+        <button
+          type="button"
+          onclick={() => api.windowMinimize()}
+          title="Minimize"
+          aria-label="Minimize"
+          class="win-caption-btn"
+        >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-            <rect x="0.5" y="2.5" width="7" height="7" stroke="currentColor" stroke-width="1" />
-            <path d="M2.5 2.5V0.5H9.5V7.5H7.5" stroke="currentColor" stroke-width="1" />
+            <line x1="0" y1="5.5" x2="10" y2="5.5" stroke="currentColor" stroke-width="1" />
           </svg>
-        {:else}
+        </button>
+        <button
+          type="button"
+          onclick={handleToggleMaximize}
+          title={isMaximized ? 'Restore Down' : 'Maximize'}
+          aria-label={isMaximized ? 'Restore Down' : 'Maximize'}
+          class="win-caption-btn"
+        >
+          {#if isMaximized}
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+              <rect x="0.5" y="2.5" width="7" height="7" stroke="currentColor" stroke-width="1" />
+              <path d="M2.5 2.5V0.5H9.5V7.5H7.5" stroke="currentColor" stroke-width="1" />
+            </svg>
+          {:else}
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
+              <rect x="0.5" y="0.5" width="9" height="9" stroke="currentColor" stroke-width="1" />
+            </svg>
+          {/if}
+        </button>
+        <button
+          type="button"
+          onclick={() => api.windowClose()}
+          title="Close"
+          aria-label="Close"
+          class="win-caption-btn win-caption-btn-close"
+        >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-            <rect x="0.5" y="0.5" width="9" height="9" stroke="currentColor" stroke-width="1" />
+            <path d="M1 1L9 9M9 1L1 9" stroke="currentColor" stroke-width="1.15" stroke-linecap="butt" />
           </svg>
-        {/if}
-      </button>
-      <button
-        type="button"
-        onclick={() => api.windowClose()}
-        title="Close"
-        aria-label="Close"
-        class="win-caption-btn win-caption-btn-close"
-      >
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-          <path d="M1 1L9 9M9 1L1 9" stroke="currentColor" stroke-width="1.15" stroke-linecap="butt" />
-        </svg>
-      </button>
-    </div>
+        </button>
+      </div>
+    {/if}
   </div>
 </header>

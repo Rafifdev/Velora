@@ -22,8 +22,9 @@ type YTMusicTrack struct {
 	Artist      string `json:"artist"`
 	Album       string `json:"album"`
 	DurationSec int    `json:"durationSec"`
-	CoverURL    string `json:"coverUrl"`
-	Format      string `json:"format"`
+	CoverURL      string `json:"coverUrl"`
+	Format        string `json:"format"`
+	PlayCountText string `json:"playCountText,omitempty"`
 }
 
 type YTMusicCard struct {
@@ -255,6 +256,102 @@ func (c *YTMusicClient) SearchAlbums(ctx context.Context, query string) ([]YTMus
 		results = []YTMusicCard{}
 	}
 	return results, nil
+}
+
+// SearchArtists searches YouTube Music for artists (defaulting to Indonesian & English popular artists).
+func (c *YTMusicClient) SearchArtists(ctx context.Context, query string) ([]YTMusicCard, error) {
+	query = strings.TrimSpace(query)
+	queries := []string{query}
+	if query == "" {
+		queries = []string{"Penyanyi Pop Indonesia", "Popular Pop Artists"}
+	}
+
+	var results []YTMusicCard
+	seen := map[string]struct{}{}
+
+	for _, q := range queries {
+		payload := map[string]any{
+			"context": ytWebRemixContext(),
+			"query":   q,
+			"params":  "EgWKAQIgAWoMEAMQBBAJEAoQBRAV",
+		}
+		if tree, err := c.postInnerTube(ctx, "search", payload); err == nil {
+			extractArtistSearchItems(tree, &results, seen)
+		}
+	}
+
+	if len(results) > 35 {
+		results = results[:35]
+	}
+	if results == nil {
+		results = []YTMusicCard{}
+	}
+	return results, nil
+}
+
+func extractArtistSearchItems(node any, out *[]YTMusicCard, seen map[string]struct{}) {
+	switch v := node.(type) {
+	case map[string]any:
+		if mr, ok := v["musicResponsiveListItemRenderer"].(map[string]any); ok {
+			if card, ok := parseResponsiveArtistItem(mr); ok {
+				if _, exists := seen[card.ID]; !exists {
+					seen[card.ID] = struct{}{}
+					*out = append(*out, card)
+				}
+			}
+		}
+		for _, child := range v {
+			extractArtistSearchItems(child, out, seen)
+		}
+	case []any:
+		for _, child := range v {
+			extractArtistSearchItems(child, out, seen)
+		}
+	}
+}
+
+func parseResponsiveArtistItem(r map[string]any) (YTMusicCard, bool) {
+	browseID := ""
+	pageType := ""
+	if nav, ok := r["navigationEndpoint"].(map[string]any); ok {
+		if be, ok := nav["browseEndpoint"].(map[string]any); ok {
+			browseID, _ = be["browseId"].(string)
+			if cfg, ok := be["browseEndpointContextSupportedConfigs"].(map[string]any); ok {
+				if mc, ok := cfg["browseEndpointContextMusicConfig"].(map[string]any); ok {
+					pageType, _ = mc["pageType"].(string)
+				}
+			}
+		}
+	}
+	if browseID == "" || (!strings.HasPrefix(browseID, "UC") && pageType != "MUSIC_PAGE_TYPE_ARTIST") {
+		return YTMusicCard{}, false
+	}
+
+	title := ""
+	subtitle := "Artis"
+	if cols, ok := r["flexColumns"].([]any); ok {
+		if len(cols) > 0 {
+			title = extractColumnText(cols[0])
+		}
+		if len(cols) > 1 {
+			if sub := strings.TrimSpace(extractColumnText(cols[1])); sub != "" {
+				subtitle = sub
+			}
+		}
+	}
+	if title == "" {
+		return YTMusicCard{}, false
+	}
+	cover := findLastThumbnailURL(r)
+	return YTMusicCard{
+		ID:       browseID,
+		Title:    title,
+		Subtitle: subtitle,
+		CoverURL: cover,
+		Kind:     "artist",
+		BrowseID: browseID,
+		Artist:   title,
+	}, true
 }
 
 func extractAlbumSearchItems(node any, out *[]YTMusicCard, seen map[string]struct{}) {
@@ -617,6 +714,135 @@ func (c *YTMusicClient) GetTop100Recommended(ctx context.Context, excludeVideoID
 		pool = pool[:10]
 	}
 
+	enriched := c.enrichTracksAlbum(ctx, pool)
+	if len(enriched) > 0 {
+		c.mu.Lock()
+		for i := range c.top100Cache {
+			if upd, ok := enriched[c.top100Cache[i].VideoID]; ok {
+				c.top100Cache[i].Album = upd.Album
+				c.top100Cache[i].CoverURL = upd.CoverURL
+			}
+		}
+		c.mu.Unlock()
+	}
+
+	return pool, nil
+}
+
+type HistorySeed struct {
+	VideoID string
+	Title   string
+	Artist  string
+}
+
+// GetHistoryBasedRecommended finds 10 genre-similar tracks using YouTube Music Radio ("next" RDAMVM) seeded from play history.
+func (c *YTMusicClient) GetHistoryBasedRecommended(ctx context.Context, seeds []HistorySeed, excludeVideoIDs []string) ([]YTMusicTrack, error) {
+	if len(seeds) == 0 {
+		return c.GetTop100Recommended(ctx, excludeVideoIDs)
+	}
+
+	excluded := make(map[string]struct{}, len(excludeVideoIDs)+len(seeds))
+	for _, id := range excludeVideoIDs {
+		if id != "" {
+			excluded[id] = struct{}{}
+		}
+	}
+	for _, s := range seeds {
+		if s.VideoID != "" {
+			excluded[s.VideoID] = struct{}{}
+		}
+	}
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	shuffledSeeds := make([]HistorySeed, len(seeds))
+	copy(shuffledSeeds, seeds)
+	r.Shuffle(len(shuffledSeeds), func(i, j int) {
+		shuffledSeeds[i], shuffledSeeds[j] = shuffledSeeds[j], shuffledSeeds[i]
+	})
+	if len(shuffledSeeds) > 4 {
+		shuffledSeeds = shuffledSeeds[:4]
+	}
+
+	var wg sync.WaitGroup
+	var poolMu sync.Mutex
+	seenPool := map[string]struct{}{}
+	var pool []YTMusicTrack
+
+	for _, seed := range shuffledSeeds {
+		wg.Add(1)
+		go func(s HistorySeed) {
+			defer wg.Done()
+			subCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
+			defer cancel()
+
+			vid := strings.TrimSpace(s.VideoID)
+			if vid == "" {
+				q := strings.TrimSpace(s.Title + " " + s.Artist)
+				if q != "" {
+					if hits, err := c.Search(subCtx, q); err == nil && len(hits) > 0 {
+						vid = hits[0].VideoID
+					}
+				}
+			}
+
+			var related []YTMusicTrack
+			relSeen := map[string]struct{}{}
+			if vid != "" {
+				if tree, err := c.postInnerTube(subCtx, "next", map[string]any{
+					"context":     ytWebRemixContext(),
+					"videoId":     vid,
+					"playlistId":  "RDAMVM" + vid,
+					"isAudioOnly": true,
+				}); err == nil {
+					extractPlaylistPanelItems(tree, &related, relSeen)
+				}
+			}
+			if len(related) < 4 && strings.TrimSpace(s.Artist) != "" {
+				if hits, err := c.Search(subCtx, s.Artist); err == nil {
+					for _, h := range hits {
+						if _, dup := relSeen[h.VideoID]; !dup {
+							relSeen[h.VideoID] = struct{}{}
+							related = append(related, h)
+						}
+					}
+				}
+			}
+
+			poolMu.Lock()
+			for _, tr := range related {
+				if tr.VideoID == "" || tr.VideoID == vid {
+					continue
+				}
+				if _, skip := excluded[tr.VideoID]; skip {
+					continue
+				}
+				if _, dup := seenPool[tr.VideoID]; dup {
+					continue
+				}
+				seenPool[tr.VideoID] = struct{}{}
+				pool = append(pool, tr)
+			}
+			poolMu.Unlock()
+		}(seed)
+	}
+	wg.Wait()
+
+	if len(pool) == 0 {
+		return c.GetTop100Recommended(ctx, excludeVideoIDs)
+	}
+
+	r.Shuffle(len(pool), func(i, j int) {
+		pool[i], pool[j] = pool[j], pool[i]
+	})
+	if len(pool) > 10 {
+		pool = pool[:10]
+	}
+
+	c.enrichTracksAlbum(ctx, pool)
+	return pool, nil
+}
+
+func (c *YTMusicClient) enrichTracksAlbum(ctx context.Context, pool []YTMusicTrack) map[string]YTMusicTrack {
 	var wg sync.WaitGroup
 	enriched := make(map[string]YTMusicTrack)
 	var enrichMu sync.Mutex
@@ -640,6 +866,9 @@ func (c *YTMusicClient) GetTop100Recommended(ctx context.Context, excludeVideoID
 						if h.CoverURL != "" {
 							tr.CoverURL = h.CoverURL
 						}
+						if tr.PlayCountText == "" && h.PlayCountText != "" {
+							tr.PlayCountText = h.PlayCountText
+						}
 						break
 					}
 				}
@@ -655,8 +884,8 @@ func (c *YTMusicClient) GetTop100Recommended(ctx context.Context, excludeVideoID
 					}
 				}
 			}
-			if tr.Album == "" || tr.Album == "YouTube Music" {
-				tr.Album = "Single"
+			if tr.Album == "" || tr.Album == "YouTube Music" || tr.Album == "Single" {
+				tr.Album = tr.Title
 			}
 			pool[idx] = tr
 			enrichMu.Lock()
@@ -665,19 +894,7 @@ func (c *YTMusicClient) GetTop100Recommended(ctx context.Context, excludeVideoID
 		}(i)
 	}
 	wg.Wait()
-
-	if len(enriched) > 0 {
-		c.mu.Lock()
-		for i := range c.top100Cache {
-			if upd, ok := enriched[c.top100Cache[i].VideoID]; ok {
-				c.top100Cache[i].Album = upd.Album
-				c.top100Cache[i].CoverURL = upd.CoverURL
-			}
-		}
-		c.mu.Unlock()
-	}
-
-	return pool, nil
+	return enriched
 }
 
 func (c *YTMusicClient) GetCollectionTracks(ctx context.Context, browseID, playlistID, fallbackArtist, fallbackAlbum, fallbackCover string) ([]YTMusicTrack, error) {
@@ -1113,22 +1330,42 @@ func parsePlaylistPanelItem(r map[string]any) (YTMusicTrack, bool) {
 	album := "YouTube Music"
 	if byline, ok := r["longBylineText"].(map[string]any); ok {
 		if runs, ok := byline["runs"].([]any); ok {
-			var parts []string
+			var artistParts []string
+			var fallbackParts []string
 			for _, item := range runs {
-				if rm, ok := item.(map[string]any); ok {
-					txt, _ := rm["text"].(string)
-					txt = strings.TrimSpace(txt)
-					if txt == "" || txt == "â€¢" || txt == "," || txt == "&" {
-						continue
+				rm, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				txt, _ := rm["text"].(string)
+				txt = strings.TrimSpace(txt)
+				if txt == "" || txt == "\u2022" || txt == "\u00b7" || txt == "," || txt == "&" {
+					continue
+				}
+				bid := ""
+				pageType := ""
+				if nav, ok := rm["navigationEndpoint"].(map[string]any); ok {
+					if be, ok := nav["browseEndpoint"].(map[string]any); ok {
+						bid, _ = be["browseId"].(string)
+						if cfg, ok := be["browseEndpointContextSupportedConfigs"].(map[string]any); ok {
+							if mc, ok := cfg["browseEndpointContextMusicConfig"].(map[string]any); ok {
+								pageType, _ = mc["pageType"].(string)
+							}
+						}
 					}
-					parts = append(parts, txt)
+				}
+				if strings.HasPrefix(bid, "MPREb_") || pageType == "MUSIC_PAGE_TYPE_ALBUM" {
+					album = txt
+				} else if strings.HasPrefix(bid, "UC") || pageType == "MUSIC_PAGE_TYPE_ARTIST" {
+					artistParts = append(artistParts, txt)
+				} else {
+					fallbackParts = append(fallbackParts, txt)
 				}
 			}
-			if len(parts) > 0 {
-				artist = parts[0]
-			}
-			if len(parts) > 1 {
-				album = parts[1]
+			if len(artistParts) > 0 {
+				artist = strings.Join(artistParts, ", ")
+			} else if len(fallbackParts) > 0 {
+				artist = fallbackParts[0]
 			}
 		}
 	}
@@ -1396,49 +1633,94 @@ func parseResponsiveListItem(r map[string]any) (YTMusicTrack, bool) {
 	title := ""
 	artist := "YouTube Music Artist"
 	album := "YouTube Music"
+	playCountText := ""
 	durationSec := 200
+
+	isPlayCount := func(lower string) bool {
+		return strings.Contains(lower, "pemutaran") ||
+			strings.Contains(lower, "ditonton") ||
+			strings.HasSuffix(lower, "plays") ||
+			strings.HasSuffix(lower, "views")
+	}
 
 	if cols, ok := r["flexColumns"].([]any); ok {
 		if len(cols) > 0 {
 			title = extractColumnText(cols[0])
 		}
 		if len(cols) > 2 {
-			// Playlist / chart table layout: col 1 = artist(s), col 2 = album
+			// Playlist / chart table layout: col 1 = artist(s), col 2 = album or play count
 			col1Text := strings.TrimSpace(extractColumnText(cols[1]))
 			if col1Text != "" {
 				artist = col1Text
 			}
 			col2Text := strings.TrimSpace(extractColumnText(cols[2]))
 			col2Lower := strings.ToLower(col2Text)
-			if col2Text != "" && parseDurationString(col2Text) == 0 &&
-				!strings.Contains(col2Lower, "pemutaran") &&
-				!strings.Contains(col2Lower, "ditonton") &&
-				!strings.HasSuffix(col2Lower, "plays") &&
-				!strings.HasSuffix(col2Lower, "views") {
-				album = col2Text
+			if col2Text != "" && parseDurationString(col2Text) == 0 {
+				if isPlayCount(col2Lower) {
+					playCountText = col2Text
+				} else {
+					album = col2Text
+				}
 			}
 		} else if len(cols) > 1 {
-			meta := extractColumnRuns(cols[1])
-			var parts []string
-			for _, p := range meta {
-				p = strings.TrimSpace(p)
-				pLower := strings.ToLower(p)
-				if p == "" || p == "\u2022" || p == "\u00b7" || p == "," || p == "&" || p == "Song" || p == "Video" || p == "Lagu" ||
-					strings.Contains(pLower, "pemutaran") || strings.Contains(pLower, "ditonton") ||
-					strings.HasSuffix(pLower, "plays") || strings.HasSuffix(pLower, "views") {
-					continue
+			var artistParts []string
+			var fallbackParts []string
+			if colMap, ok := cols[1].(map[string]any); ok {
+				if rend, ok := colMap["musicResponsiveListItemFlexColumnRenderer"].(map[string]any); ok {
+					if txtObj, ok := rend["text"].(map[string]any); ok {
+						if runs, ok := txtObj["runs"].([]any); ok {
+							for _, item := range runs {
+								rm, ok := item.(map[string]any)
+								if !ok {
+									continue
+								}
+								p, _ := rm["text"].(string)
+								p = strings.TrimSpace(p)
+								pLower := strings.ToLower(p)
+								if p == "" || p == "\u2022" || p == "\u00b7" || p == "," || p == "&" || p == "Song" || p == "Video" || p == "Lagu" {
+									continue
+								}
+								if isPlayCount(pLower) {
+									if playCountText == "" {
+										playCountText = p
+									}
+									continue
+								}
+								if d := parseDurationString(p); d > 0 {
+									durationSec = d
+									continue
+								}
+								bid := ""
+								pageType := ""
+								if nav, ok := rm["navigationEndpoint"].(map[string]any); ok {
+									if be, ok := nav["browseEndpoint"].(map[string]any); ok {
+										bid, _ = be["browseId"].(string)
+										if cfg, ok := be["browseEndpointContextSupportedConfigs"].(map[string]any); ok {
+											if mc, ok := cfg["browseEndpointContextMusicConfig"].(map[string]any); ok {
+												pageType, _ = mc["pageType"].(string)
+											}
+										}
+									}
+								}
+								if strings.HasPrefix(bid, "MPREb_") || pageType == "MUSIC_PAGE_TYPE_ALBUM" {
+									album = p
+								} else if strings.HasPrefix(bid, "UC") || pageType == "MUSIC_PAGE_TYPE_ARTIST" {
+									artistParts = append(artistParts, p)
+								} else if !yearRegex.MatchString(p) {
+									fallbackParts = append(fallbackParts, p)
+								}
+							}
+						}
+					}
 				}
-				if d := parseDurationString(p); d > 0 {
-					durationSec = d
-					continue
-				}
-				parts = append(parts, p)
 			}
-			if len(parts) > 0 {
-				artist = parts[0]
+			if len(artistParts) > 0 {
+				artist = strings.Join(artistParts, ", ")
+			} else if len(fallbackParts) > 0 {
+				artist = fallbackParts[0]
 			}
-			if len(parts) > 1 {
-				album = parts[1]
+			if album == "YouTube Music" && len(fallbackParts) > 1 {
+				album = fallbackParts[1]
 			}
 		}
 	}
@@ -1471,13 +1753,14 @@ func parseResponsiveListItem(r map[string]any) (YTMusicTrack, bool) {
 	}
 
 	return YTMusicTrack{
-		VideoID:     videoID,
-		Title:       title,
-		Artist:      artist,
-		Album:       album,
-		DurationSec: durationSec,
-		CoverURL:    cover,
-		Format:      "OPUS",
+		VideoID:       videoID,
+		Title:         title,
+		Artist:        artist,
+		Album:         album,
+		DurationSec:   durationSec,
+		CoverURL:      cover,
+		Format:        "OPUS",
+		PlayCountText: playCountText,
 	}, true
 }
 

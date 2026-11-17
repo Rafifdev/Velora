@@ -13,6 +13,7 @@
     favoriteTracksCount?: number;
     favoriteArtistsCount?: number;
     playlistsCount?: number;
+    downloadedCount?: number;
     sourcesCount?: number;
     isPreferencesMode?: boolean;
     activePrefTab?: string;
@@ -34,6 +35,7 @@
     favoriteTracksCount = 0,
     favoriteArtistsCount = 0,
     playlistsCount = 0,
+    downloadedCount = 0,
     sourcesCount = 0,
     isPreferencesMode = false,
     activePrefTab = $bindable('appearance'),
@@ -62,11 +64,11 @@
   const flatMenuItems = $derived<MenuEntry[]>([
     { id: 'home', label: 'Home', icon: 'house' },
     { id: 'favorite-albums', label: 'Favorite albums', icon: 'vinyl-record' },
-    { id: 'liked-songs', label: 'Favorite music', icon: 'heart' },
-    { id: 'favorite-artists', label: 'Favorite artists', icon: 'users' },
+    { id: 'liked-songs', label: 'Favorite music', icon: 'music-note' },
+    { id: 'favorite-artists', label: 'Favorite artists', icon: 'user' },
     { id: 'playlists', label: 'Playlists', icon: 'playlist', count: playlistsCount },
-    { id: 'history', label: 'Listening history', icon: 'clock-counter-clockwise' },
-    { id: 'sources', label: 'Sources', icon: 'plugs', count: sourcesCount }
+    { id: 'downloaded', label: 'Downloaded', icon: 'download', count: downloadedCount },
+    { id: 'history', label: 'History', icon: 'clock-counter-clockwise' }
   ]);
 
   function isActive(name: string): boolean {

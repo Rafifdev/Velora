@@ -1,14 +1,18 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { api, resolveCoverUrl } from './lib/api';
-  import { EventsOn } from '../wailsjs/runtime/runtime';
+  import { fade, fly } from 'svelte/transition';
+  import { cubicIn, cubicOut } from 'svelte/easing';
+  import { api, isJamRemote, resolveCoverUrl, safeEventsOn, sendJamCommand } from './lib/api';
   import { VeloraAudioEngine } from './lib/audioEngine';
   import { getPrefBool, getPrefValue } from './lib/nuclearPrefs';
   import type {
     Album,
     Artist,
+    DownloadProgress,
     FireStreakStatus,
     HomeFilter,
+    JamCommand,
+    JamStatus,
     ListeningStats,
     PlayHistoryItem,
     Playlist,
@@ -24,6 +28,7 @@
   } from './lib/types';
 
   import Titlebar from './components/Titlebar.svelte';
+  import Icon from './components/Icon.svelte';
   import Sidebar from './components/Sidebar.svelte';
   import RightPanel from './components/RightPanel.svelte';
   import PlayerBar from './components/PlayerBar.svelte';
@@ -32,6 +37,7 @@
   import SplashScreen from './components/SplashScreen.svelte';
   import LyricsView from './components/LyricsView.svelte';
   import TrackDetailView from './components/TrackDetailView.svelte';
+  import MobileNowPlaying from './components/MobileNowPlaying.svelte';
 
   import HomeView from './views/HomeView.svelte';
   import LibraryViews from './views/LibraryViews.svelte';
@@ -40,6 +46,25 @@
   import AnalyticsAndSettingsViews from './views/AnalyticsAndSettingsViews.svelte';
 
   let tracks = $state<Track[]>([]);
+  let downloadStates = $state<Record<number, DownloadProgress>>({});
+  let jamStatus = $state<JamStatus>({
+    enabled: false,
+    running: false,
+    port: 8899,
+    lanIp: '127.0.0.1',
+    remoteUrl: 'http://127.0.0.1:8899/jam',
+    apiUrl: 'http://127.0.0.1:8899/api',
+    qrDataUrl: '',
+    connectedClients: 0
+  });
+  let jamModalOpen = $state(false);
+  let jamLoading = $state(false);
+  let jamConnected = $state(false);
+  let isMobile = $state(false);
+  let mobileShowQueue = $state(false);
+  let mobileMenuOpen = $state(false);
+  let mobileNowPlayingOpen = $state(false);
+  let mainScrollEl: HTMLElement | undefined = $state();
   let ytAlbumDetail = $state<YTMusicAlbumView | null>(null);
   let ytAlbumLoading = $state(false);
   let ytAlbumReqSeq = 0;
@@ -95,6 +120,7 @@
   let ytResults = $state<YTMusicTrack[]>([]);
   let ytPlaylistResults = $state<YTMusicCard[]>([]);
   let ytAlbumResults = $state<YTMusicCard[]>([]);
+  let ytArtistResults = $state<YTMusicCard[]>([]);
   let ytLoading = $state(false);
   let ytHomeLoading = $state(false);
   let ytLoadingMore = $state(false);
@@ -268,7 +294,7 @@
     document.addEventListener('scroll', hideTooltip, true);
 
     void Promise.all([refreshAll(), loadYTMusicHome()]);
-    const offTaskbar = EventsOn('taskbar:control', (action: string) => {
+    const offTaskbar = safeEventsOn('taskbar:control', (action: string) => {
       if (action === 'prev') {
         void playPrev();
       } else if (action === 'next') {
@@ -277,7 +303,127 @@
         void togglePlay();
       }
     });
+    const offDownload = safeEventsOn('download:progress', (p: DownloadProgress) => {
+      if (!p || !p.trackId) return;
+      if (p.status === 'completed') {
+        const next = { ...downloadStates };
+        delete next[p.trackId];
+        downloadStates = next;
+        void api.getTracks('all', '').then((list) => {
+          tracks = list;
+          const updated = list.find((t) => t.id === p.trackId);
+          if (updated) {
+            detailTracks = detailTracks.map((t) => (t.id === p.trackId ? updated : t));
+            if (selectedPlaylistDetail) {
+              selectedPlaylistDetail = {
+                ...selectedPlaylistDetail,
+                tracks: selectedPlaylistDetail.tracks.map((t) => (t.id === p.trackId ? updated : t))
+              };
+            }
+          }
+        });
+      } else if (p.status === 'cancelled') {
+        const next = { ...downloadStates };
+        delete next[p.trackId];
+        downloadStates = next;
+      } else {
+        downloadStates = { ...downloadStates, [p.trackId]: p };
+      }
+    });
+    const offJamStatus = safeEventsOn('jam:status', (st: JamStatus) => {
+      if (st) jamStatus = st;
+    });
+    const offJamCmd = safeEventsOn('jam:command', (cmd: JamCommand) => {
+      if (cmd?.action) void handleJamCommand(cmd);
+    });
+    void api.getJamStatus().then((st) => {
+      if (st) jamStatus = st;
+    });
+
+    let jamES: EventSource | null = null;
+    if (isJamRemote) {
+      jamES = new EventSource('/api/events');
+      jamES.onopen = () => {
+        jamConnected = true;
+      };
+      jamES.onerror = () => {
+        jamConnected = false;
+      };
+      jamES.addEventListener('state', (ev: MessageEvent) => {
+        jamConnected = true;
+        try {
+          const snap = JSON.parse(ev.data);
+          isPlaying = !!snap.isPlaying;
+          positionSec = Number(snap.positionSec) || 0;
+          durationSec = Number(snap.durationSec) || 0;
+          volume = Number(snap.volume ?? 80);
+          muted = !!snap.muted;
+          shuffle = !!snap.shuffle;
+          repeatMode = (snap.repeatMode as 'off' | 'all' | 'one') || 'off';
+          if (Array.isArray(snap.queue)) {
+            queue = snap.queue.map((q: any) => ({
+              id: q.trackId || 0,
+              title: q.title || 'Untitled',
+              artistId: 0,
+              artistName: q.artist || 'Unknown Artist',
+              albumId: 0,
+              albumTitle: '',
+              durationSec: q.durationSec || 0,
+              format: '',
+              bitrate: 0,
+              sourceType: q.externalId ? 'ytmusic' : 'local',
+              filePath: '',
+              externalId: q.externalId || '',
+              coverUrl: q.coverUrl || '',
+              isFavorite: false,
+              playCount: 0,
+              createdAt: ''
+            }));
+          }
+          if (snap.title) {
+            const matched = tracks.find(
+              (t) => (snap.trackId && t.id === snap.trackId) || (snap.externalId && t.externalId === snap.externalId)
+            );
+            const nextTr: Track = matched ?? {
+              id: snap.trackId || 0,
+              title: snap.title,
+              artistId: 0,
+              artistName: snap.artist || 'Unknown Artist',
+              albumId: 0,
+              albumTitle: snap.album || '',
+              durationSec: snap.durationSec || 0,
+              format: '',
+              bitrate: 0,
+              sourceType: snap.externalId ? 'ytmusic' : 'local',
+              filePath: '',
+              externalId: snap.externalId || '',
+              coverUrl: snap.coverUrl || '',
+              isFavorite: false,
+              playCount: 0,
+              createdAt: ''
+            };
+            const changed = !currentTrack || currentTrack.id !== nextTr.id || currentTrack.externalId !== nextTr.externalId || currentTrack.title !== nextTr.title;
+            currentTrack = nextTr;
+            if (changed) {
+              void loadLyricsForTrack(nextTr);
+            }
+          }
+        } catch {
+          // ignore malformed SSE
+        }
+      });
+    }
+
+    const mq = window.matchMedia('(max-width: 767px)');
+    const syncMobile = () => {
+      isMobile = mq.matches;
+      if (!isMobile) mobileShowQueue = false;
+    };
+    syncMobile();
+    mq.addEventListener('change', syncMobile);
+
     return () => {
+      mq.removeEventListener('change', syncMobile);
       window.removeEventListener('wheel', onWheel);
       document.removeEventListener('mouseover', onMouseOver, true);
       document.removeEventListener('mouseout', onMouseOut, true);
@@ -285,10 +431,15 @@
       document.removeEventListener('scroll', hideTooltip, true);
       hideTooltip();
       offTaskbar?.();
+      offDownload?.();
+      offJamStatus?.();
+      offJamCmd?.();
+      jamES?.close();
     };
   });
 
   $effect(() => {
+    if (isJamRemote) return;
     const tr = currentTrack;
     const playing = isPlaying;
     const cover = tr ? resolveCoverUrl(tr.coverUrl, mediaBaseUrl) : '';
@@ -306,6 +457,49 @@
     } finally {
       ytHomeLoading = false;
     }
+  }
+
+  async function handleDownloadTrack(tr: Track) {
+    if (!tr) return;
+    if (tr.id > 0) {
+      await api.downloadTrack(tr.id);
+      return;
+    }
+    if (tr.externalId) {
+      await api.downloadYTMusicTrack({
+        videoId: tr.externalId,
+        title: tr.title,
+        artist: tr.artistName,
+        album: tr.albumTitle,
+        durationSec: tr.durationSec,
+        coverUrl: tr.coverUrl,
+        format: tr.format || 'OPUS'
+      });
+    }
+  }
+
+  async function handleDownloadYTMusicTrack(yt: YTMusicTrack) {
+    if (!yt?.videoId) return;
+    await api.downloadYTMusicTrack(yt);
+  }
+
+  async function handleRemoveDownload(trackId: number) {
+    const updated = await api.removeDownloadedTrack(trackId);
+    tracks = tracks.map((t) => (t.id === trackId ? updated : t));
+    detailTracks = detailTracks.map((t) => (t.id === trackId ? updated : t));
+    if (selectedPlaylistDetail) {
+      selectedPlaylistDetail = {
+        ...selectedPlaylistDetail,
+        tracks: selectedPlaylistDetail.tracks.map((t) => (t.id === trackId ? updated : t))
+      };
+    }
+  }
+
+  async function handleCancelDownload(trackId: number) {
+    await api.cancelDownload(trackId);
+    const next = { ...downloadStates };
+    delete next[trackId];
+    downloadStates = next;
   }
 
   async function refreshAll() {
@@ -351,7 +545,173 @@
   async function patchPrefs(patch: Record<string, string>) {
     preferences = { ...preferences, ...patch };
     await api.savePreferences(patch);
+    if (patch['integrations.jam.enabled'] !== undefined) {
+      if (patch['integrations.jam.enabled'] === 'true') {
+        jamStatus = await api.startJam();
+        preferences = {
+          ...preferences,
+          'integrations.jam.remoteUrl': jamStatus.remoteUrl,
+          'integrations.jam.apiUrl': jamStatus.apiUrl
+        };
+      } else {
+        jamStatus = await api.stopJam();
+      }
+    }
   }
+
+  async function toggleJamServer() {
+    jamLoading = true;
+    try {
+      if (jamStatus.running) {
+        jamStatus = await api.stopJam();
+        preferences = { ...preferences, 'integrations.jam.enabled': 'false' };
+      } else {
+        jamStatus = await api.startJam();
+        preferences = {
+          ...preferences,
+          'integrations.jam.enabled': 'true',
+          'integrations.jam.remoteUrl': jamStatus.remoteUrl,
+          'integrations.jam.apiUrl': jamStatus.apiUrl
+        };
+      }
+    } finally {
+      jamLoading = false;
+    }
+  }
+
+  async function handleJamCommand(cmd: JamCommand) {
+    switch (cmd.action) {
+      case 'toggle':
+        await togglePlay();
+        break;
+      case 'play':
+        if (!isPlaying) await togglePlay();
+        break;
+      case 'pause':
+        if (isPlaying) await togglePlay();
+        break;
+      case 'next':
+        await playNext();
+        break;
+      case 'prev':
+        await playPrev();
+        break;
+      case 'seek':
+        handleSeek(Math.max(0, Number(cmd.value) || 0));
+        break;
+      case 'volume': {
+        const v = Math.max(0, Math.min(100, Math.round(Number(cmd.value) || 0)));
+        volume = v;
+        if (v > 0 && muted) muted = false;
+        audioEngine.setVolume(volume, muted);
+        api.playerControl('volume', volume);
+        void patchPrefs({ volume: String(volume) });
+        break;
+      }
+      case 'mute':
+        muted = !muted;
+        audioEngine.setVolume(volume, muted);
+        api.playerControl('mute', muted ? 1 : 0);
+        break;
+      case 'shuffle':
+        shuffle = !shuffle;
+        break;
+      case 'repeat':
+        repeatMode = repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off';
+        break;
+      case 'play-index': {
+        const idx = Math.round(Number(cmd.value) || 0);
+        if (idx >= 0 && idx < queue.length) {
+          await playTrack(queue[idx], queue);
+        }
+        break;
+      }
+      case 'remove-index': {
+        const idx = Math.round(Number(cmd.value) || 0);
+        if (idx >= 0 && idx < queue.length) {
+          queue = queue.filter((_, i) => i !== idx);
+        }
+        break;
+      }
+      case 'play-track': {
+        if (cmd.trackId && cmd.trackId > 0) {
+          const found = tracks.find((t) => t.id === cmd.trackId);
+          if (found) {
+            await playTrack(found, queue.length > 0 ? queue : [found]);
+            break;
+          }
+        }
+        if (cmd.externalId) {
+          await playYTMusicSingle({
+            videoId: cmd.externalId,
+            title: cmd.title || 'Untitled',
+            artist: cmd.artist || 'Unknown Artist',
+            album: cmd.album || 'Single',
+            durationSec: cmd.durationSec || 180,
+            coverUrl: cmd.coverUrl || '',
+            format: 'OPUS'
+          });
+        }
+        break;
+      }
+      case 'add-track': {
+        let tr: Track | undefined = cmd.trackId && cmd.trackId > 0 ? tracks.find((t) => t.id === cmd.trackId) : undefined;
+        if (!tr && cmd.externalId) {
+          tr = await api.saveYTMusicTrack({
+            videoId: cmd.externalId,
+            title: cmd.title || 'Untitled',
+            artist: cmd.artist || 'Unknown Artist',
+            album: cmd.album || 'Single',
+            durationSec: cmd.durationSec || 180,
+            coverUrl: cmd.coverUrl || '',
+            format: 'OPUS'
+          });
+        }
+        if (tr && !queue.some((q) => q.id === tr!.id)) {
+          queue = [...queue, tr];
+        }
+        break;
+      }
+    }
+  }
+
+  let lastJamSyncMs = 0;
+  let lastJamSyncKey = '';
+  $effect(() => {
+    if (isJamRemote || !jamStatus.running) return;
+    const tr = currentTrack;
+    const structuralKey = `${tr?.id ?? 0}:${tr?.externalId ?? ''}:${isPlaying}:${volume}:${muted}:${shuffle}:${repeatMode}:${queue.length}`;
+    const now = Date.now();
+    const posRounded = Math.floor(positionSec);
+    if (structuralKey === lastJamSyncKey && now - lastJamSyncMs < 450) {
+      return;
+    }
+    lastJamSyncKey = structuralKey;
+    lastJamSyncMs = now;
+    api.updateJamState({
+      trackId: tr?.id ?? 0,
+      externalId: tr?.externalId ?? '',
+      title: tr?.title ?? '',
+      artist: tr?.artistName ?? '',
+      album: tr?.albumTitle ?? '',
+      coverUrl: tr?.coverUrl ?? '',
+      isPlaying,
+      positionSec: posRounded,
+      durationSec: durationSec || tr?.durationSec || 0,
+      volume,
+      muted,
+      shuffle,
+      repeatMode,
+      queue: queue.slice(0, 60).map((q) => ({
+        trackId: q.id,
+        externalId: q.externalId ?? '',
+        title: q.title,
+        artist: q.artistName,
+        durationSec: q.durationSec,
+        coverUrl: q.coverUrl ?? ''
+      }))
+    });
+  });
 
   async function loadLyricsForTrack(tr: Track) {
     lyricsLoading = true;
@@ -398,6 +758,7 @@
   }
 
   async function loadRouteData(route: ViewRoute) {
+    if (mainScrollEl) mainScrollEl.scrollTop = 0;
     if (route.name === 'playlist-detail') {
       selectedPlaylistDetail = await api.getPlaylistDetail(route.playlistId);
     } else if (route.name === 'album-detail') {
@@ -561,6 +922,25 @@
     }
   }
 
+  async function handleSearchYTMusicArtists(q: string) {
+    const seq = ++ytSearchSeq;
+    ytLoading = true;
+    try {
+      const res = await api.searchYouTubeMusicArtists(q);
+      if (seq === ytSearchSeq) {
+        ytArtistResults = res || [];
+      }
+    } catch {
+      if (seq === ytSearchSeq) {
+        ytArtistResults = [];
+      }
+    } finally {
+      if (seq === ytSearchSeq) {
+        ytLoading = false;
+      }
+    }
+  }
+
   const MORESONGS_QUERIES = [
     'Lagu Indonesia Populer Terbaru',
     'Top Global Hits Music',
@@ -572,12 +952,18 @@
     'Electronic & Synthwave Music'
   ];
 
-  const CATEGORY_MORE_QUERIES: Record<'musik' | 'album' | 'playlist' | 'podcast' | 'buku', string[]> = {
+  const CATEGORY_MORE_QUERIES: Record<'musik' | 'artis' | 'album' | 'playlist' | 'podcast' | 'buku', string[]> = {
     musik: [
       'Trending Pop Music Indonesia',
       'Top Hits Indonesia 2025 2026',
       'Viral Pop & R&B Hits',
       'Best Acoustic Pop Hits'
+    ],
+    artis: [
+      'Popular Indonesian Singers',
+      'Top Global Pop Artists',
+      'Best Indie Artists Indonesia',
+      'Top R&B & Soul Artists'
     ],
     album: [
       'Top Pop Indonesia Album',
@@ -619,6 +1005,22 @@
         });
         if (unique.length > 0) {
           ytAlbumResults = [...ytAlbumResults, ...unique];
+        }
+        return;
+      }
+
+      if (activeCategory === 'artis') {
+        const page = ytMorePage++;
+        const q = CATEGORY_MORE_QUERIES.artis[page % CATEGORY_MORE_QUERIES.artis.length];
+        const moreArtists = await api.searchYouTubeMusicArtists(q);
+        if (!moreArtists || moreArtists.length === 0) return;
+        const existingKeys = new Set(ytArtistResults.map((c) => c.browseId || c.id));
+        const unique = moreArtists.filter((c) => {
+          const k = c.browseId || c.id;
+          return k && !existingKeys.has(k);
+        });
+        if (unique.length > 0) {
+          ytArtistResults = [...ytArtistResults, ...unique];
         }
         return;
       }
@@ -1025,6 +1427,18 @@
   }
 
   async function playTrack(tr: Track, list: Track[] = [], sourceTitle?: string) {
+    if (isJamRemote) {
+      await sendJamCommand('play-track', {
+        trackId: tr.id,
+        externalId: tr.externalId || '',
+        title: tr.title,
+        artist: tr.artistName,
+        album: tr.albumTitle,
+        coverUrl: tr.coverUrl,
+        durationSec: tr.durationSec
+      });
+      return;
+    }
     if (sourceTitle !== undefined) {
       queueSourceTitle = sourceTitle;
     } else if (list.length > 0) {
@@ -1136,6 +1550,10 @@
   }
 
   async function togglePlay() {
+    if (isJamRemote) {
+      await sendJamCommand('toggle');
+      return;
+    }
     if (!audioEl) return;
     if (!currentTrack && tracks.length > 0) {
       await playTrack(tracks[0], tracks);
@@ -1160,6 +1578,10 @@
   }
 
   async function playNext() {
+    if (isJamRemote) {
+      await sendJamCommand('next');
+      return;
+    }
     if (queue.length === 0) return;
     if (shuffle && queue.length > 1 && queueSourceTitle !== '') {
       const rand = Math.floor(Math.random() * queue.length);
@@ -1196,6 +1618,10 @@
   }
 
   async function playPrev() {
+    if (isJamRemote) {
+      await sendJamCommand('prev');
+      return;
+    }
     if (audioEl && audioEl.currentTime > 3) {
       audioEl.currentTime = 0;
       return;
@@ -1207,6 +1633,11 @@
   }
 
   function handleSeek(sec: number) {
+    if (isJamRemote) {
+      positionSec = sec;
+      void sendJamCommand('seek', sec);
+      return;
+    }
     if (!audioEl) return;
     audioEl.currentTime = sec;
     positionSec = sec;
@@ -1332,12 +1763,20 @@
   function handleVolumeChange(vol: number) {
     volume = vol;
     muted = vol === 0;
+    if (isJamRemote) {
+      void sendJamCommand('volume', vol);
+      return;
+    }
     audioEngine.setVolume(volume, muted);
     api.playerControl('volume', vol);
   }
 
   function handleToggleMute() {
     muted = !muted;
+    if (isJamRemote) {
+      void sendJamCommand('mute');
+      return;
+    }
     audioEngine.setVolume(volume, muted);
     api.playerControl('mute');
   }
@@ -1387,6 +1826,22 @@
     artists = artists.map((a) => (a.id === id ? { ...a, isFavorite: fav } : a));
   }
 
+  async function handleToggleFavoriteYTMusicArtist(payload: {
+    externalId: string;
+    name: string;
+    avatarUrl: string;
+  }) {
+    const updated = await api.toggleFavoriteYTMusicArtist(
+      payload.externalId,
+      payload.name,
+      payload.avatarUrl
+    );
+    const exists = artists.some((a) => a.id === updated.id);
+    artists = exists
+      ? artists.map((a) => (a.id === updated.id ? updated : a))
+      : [updated, ...artists];
+  }
+
   async function handleCreatePlaylist(name: string, desc: string, isLocal: boolean, color: string) {
     const created = await api.createPlaylist(name, desc, isLocal, color);
     playlists = await api.getPlaylists(false);
@@ -1430,7 +1885,7 @@
   data-theme={isDark ? 'dark' : 'light'}
   data-seed={themeSeed}
   class="flex flex-col overflow-hidden transition-colors duration-300"
-  style="zoom: {zoomLevel}; width: {100 / zoomLevel}vw; height: {100 / zoomLevel}vh; background-color: var(--md-sys-color-surface-container-lowest); color: var(--md-sys-color-on-surface);"
+  style="zoom: {zoomLevel}; width: {100 / zoomLevel}vw; height: {100 / zoomLevel}dvh; background-color: var(--md-sys-color-surface-container-lowest); color: var(--md-sys-color-on-surface);"
 >
   {#if showSplash}
     <SplashScreen {isDark} onComplete={() => (showSplash = false)} />
@@ -1452,14 +1907,36 @@
     {mediaBaseUrl}
     {zoomLevel}
     {zoomBadgeVisible}
+    jamRunning={jamStatus.running}
+    {jamStatus}
+    jamOpen={jamModalOpen}
+    {jamLoading}
+    {jamConnected}
+    onOpenJam={() => (jamModalOpen = true)}
+    onCloseJam={() => (jamModalOpen = false)}
+    onToggleJam={() => void toggleJamServer()}
     onBack={goBack}
     onForward={goForward}
     onNavigate={navigate}
     onSearch={handleGlobalSearch}
     onSuggestSearch={handleSearchSuggestions}
-    onPlayLocalTrack={(tr) => playTrack(tr, tracks)}
-    onPlayYTMusic={playYTMusicSingle}
+    onPlayLocalTrack={(tr) => {
+      void playTrack(tr, tracks);
+      void openTrackAlbumDetail(tr);
+    }}
+    onPlayYTMusic={(yt) => {
+      void playYTMusicSingle(yt);
+      void navigate({
+        name: 'yt-album-detail',
+        videoId: yt.videoId,
+        title: yt.title,
+        artist: yt.artist,
+        albumTitle: yt.album,
+        coverUrl: yt.coverUrl
+      });
+    }}
     onToggleFavoriteArtist={handleToggleFavoriteArtist}
+    onToggleFavoriteYTMusicArtist={handleToggleFavoriteYTMusicArtist}
     onToggleTheme={() => patchPrefs({ 'theme.dark': isDark ? 'false' : 'true' })}
     onOpenStreakModal={() => (showStreakModal = true)}
     onResetZoom={() => applyZoom(1)}
@@ -1476,8 +1953,9 @@
       ? 'pr-0'
       : 'pr-2'}"
   >
-    <!-- SECTION 1 (LEFT): Menu Sidebar (Same wrapper, swaps inner content to PreferencesSidebar when in Preferences) -->
-    <Sidebar
+    <!-- SECTION 1 (LEFT): Menu Sidebar (hidden on mobile; mobile uses bottom nav) -->
+    {#if !isMobile}
+      <Sidebar
       {currentRoute}
       width={leftWidth}
       collapsed={leftCollapsed}
@@ -1486,6 +1964,7 @@
       favoriteTracksCount={tracks.filter((t) => t.isFavorite).length}
       favoriteArtistsCount={artists.filter((a) => a.isFavorite).length}
       playlistsCount={playlists.length}
+      downloadedCount={tracks.filter((t) => t.isDownloaded).length}
       sourcesCount={sources.length}
       isPreferencesMode={currentRoute.name === 'preferences'}
       bind:activePrefTab
@@ -1508,20 +1987,25 @@
       onResizeWidth={(w) => (leftWidth = w)}
       onResizeEnd={(w) => patchPrefs({ 'layout.leftSidebarWidth': String(Math.round(w)) })}
     />
+    {/if}
 
     <!-- SECTION 2 (CENTER): Songs & Playlists + Spotify-style Home -->
     <main
-      class="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden scroll-pt-16 rounded-lg transition-colors duration-300"
+      bind:this={mainScrollEl}
+      class="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden scroll-pt-16 rounded-lg transition-colors duration-300 {isMobile && mobileShowQueue ? 'hidden' : ''}"
       style="background-color: var(--md-sys-color-surface);"
     >
       {#if currentRoute.name === 'home'}
         <HomeView
           {albums}
+          {artists}
+          {tracks}
           {playlists}
           {ytShelves}
           {ytResults}
           {ytPlaylistResults}
           {ytAlbumResults}
+          {ytArtistResults}
           initialFilter={currentRoute.name === 'home' ? currentRoute.filter : undefined}
           {ytLoading}
           {ytHomeLoading}
@@ -1533,14 +2017,18 @@
           onOpenYTAlbum={openYTAlbumCard}
           onPlayPlaylist={handlePlayPlaylist}
           onPlayAlbum={handlePlayAlbum}
+          onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
+          onToggleFavoriteArtist={handleToggleFavoriteArtist}
+          onToggleFavoriteYTMusicArtist={handleToggleFavoriteYTMusicArtist}
           onSearchYTMusic={handleSearchYTMusic}
           onSearchYTMusicPlaylists={handleSearchYTMusicPlaylists}
           onSearchYTMusicAlbums={handleSearchYTMusicAlbums}
+          onSearchYTMusicArtists={handleSearchYTMusicArtists}
           onRefreshYTMusicHome={loadYTMusicHome}
           onLoadMoreYTMusic={handleLoadMoreYTMusic}
           onNavigate={navigate}
         />
-      {:else if currentRoute.name === 'search' || currentRoute.name === 'liked-songs' || currentRoute.name === 'favorite-albums' || currentRoute.name === 'favorite-artists' || currentRoute.name === 'artist-detail'}
+      {:else if currentRoute.name === 'search' || currentRoute.name === 'liked-songs' || currentRoute.name === 'downloaded' || currentRoute.name === 'favorite-albums' || currentRoute.name === 'favorite-artists' || currentRoute.name === 'artist-detail'}
         <LibraryViews
           mode={currentRoute.name}
           {searchQuery}
@@ -1554,6 +2042,7 @@
           {ytResults}
           {ytLoading}
           {playlists}
+          {downloadStates}
           currentTrackId={currentTrack?.id ?? null}
           currentExternalId={currentTrack?.externalId ?? null}
           currentTrackTitle={currentTrack?.title ?? null}
@@ -1578,6 +2067,10 @@
             await api.addTrackToPlaylist(pid, tid);
             playlists = await api.getPlaylists(false);
           }}
+          onDownloadTrack={handleDownloadTrack}
+          onDownloadYTMusic={handleDownloadYTMusicTrack}
+          onRemoveDownload={handleRemoveDownload}
+          onCancelDownload={handleCancelDownload}
           onOpenAlbum={handleOpenAlbum}
           onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
           onOpenTrackAlbum={openTrackAlbumDetail}
@@ -1655,11 +2148,21 @@
               queue = [...queue, tr];
             }
           }}
+          onDownloadTrack={handleDownloadTrack}
+          onRemoveDownload={handleRemoveDownload}
           onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
           onOpenTrackAlbum={openTrackAlbumDetail}
           onExportM3U={(pid) => api.exportLocalPlaylistM3U(pid)}
           onImportM3U={async () => {
             const pl = await api.importLocalPlaylistM3U();
+            if (pl?.id) {
+              playlists = await api.getPlaylists(false);
+              await refreshAll();
+              await navigate({ name: 'playlist-detail', playlistId: pl.id });
+            }
+          }}
+          onImportSpotify={async (url) => {
+            const pl = await api.importSpotifyPlaylist(url);
             if (pl?.id) {
               playlists = await api.getPlaylists(false);
               await refreshAll();
@@ -1752,6 +2255,13 @@
           onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
           onOpenAlbum={handleOpenAlbum}
           onOpenYTAlbum={(card) => void openYTAlbumCard(card)}
+          onDownloadTrack={handleDownloadTrack}
+          onRemoveDownload={handleRemoveDownload}
+          onAddToQueue={(tr) => {
+            if (!queue.some((q) => q.id === tr.id)) {
+              queue = [...queue, tr];
+            }
+          }}
         />
       {:else if currentRoute.name === 'lyrics'}
         <LyricsView
@@ -1798,10 +2308,10 @@
     </main>
 
     <!-- SECTION 3 (RIGHT): Hidden on Preferences, Track/Album Detail & Lyrics pages -->
-    {#if currentRoute.name !== 'preferences' && currentRoute.name !== 'track-detail' && currentRoute.name !== 'album-detail' && currentRoute.name !== 'yt-album-detail' && currentRoute.name !== 'lyrics'}
+    {#if (!isMobile || mobileShowQueue) && currentRoute.name !== 'preferences' && currentRoute.name !== 'track-detail' && currentRoute.name !== 'album-detail' && currentRoute.name !== 'yt-album-detail' && currentRoute.name !== 'lyrics'}
       <RightPanel
-        width={rightWidth}
-        collapsed={rightCollapsed}
+        width={isMobile ? window.innerWidth - 16 : rightWidth}
+        collapsed={isMobile ? false : rightCollapsed}
         mode={rightPanelMode}
         {currentTrack}
         {queue}
@@ -1862,14 +2372,17 @@
       onToggleMute={handleToggleMute}
       onToggleShuffle={() => {
         shuffle = !shuffle;
-        api.playerControl('shuffle');
+        if (isJamRemote) void sendJamCommand('shuffle');
+        else api.playerControl('shuffle');
       }}
       onCycleRepeat={() => {
         repeatMode = repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off';
-        api.playerControl('repeat', 0, repeatMode);
+        if (isJamRemote) void sendJamCommand('repeat');
+        else api.playerControl('repeat', 0, repeatMode);
       }}
       onToggleFavorite={handleToggleFavoriteTrack}
       onOpenTrackDetail={(tr) => void openTrackAlbumDetail(tr)}
+      onOpenMobileNowPlaying={() => (mobileNowPlayingOpen = true)}
       onToggleLyrics={() => {
         if (currentRoute.name === 'lyrics') {
           if (navIndex > 0) goBack();
@@ -1925,6 +2438,177 @@
       }}
     />
   </div>
+
+  {#if isMobile}
+    {#if mobileMenuOpen}
+      <div
+        role="presentation"
+        transition:fade={{ duration: 160 }}
+        onclick={() => (mobileMenuOpen = false)}
+        class="fixed inset-0 z-50 bg-black/50 flex items-end"
+      >
+        <div
+          role="dialog"
+          aria-label="Menu Navigasi"
+          in:fly={{ y: 260, duration: 240, easing: cubicOut }}
+          out:fly={{ y: 260, duration: 180, easing: cubicIn }}
+          onclick={(e) => e.stopPropagation()}
+          class="w-full rounded-t-2xl p-4 pb-6 space-y-2 border-t"
+          style="background-color: var(--md-sys-color-surface-container-high); border-color: var(--md-sys-color-outline-variant);"
+        >
+          <div class="flex items-center justify-between px-2 pb-2">
+            <span class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
+              Menu Velora
+            </span>
+            <button
+              type="button"
+              onclick={() => (mobileMenuOpen = false)}
+              class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer"
+            >
+              <Icon name="x" size={15} />
+            </button>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            {#each [
+              { label: 'Favorite albums', icon: 'vinyl-record', route: { name: 'favorite-albums' } as ViewRoute },
+              { label: 'Favorite music', icon: 'music-note', route: { name: 'liked-songs' } as ViewRoute },
+              { label: 'Favorite artists', icon: 'user', route: { name: 'favorite-artists' } as ViewRoute },
+              { label: 'Playlists', icon: 'playlist', route: { name: 'playlists' } as ViewRoute },
+              { label: 'Downloaded', icon: 'download', route: { name: 'downloaded' } as ViewRoute },
+              { label: 'History', icon: 'clock-counter-clockwise', route: { name: 'history' } as ViewRoute },
+              { label: 'Settings', icon: 'gear', route: { name: 'preferences' } as ViewRoute }
+            ] as entry (entry.label)}
+              <button
+                type="button"
+                onclick={() => {
+                  mobileMenuOpen = false;
+                  mobileShowQueue = false;
+                  void navigate(entry.route);
+                }}
+                class="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold cursor-pointer text-left"
+                style="background-color: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface);"
+              >
+                <Icon name={entry.icon} size={17} />
+                <span class="truncate">{entry.label}</span>
+              </button>
+            {/each}
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <nav
+      aria-label="Mobile Navigation"
+      class="w-full shrink-0 min-h-14 pb-[env(safe-area-inset-bottom)] px-2 grid grid-cols-4 items-center border-t"
+      style="background-color: var(--md-sys-color-surface-container-lowest); border-color: var(--md-sys-color-outline-variant);"
+    >
+      <button
+        type="button"
+        onclick={() => {
+          mobileMenuOpen = false;
+          mobileShowQueue = false;
+          void navigate({ name: 'home' });
+        }}
+        class="flex flex-col items-center justify-center gap-0.5 py-1 rounded-lg cursor-pointer transition-transform duration-150 active:scale-95"
+        style="color: {!mobileShowQueue && !mobileMenuOpen && currentRoute.name === 'home'
+          ? 'var(--md-sys-color-on-surface)'
+          : 'var(--md-sys-color-on-surface-variant)'};"
+      >
+        <Icon
+          name="house"
+          weight={!mobileShowQueue && !mobileMenuOpen && currentRoute.name === 'home' ? 'fill' : 'regular'}
+          size={20}
+        />
+        <span class="text-[10px] font-semibold">Home</span>
+      </button>
+
+      <button
+        type="button"
+        onclick={() => {
+          mobileMenuOpen = false;
+          mobileShowQueue = false;
+          void navigate({ name: 'search', query: searchQuery }).then(() =>
+            requestAnimationFrame(() => (document.getElementById('mobile-search-input') as HTMLInputElement | null)?.focus())
+          );
+        }}
+        class="flex flex-col items-center justify-center gap-0.5 py-1 rounded-lg cursor-pointer transition-transform duration-150 active:scale-95"
+        style="color: {!mobileShowQueue && !mobileMenuOpen && currentRoute.name === 'search'
+          ? 'var(--md-sys-color-on-surface)'
+          : 'var(--md-sys-color-on-surface-variant)'};"
+      >
+        <Icon
+          name="magnifying-glass"
+          weight={!mobileShowQueue && !mobileMenuOpen && currentRoute.name === 'search' ? 'bold' : 'regular'}
+          size={20}
+        />
+        <span class="text-[10px] font-semibold">Search</span>
+      </button>
+
+      <button
+        type="button"
+        onclick={() => (mobileMenuOpen = !mobileMenuOpen)}
+        class="flex flex-col items-center justify-center gap-0.5 py-1 rounded-lg cursor-pointer transition-transform duration-150 active:scale-95"
+        style="color: {mobileMenuOpen
+          ? 'var(--md-sys-color-on-surface)'
+          : 'var(--md-sys-color-on-surface-variant)'};"
+      >
+        <Icon name="books" weight={mobileMenuOpen ? 'fill' : 'regular'} size={20} />
+        <span class="text-[10px] font-semibold">Your Library</span>
+      </button>
+
+      <button
+        type="button"
+        onclick={() => {
+          mobileMenuOpen = false;
+          mobileShowQueue = !mobileShowQueue;
+        }}
+        class="flex flex-col items-center justify-center gap-0.5 py-1 rounded-lg cursor-pointer transition-transform duration-150 active:scale-95"
+        style="color: {mobileShowQueue
+          ? 'var(--md-sys-color-on-surface)'
+          : 'var(--md-sys-color-on-surface-variant)'};"
+      >
+        <Icon name="queue" weight={mobileShowQueue ? 'fill' : 'regular'} size={20} />
+        <span class="text-[10px] font-semibold">Queue</span>
+      </button>
+    </nav>
+
+    <MobileNowPlaying
+      open={mobileNowPlayingOpen}
+      {currentTrack}
+      lyrics={currentLyrics}
+      {queue}
+      {isPlaying}
+      {positionSec}
+      {durationSec}
+      {shuffle}
+      {repeatMode}
+      {mediaBaseUrl}
+      onClose={() => (mobileNowPlayingOpen = false)}
+      onTogglePlay={togglePlay}
+      onPrev={playPrev}
+      onNext={playNext}
+      onSeek={handleSeek}
+      onToggleShuffle={() => {
+        shuffle = !shuffle;
+        if (isJamRemote) void sendJamCommand('shuffle');
+        else api.playerControl('shuffle');
+      }}
+      onCycleRepeat={() => {
+        repeatMode = repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off';
+        if (isJamRemote) void sendJamCommand('repeat');
+        else api.playerControl('repeat', 0, repeatMode);
+      }}
+      onToggleFavorite={handleToggleFavoriteTrack}
+      onPlayTrack={playTrack}
+      onOpenLyrics={() => {
+        mobileShowQueue = false;
+        void navigate({ name: 'lyrics' });
+      }}
+      onOpenQueue={() => {
+        mobileShowQueue = true;
+      }}
+    />
+  {/if}
 </div>
 
 <StreakModal
