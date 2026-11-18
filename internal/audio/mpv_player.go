@@ -305,6 +305,31 @@ func (p *PlayerController) handleYTMedia(w http.ResponseWriter, r *http.Request)
 	}
 
 	info, err := p.yt.ResolveStreamWindow(r.Context(), videoID, quality, 0)
+	if (err != nil || info.URL == "") && p.store != nil {
+		if tr, dbErr := p.store.GetTrackByExternalID(videoID); dbErr == nil && strings.TrimSpace(tr.Title) != "" {
+			q := strings.TrimSpace(tr.Title + " " + tr.ArtistName)
+			if hits, sErr := p.yt.Search(r.Context(), q); sErr == nil {
+				tried := 0
+				for _, h := range hits {
+					candID := strings.TrimSpace(h.VideoID)
+					if candID == "" || candID == videoID {
+						continue
+					}
+					if candInfo, cerr := p.yt.ResolveStreamWindow(r.Context(), candID, quality, 0); cerr == nil && candInfo.URL != "" {
+						info = candInfo
+						err = nil
+						videoID = candID
+						_ = p.store.UpdateTrackExternalID(tr.ID, candID)
+						break
+					}
+					tried++
+					if tried >= 3 {
+						break
+					}
+				}
+			}
+		}
+	}
 	if err != nil || info.URL == "" {
 		http.Error(w, "stream unavailable", http.StatusBadGateway)
 		return

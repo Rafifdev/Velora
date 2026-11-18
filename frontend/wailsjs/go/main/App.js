@@ -82,6 +82,14 @@ export function GetListeningStats() {
   return window['go']['main']['App']['GetListeningStats']();
 }
 
+export function GetMoreArtists(arg1, arg2) {
+  return window['go']['main']['App']['GetMoreArtists'](arg1, arg2);
+}
+
+export function GetMoreTopSongs(arg1, arg2) {
+  return window['go']['main']['App']['GetMoreTopSongs'](arg1, arg2);
+}
+
 export function GetPlayHistory() {
   return window['go']['main']['App']['GetPlayHistory']();
 }
@@ -108,6 +116,10 @@ export function GetTrackLyrics(arg1, arg2, arg3, arg4, arg5) {
 
 export function GetTracks(arg1, arg2) {
   return window['go']['main']['App']['GetTracks'](arg1, arg2);
+}
+
+export function GetYTMusicArtistDetail(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetYTMusicArtistDetail'](arg1, arg2, arg3);
 }
 
 export function GetYTMusicHome() {

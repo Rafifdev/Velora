@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { formatDuration, formatTotalMinutes, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
+  import { extractDominantColor, formatDuration, formatTotalMinutes, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
   import { svelteMotionEnter } from '../lib/motion';
   import type { Playlist, PlaylistDetail, Track, YTMusicTrack } from '../lib/types';
   import Icon from '../components/Icon.svelte';
@@ -7,12 +7,16 @@
   interface Props {
     mode: 'playlists' | 'local-playlists' | 'playlist-detail';
     playlists: Playlist[];
+    playlistsLoading?: boolean;
     detail: PlaylistDetail | null;
+    detailLoading?: boolean;
     allTracks: Track[];
     ytTop100Tracks?: YTMusicTrack[];
     ytTop100Loading?: boolean;
     onRefreshRecommendations?: () => void;
     currentTrackId: number | null;
+    isPlaying?: boolean;
+    onTogglePlay?: () => void;
     mediaBaseUrl: string;
     accentColor: string;
     onOpenPlaylist: (id: number) => void;
@@ -40,12 +44,16 @@
   let {
     mode,
     playlists,
+    playlistsLoading = false,
     detail,
+    detailLoading = false,
     allTracks,
     ytTop100Tracks = [],
     ytTop100Loading = false,
     onRefreshRecommendations,
     currentTrackId,
+    isPlaying = false,
+    onTogglePlay,
     mediaBaseUrl,
     accentColor,
     onOpenPlaylist,
@@ -85,6 +93,29 @@
   let spotifyUrl = $state('');
   let spotifyImporting = $state(false);
   let spotifyError = $state('');
+  let dynamicCoverColor = $state<string | null>(null);
+
+  $effect(() => {
+    if (mode !== 'playlist-detail' || !detail) {
+      dynamicCoverColor = null;
+      return;
+    }
+    const firstCover = detail.tracks[0] ? resolveCoverUrl(detail.tracks[0].coverUrl, mediaBaseUrl) : '';
+    const targetCover = firstCover || resolveCoverUrl(detail.playlist.coverUrl, mediaBaseUrl);
+    if (!targetCover) {
+      dynamicCoverColor = null;
+      return;
+    }
+    let cancelled = false;
+    void extractDominantColor(targetCover).then((color) => {
+      if (!cancelled) {
+        dynamicCoverColor = color;
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
 
   $effect(() => {
     if (!importDialogEl) return;
@@ -212,11 +243,80 @@
   }
 </script>
 
-{#if mode === 'playlist-detail' && detail}
+{#if mode === 'playlist-detail' && (detailLoading || !detail)}
+  <div
+    class="relative h-full w-full overflow-y-auto rounded-xl select-none flex flex-col animate-pulse"
+    style="background-color: var(--md-sys-color-surface-container-low);"
+  >
+    <!-- Hero Skeleton -->
+    <section
+      class="relative z-10 px-6 sm:px-7 pt-7 pb-7"
+      style="background: linear-gradient(180deg, var(--md-sys-color-surface-container-high) 0%, var(--md-sys-color-surface-container-low) 100%);"
+    >
+      <div class="flex flex-wrap items-end justify-between gap-5">
+        <div class="flex flex-wrap items-end gap-5">
+          <div class="w-28 h-28 rounded-lg bg-[var(--md-sys-color-surface-container-highest)] shrink-0"></div>
+          <div class="space-y-2.5 min-w-[200px] mb-[4px]">
+            <div class="h-3 w-16 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+            <div class="h-8 w-52 sm:w-72 rounded-md bg-[var(--md-sys-color-surface-container-highest)]"></div>
+            <div class="h-3.5 w-36 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
+          </div>
+        </div>
+        <div class="mb-[4px] flex items-center gap-2.5">
+          <div class="w-11 h-11 rounded-full bg-[var(--md-sys-color-surface-container-highest)]"></div>
+          <div class="w-11 h-11 rounded-full bg-[var(--md-sys-color-surface-container-high)]"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Table Skeleton -->
+    <div class="relative z-10 px-6 sm:px-7 pt-5 pb-10 flex-1 flex flex-col gap-3">
+      <div
+        class="-mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] gap-4 px-3 py-2 text-[11px] font-bold uppercase tracking-wider"
+        style="color: var(--md-sys-color-on-surface-variant);"
+      >
+        <div class="text-center">#</div>
+        <div>Judul</div>
+        <div class="hidden md:block">Pemutaran</div>
+        <div class="hidden md:block">Ditambahkan</div>
+        <div class="flex justify-end pr-1">
+          <Icon name="clock" size={14} />
+        </div>
+        <div></div>
+      </div>
+      <div class="space-y-1.5">
+        {#each [62, 48, 70, 54, 66, 44, 58] as titleW, idx (idx)}
+          <div class="-mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] gap-4 px-3 py-2 items-center rounded-lg">
+            <div class="flex justify-center">
+              <div class="w-4 h-3 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
+            </div>
+            <div class="flex items-center gap-3 min-w-0">
+              <div class="w-10 h-10 rounded-md bg-[var(--md-sys-color-surface-container-highest)] shrink-0"></div>
+              <div class="space-y-1.5 min-w-0 flex-1">
+                <div class="h-3.5 rounded bg-[var(--md-sys-color-surface-container-highest)]" style="width: {titleW}%;"></div>
+                <div class="h-2.5 w-28 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
+              </div>
+            </div>
+            <div class="hidden md:block">
+              <div class="h-3 w-14 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
+            </div>
+            <div class="hidden md:block">
+              <div class="h-3 w-20 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
+            </div>
+            <div class="flex justify-end pr-1">
+              <div class="h-3 w-8 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
+            </div>
+            <div></div>
+          </div>
+        {/each}
+      </div>
+    </div>
+  </div>
+{:else if mode === 'playlist-detail' && detail}
   {@const pl = detail.playlist}
   {@const firstTrackCover = detail.tracks[0] ? resolveCoverUrl(detail.tracks[0].coverUrl, mediaBaseUrl) : ''}
   {@const plCover = resolveCoverUrl(pl.coverUrl, mediaBaseUrl) || firstTrackCover}
-  {@const heroTint = pl.coverColor || 'var(--md-sys-color-primary)'}
+  {@const heroTint = dynamicCoverColor || pl.coverColor || 'var(--md-sys-color-primary)'}
   <div
     class="relative h-full w-full overflow-y-auto rounded-xl select-none flex flex-col"
     style="background-color: var(--md-sys-color-surface-container-low);"
@@ -349,16 +449,53 @@
                   : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
                 style="color: var(--md-sys-color-on-surface);"
               >
-                <span
-                  class="text-center text-xs font-medium tabular-nums {active ? 'opacity-100 font-bold' : 'opacity-70'}"
-                  style={active ? `color: color-mix(in srgb, ${heroTint} 78%, #ffffff);` : ''}
-                >
-                  {idx + 1}
-                </span>
+                <!-- Nomor / Play Indicator (sama seperti tabel Album) -->
+                <div class="flex items-center justify-center">
+                  {#if active && isPlaying}
+                    <span class="velora-playing-eq group-hover:hidden" style="color: {heroTint};" aria-hidden="true">
+                      <span></span>
+                      <span></span>
+                      <span></span>
+                      <span></span>
+                    </span>
+                    <button
+                      type="button"
+                      onclick={() => (onTogglePlay ? onTogglePlay() : onPlayTrack(tr, detail.tracks))}
+                      aria-label="Jeda {tr.title}"
+                      class="hidden group-hover:flex items-center justify-center cursor-pointer"
+                      style="color: {heroTint};"
+                    >
+                      <Icon name="pause" weight="fill" size={14} />
+                    </button>
+                  {:else if active && !isPlaying}
+                    <button
+                      type="button"
+                      onclick={() => (onTogglePlay ? onTogglePlay() : onPlayTrack(tr, detail.tracks))}
+                      aria-label="Putar {tr.title}"
+                      class="flex items-center justify-center cursor-pointer"
+                      style="color: {heroTint};"
+                    >
+                      <Icon name="play" weight="fill" size={14} />
+                    </button>
+                  {:else}
+                    <span class="text-xs font-medium tabular-nums group-hover:hidden opacity-65">
+                      {idx + 1}
+                    </span>
+                    <button
+                      type="button"
+                      onclick={() => onPlayTrack(tr, detail.tracks)}
+                      aria-label="Putar {tr.title}"
+                      class="hidden group-hover:flex items-center justify-center cursor-pointer"
+                      style="color: {heroTint};"
+                    >
+                      <Icon name="play" weight="fill" size={14} />
+                    </button>
+                  {/if}
+                </div>
 
                 <button
                   type="button"
-                  onclick={() => onPlayTrack(tr, detail.tracks)}
+                  onclick={() => (active && onTogglePlay ? onTogglePlay() : onPlayTrack(tr, detail.tracks))}
                   class="flex items-center gap-3 min-w-0 text-left cursor-pointer"
                 >
                   {#if cover}
@@ -374,7 +511,7 @@
                   <div class="min-w-0 pr-4">
                     <div
                       class="text-xs font-bold line-clamp-2 whitespace-normal leading-snug"
-                      style={active ? `color: color-mix(in srgb, ${heroTint} 78%, #ffffff);` : ''}
+                      style={active ? `color: color-mix(in srgb, ${heroTint} 82%, #ffffff);` : ''}
                     >{tr.title}</div>
                     <div class="text-[11px] truncate opacity-75 mt-0.5">
                       {tr.artistName}
@@ -810,7 +947,17 @@
         {/each}
       </div>
 
-      {#if visiblePlaylists.length === 0}
+      {#if playlistsLoading && playlists.length === 0}
+        <div class="velora-card-grid animate-pulse">
+          {#each Array.from({ length: 12 }) as _, idx (idx)}
+            <div class="w-[172px] flex flex-col gap-2.5 p-2.5">
+              <div class="velora-card-artwork bg-[var(--md-sys-color-surface-container-highest)]"></div>
+              <div class="h-3.5 w-3/4 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+              <div class="h-2.5 w-1/2 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
+            </div>
+          {/each}
+        </div>
+      {:else if visiblePlaylists.length === 0}
         <div class="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
           <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
             <Icon name="playlist" weight="fill" size={38} />
@@ -837,13 +984,15 @@
           <div class="group w-[172px] flex flex-col justify-start items-stretch self-start p-2.5 rounded-lg transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]">
             <div
               class="velora-card-artwork mb-2.5 flex items-center justify-center"
-              style="background: linear-gradient(135deg, {pl.coverColor || 'var(--md-sys-color-primary-container)'}, var(--md-sys-color-surface-container-highest));"
+              style={cover
+                ? 'background-color: var(--md-sys-color-surface-container-high);'
+                : `background: linear-gradient(135deg, color-mix(in srgb, ${pl.coverColor || 'var(--md-sys-color-primary)'} 38%, var(--md-sys-color-surface-container-high)), var(--md-sys-color-surface-container-highest));`}
             >
               <button
                 type="button"
                 onclick={() => onOpenPlaylist(pl.id)}
                 aria-label="Buka {pl.name}"
-                class="velora-card-artwork-hit cursor-pointer"
+                class="velora-card-artwork-hit flex items-center justify-center cursor-pointer"
               >
                 {#if cover}
                   <img
@@ -854,7 +1003,7 @@
                     class:velora-yt-video-thumb={isYTVideoThumb(cover)}
                   />
                 {:else}
-                  <Icon name="vinyl-record" weight="fill" size={44} style="color: var(--md-sys-color-on-primary-container); opacity: 0.55;" />
+                  <Icon name="playlist" weight="fill" size={44} class="text-white/95 drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]" />
                 {/if}
               </button>
               <button
@@ -962,10 +1111,10 @@
           importModalOpen = false;
           onImportM3U();
         }}
-        class="m3-btn-outlined w-full h-10 px-5 text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+        class="m3-btn-tonal w-full h-10 px-5 text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
       >
         <Icon name="folder-open" size={16} />
-        <span>Pilih File .M3U / .M3U8</span>
+        <span>Pilih File</span>
       </button>
     </div>
   </div>

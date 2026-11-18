@@ -22,6 +22,7 @@
     TrackLyrics,
     ViewRoute,
     YTMusicAlbumView,
+    YTMusicArtistView,
     YTMusicCard,
     YTMusicShelf,
     YTMusicTrack
@@ -68,10 +69,17 @@
   let ytAlbumDetail = $state<YTMusicAlbumView | null>(null);
   let ytAlbumLoading = $state(false);
   let ytAlbumReqSeq = 0;
+  let ytArtistDetail = $state<YTMusicArtistView | null>(null);
+  let ytArtistLoading = $state(false);
+  let ytArtistReqSeq = 0;
+  let homeFilter = $state<HomeFilter>('semua');
+  let ytLoadingMorePopularArtists = $state(false);
   let showSplash = $state(true);
   let albums = $state<Album[]>([]);
   let artists = $state<Artist[]>([]);
   let playlists = $state<Playlist[]>([]);
+  let playlistsLoading = $state(true);
+  let playlistDetailLoading = $state(false);
   let sources = $state<Source[]>([]);
   let history = $state<PlayHistoryItem[]>([]);
   const initialThemeDark =
@@ -446,12 +454,89 @@
     api.updateTaskbarState(tr?.title ?? '', tr?.artistName ?? '', cover, playing);
   });
 
+  function shuffleAndSpreadByArtist<T>(
+    items: T[],
+    getArtist: (item: T) => string,
+    tailArtists: string[] = []
+  ): T[] {
+    if (items.length <= 1) return items;
+    const shuffled = [...items];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    const byArtist = new Map<string, T[]>();
+    const artistOrder: string[] = [];
+    for (const item of shuffled) {
+      const ar = (getArtist(item) || '').trim().toLowerCase() || `__anon_${artistOrder.length}`;
+      let list = byArtist.get(ar);
+      if (!list) {
+        list = [];
+        byArtist.set(ar, list);
+        artistOrder.push(ar);
+      }
+      list.push(item);
+    }
+
+    const out: T[] = [];
+    const recent = tailArtists
+      .map((a) => (a || '').trim().toLowerCase())
+      .filter(Boolean)
+      .slice(-3);
+
+    while (out.length < shuffled.length) {
+      let bestArtist = '';
+      let bestCount = -1;
+
+      for (const ar of artistOrder) {
+        const rem = byArtist.get(ar)?.length || 0;
+        if (rem === 0) continue;
+        if (!recent.includes(ar) && rem > bestCount) {
+          bestCount = rem;
+          bestArtist = ar;
+        }
+      }
+      if (!bestArtist) {
+        const last = recent[recent.length - 1] || '';
+        for (const ar of artistOrder) {
+          const rem = byArtist.get(ar)?.length || 0;
+          if (rem > 0 && ar !== last && rem > bestCount) {
+            bestCount = rem;
+            bestArtist = ar;
+          }
+        }
+      }
+      if (!bestArtist) {
+        for (const ar of artistOrder) {
+          if ((byArtist.get(ar)?.length || 0) > 0) {
+            bestArtist = ar;
+            break;
+          }
+        }
+      }
+      if (!bestArtist) break;
+
+      const list = byArtist.get(bestArtist)!;
+      out.push(list.shift()!);
+      recent.push(bestArtist);
+      if (recent.length > 3) recent.shift();
+    }
+    return out;
+  }
+
   async function loadYTMusicHome() {
     ytHomeLoading = true;
     try {
       const feed = await api.getYTMusicHome();
-      ytShelves = feed?.shelves || [];
-      ytResults = feed?.tracks || [];
+      ytShelves = (feed?.shelves || []).map((shelf) =>
+        shelf.title === 'Lagu Lainnya untuk Anda'
+          ? {
+              ...shelf,
+              items: shuffleAndSpreadByArtist(shelf.items || [], (c) => c.artist || c.subtitle || '')
+            }
+          : shelf
+      );
+      ytResults = shuffleAndSpreadByArtist(feed?.tracks || [], (t) => t.artist || '');
     } catch {
       ytShelves = [];
     } finally {
@@ -508,6 +593,7 @@
     albums = boot.albums;
     artists = boot.artists;
     playlists = boot.playlists;
+    playlistsLoading = false;
     sources = boot.sources;
     history = boot.history;
     preferences = boot.preferences;
@@ -760,11 +846,39 @@
   async function loadRouteData(route: ViewRoute) {
     if (mainScrollEl) mainScrollEl.scrollTop = 0;
     if (route.name === 'playlist-detail') {
-      selectedPlaylistDetail = await api.getPlaylistDetail(route.playlistId);
+      playlistDetailLoading = true;
+      selectedPlaylistDetail = null;
+      try {
+        selectedPlaylistDetail = await api.getPlaylistDetail(route.playlistId);
+      } finally {
+        playlistDetailLoading = false;
+      }
     } else if (route.name === 'album-detail') {
       detailTracks = await api.getAlbumTracks(route.albumId);
     } else if (route.name === 'artist-detail') {
-      detailTracks = await api.getArtistTracks(route.artistId);
+      const matched = artists.find(
+        (a) =>
+          (route.artistId !== undefined && a.id === route.artistId) ||
+          (route.artistName && a.name.toLowerCase() === route.artistName.toLowerCase())
+      );
+      detailTracks = matched ? await api.getArtistTracks(matched.id) : [];
+      const seq = ++ytArtistReqSeq;
+      ytArtistDetail = null;
+      ytArtistLoading = true;
+      try {
+        const res = await api.getYTMusicArtistDetail(
+          route.browseId ?? matched?.externalId ?? '',
+          route.artistName ?? matched?.name ?? '',
+          route.avatarUrl ?? matched?.avatarUrl ?? ''
+        );
+        if (seq === ytArtistReqSeq) {
+          ytArtistDetail = res;
+        }
+      } catch {
+        if (seq === ytArtistReqSeq) ytArtistDetail = null;
+      } finally {
+        if (seq === ytArtistReqSeq) ytArtistLoading = false;
+      }
     } else if (route.name === 'history') {
       history = await api.getPlayHistory();
     } else if (route.name === 'listening-stats') {
@@ -849,11 +963,15 @@
   async function handleSearchYTMusic(q: string) {
     const seq = ++ytSearchSeq;
     ytLoading = true;
+    if (!q.trim()) {
+      ytResults = [];
+    }
     try {
       const primary = await api.searchYouTubeMusic(q);
       if (seq !== ytSearchSeq) return;
-      if (primary && primary.length >= 20) {
-        ytResults = primary;
+      if (!q.trim() || (primary && primary.length >= 20)) {
+        const list = primary || [];
+        ytResults = !q.trim() ? shuffleAndSpreadByArtist(list, (t) => t.artist || '') : list;
         return;
       }
       const seen = new Set((primary || []).map((t) => t.videoId));
@@ -989,83 +1107,145 @@
     ]
   };
 
+  async function handleLoadMorePopularArtists() {
+    if (ytLoadingMorePopularArtists) return;
+    ytLoadingMorePopularArtists = true;
+    try {
+      const idx = ytShelves.findIndex((s) => s.title === 'Artis Populer');
+      if (idx < 0) return;
+      const existingList = ytShelves[idx].items;
+      const existingKeys = new Set(existingList.map((c) => c.browseId || c.title.toLowerCase()));
+      const moreArtists = await api.getMoreArtists(existingList.length, Array.from(existingKeys));
+      const added = (moreArtists || []).filter((c) => {
+        const k = c.browseId || c.title.toLowerCase();
+        if (!k || existingKeys.has(k)) return false;
+        existingKeys.add(k);
+        return true;
+      });
+      if (added.length > 0) {
+        const updated = [...ytShelves];
+        updated[idx] = {
+          ...updated[idx],
+          items: [...updated[idx].items, ...added]
+        };
+        ytShelves = updated;
+      }
+    } finally {
+      ytLoadingMorePopularArtists = false;
+    }
+  }
+
   async function handleLoadMoreYTMusic(activeCategory: HomeFilter) {
     if (ytLoadingMore) return;
     ytLoadingMore = true;
     try {
       if (activeCategory === 'album') {
-        const page = ytMorePage++;
-        const q = CATEGORY_MORE_QUERIES.album[page % CATEGORY_MORE_QUERIES.album.length];
-        const moreAlbums = await api.searchYouTubeMusicAlbums(q);
-        if (!moreAlbums || moreAlbums.length === 0) return;
         const existingKeys = new Set(ytAlbumResults.map((c) => c.browseId || c.id));
-        const unique = moreAlbums.filter((c) => {
-          const k = c.browseId || c.id;
-          return k && !existingKeys.has(k);
-        });
-        if (unique.length > 0) {
-          ytAlbumResults = [...ytAlbumResults, ...unique];
+        const existingCovers = new Set(ytAlbumResults.map((c) => (c.coverUrl || '').trim()).filter(Boolean));
+        const added: YTMusicCard[] = [];
+        for (let attempt = 0; attempt < 3 && added.length < 14; attempt++) {
+          const page = ytMorePage++;
+          const q = CATEGORY_MORE_QUERIES.album[page % CATEGORY_MORE_QUERIES.album.length];
+          const moreAlbums = await api.searchYouTubeMusicAlbums(q).catch(() => []);
+          for (const c of moreAlbums || []) {
+            const k = c.browseId || c.id;
+            const cov = (c.coverUrl || '').trim();
+            if (!k || existingKeys.has(k)) continue;
+            if (cov && existingCovers.has(cov)) continue;
+            existingKeys.add(k);
+            if (cov) existingCovers.add(cov);
+            added.push(c);
+          }
+        }
+        if (added.length > 0) {
+          ytAlbumResults = [...ytAlbumResults, ...added];
         }
         return;
       }
 
       if (activeCategory === 'artis') {
-        const page = ytMorePage++;
-        const q = CATEGORY_MORE_QUERIES.artis[page % CATEGORY_MORE_QUERIES.artis.length];
-        const moreArtists = await api.searchYouTubeMusicArtists(q);
-        if (!moreArtists || moreArtists.length === 0) return;
-        const existingKeys = new Set(ytArtistResults.map((c) => c.browseId || c.id));
-        const unique = moreArtists.filter((c) => {
-          const k = c.browseId || c.id;
-          return k && !existingKeys.has(k);
+        const existingKeys = new Set(ytArtistResults.map((c) => c.browseId || c.title.toLowerCase()));
+        const moreArtists = await api.getMoreArtists(ytArtistResults.length, Array.from(existingKeys));
+        const added = (moreArtists || []).filter((c) => {
+          const k = c.browseId || c.title.toLowerCase();
+          if (!k || existingKeys.has(k)) return false;
+          existingKeys.add(k);
+          return true;
         });
-        if (unique.length > 0) {
-          ytArtistResults = [...ytArtistResults, ...unique];
+        if (added.length > 0) {
+          ytArtistResults = [...ytArtistResults, ...added];
         }
         return;
       }
 
       if (activeCategory === 'playlist') {
-        const page = ytMorePage++;
-        const q = CATEGORY_MORE_QUERIES.playlist[page % CATEGORY_MORE_QUERIES.playlist.length];
-        const morePlaylists = await api.searchYouTubeMusicPlaylists(q);
-        if (!morePlaylists || morePlaylists.length === 0) return;
         const existingKeys = new Set(ytPlaylistResults.map((c) => c.browseId || c.playlistId || c.id));
-        const unique = morePlaylists.filter((c) => {
-          const k = c.browseId || c.playlistId || c.id;
-          return k && !existingKeys.has(k);
-        });
-        if (unique.length > 0) {
-          ytPlaylistResults = [...ytPlaylistResults, ...unique];
+        const added: YTMusicCard[] = [];
+        for (let attempt = 0; attempt < 3 && added.length < 14; attempt++) {
+          const page = ytMorePage++;
+          const q = CATEGORY_MORE_QUERIES.playlist[page % CATEGORY_MORE_QUERIES.playlist.length];
+          const morePlaylists = await api.searchYouTubeMusicPlaylists(q).catch(() => []);
+          for (const c of morePlaylists || []) {
+            const k = c.browseId || c.playlistId || c.id;
+            if (k && !existingKeys.has(k)) {
+              existingKeys.add(k);
+              added.push(c);
+            }
+          }
+        }
+        if (added.length > 0) {
+          ytPlaylistResults = [...ytPlaylistResults, ...added];
         }
         return;
       }
 
       if (activeCategory === 'semua') {
         const targetBatch = 35; // 5 rows x 7 items
+        const targetTitle = 'Lagu Lainnya untuk Anda';
+        const existingShelf = ytShelves.find((s) => s.title === targetTitle);
+        const tailArtists = (existingShelf?.items || []).slice(-3).map((c) => c.artist || c.subtitle || '');
+
         const existingVideoIds = new Set<string>(ytMoreAllBuffer.map((c) => c.videoId));
+        const existingCovers = new Set<string>(ytMoreAllBuffer.map((c) => (c.coverUrl || '').trim()).filter(Boolean));
+        const existingAlbums = new Set<string>(
+          ytMoreAllBuffer.map((c) => (c.album || '').trim().toLowerCase()).filter((a) => a && a !== 'single')
+        );
         for (const shelf of ytShelves) {
           for (const item of shelf.items) {
             if (item.videoId) existingVideoIds.add(item.videoId);
+            const cov = (item.coverUrl || '').trim();
+            if (cov) existingCovers.add(cov);
+            const alb = (item.album || '').trim().toLowerCase();
+            if (alb && alb !== 'single') existingAlbums.add(alb);
           }
         }
 
         const pool = [...ytMoreAllBuffer];
-        let attempts = 0;
-        while (pool.length < targetBatch && attempts < 4) {
-          attempts++;
-          const page = ytMorePage++;
-          const q = MORESONGS_QUERIES[page % MORESONGS_QUERIES.length];
-          const moreTracks = await api.searchYouTubeMusic(q);
-          if (!moreTracks || moreTracks.length === 0) continue;
+        const batchArtistCount = new Map<string, number>();
+        for (const item of pool) {
+          const ar = (item.artist || item.subtitle || '').trim().toLowerCase();
+          if (ar) batchArtistCount.set(ar, (batchArtistCount.get(ar) || 0) + 1);
+        }
 
-          for (const t of moreTracks) {
+        const pushUniqueTopSongs = (tracksList: YTMusicTrack[] | null | undefined, sourceLabel: string) => {
+          for (const t of tracksList || []) {
             if (!t.videoId || existingVideoIds.has(t.videoId)) continue;
+            const cov = (t.coverUrl || '').trim();
+            const alb = (t.album || '').trim().toLowerCase();
+            const ar = (t.artist || '').trim().toLowerCase();
+            if (cov && existingCovers.has(cov)) continue;
+            if (alb && alb !== 'single' && existingAlbums.has(alb)) continue;
+            if (ar && (batchArtistCount.get(ar) || 0) >= 2) continue;
+
             existingVideoIds.add(t.videoId);
+            if (cov) existingCovers.add(cov);
+            if (alb && alb !== 'single') existingAlbums.add(alb);
+            if (ar) batchArtistCount.set(ar, (batchArtistCount.get(ar) || 0) + 1);
+
             pool.push({
               id: `song:${t.videoId}`,
               title: t.title,
-              subtitle: t.artist || 'YouTube Music',
+              subtitle: t.artist || sourceLabel,
               coverUrl: t.coverUrl,
               kind: 'song' as const,
               videoId: t.videoId,
@@ -1076,21 +1256,37 @@
               durationSec: t.durationSec
             });
           }
+        };
+
+        const [recTracks, topSongs] = await Promise.all([
+          api.getYTMusicTop100Recommended(Array.from(existingVideoIds)).catch(() => []),
+          api.getMoreTopSongs((ytMorePage++) * 20, Array.from(existingVideoIds)).catch(() => [])
+        ]);
+        pushUniqueTopSongs(recTracks, 'Velora Music');
+        pushUniqueTopSongs(topSongs, 'Top Songs');
+
+        let attempts = 0;
+        while (pool.length < targetBatch && attempts < 3) {
+          attempts++;
+          const page = ytMorePage++;
+          const q = MORESONGS_QUERIES[page % MORESONGS_QUERIES.length];
+          const moreTracks = await api.searchYouTubeMusic(q).catch(() => []);
+          pushUniqueTopSongs(moreTracks, 'Top Songs');
         }
 
         if (pool.length === 0) return;
 
+        const spreadPool = shuffleAndSpreadByArtist(pool, (c) => c.artist || c.subtitle || '', tailArtists);
         const takeCount =
-          pool.length >= targetBatch
+          spreadPool.length >= targetBatch
             ? targetBatch
-            : pool.length >= 7
-              ? Math.floor(pool.length / 7) * 7
-              : pool.length;
-        const toAppend = pool.slice(0, takeCount);
-        ytMoreAllBuffer = pool.slice(takeCount);
+            : spreadPool.length >= 7
+              ? Math.floor(spreadPool.length / 7) * 7
+              : spreadPool.length;
+        const toAppend = spreadPool.slice(0, takeCount);
+        ytMoreAllBuffer = spreadPool.slice(takeCount);
 
         if (toAppend.length > 0) {
-          const targetTitle = 'Lagu Lainnya untuk Anda';
           const existingIdx = ytShelves.findIndex((s) => s.title === targetTitle);
           if (existingIdx >= 0) {
             const updated = [...ytShelves];
@@ -1104,14 +1300,54 @@
           }
         }
       } else {
-        const page = ytMorePage++;
-        const q = CATEGORY_MORE_QUERIES[activeCategory][page % CATEGORY_MORE_QUERIES[activeCategory].length];
-        const moreTracks = await api.searchYouTubeMusic(q);
-        if (!moreTracks || moreTracks.length === 0) return;
         const existingIds = new Set(ytResults.map((t) => t.videoId));
-        const unique = moreTracks.filter((t) => t.videoId && !existingIds.has(t.videoId));
-        if (unique.length > 0) {
-          ytResults = [...ytResults, ...unique];
+        const existingCovers = new Set(ytResults.map((t) => (t.coverUrl || '').trim()).filter(Boolean));
+        const existingAlbums = new Set(
+          ytResults.map((t) => (t.album || '').trim().toLowerCase()).filter((a) => a && a !== 'single')
+        );
+        const tailArtists = ytResults.slice(-3).map((t) => t.artist || '');
+        const batchArtistCount = new Map<string, number>();
+        const added: YTMusicTrack[] = [];
+        const targetMore = 21;
+
+        const collectTracks = (list: YTMusicTrack[] | null | undefined) => {
+          for (const t of list || []) {
+            if (!t.videoId || existingIds.has(t.videoId)) continue;
+            const cov = (t.coverUrl || '').trim();
+            const alb = (t.album || '').trim().toLowerCase();
+            const ar = (t.artist || '').trim().toLowerCase();
+            if (cov && existingCovers.has(cov)) continue;
+            if (alb && alb !== 'single' && existingAlbums.has(alb)) continue;
+            if (ar && (batchArtistCount.get(ar) || 0) >= 2) continue;
+
+            existingIds.add(t.videoId);
+            if (cov) existingCovers.add(cov);
+            if (alb && alb !== 'single') existingAlbums.add(alb);
+            if (ar) batchArtistCount.set(ar, (batchArtistCount.get(ar) || 0) + 1);
+            added.push(t);
+          }
+        };
+
+        if (activeCategory === 'musik') {
+          const [rec, topSongs] = await Promise.all([
+            api.getYTMusicTop100Recommended(Array.from(existingIds)).catch(() => []),
+            api.getMoreTopSongs(ytResults.length + (ytMorePage++) * 20, Array.from(existingIds)).catch(() => [])
+          ]);
+          collectTracks(rec);
+          collectTracks(topSongs);
+        }
+
+        const queries = CATEGORY_MORE_QUERIES[activeCategory] || CATEGORY_MORE_QUERIES.musik;
+        for (let attempt = 0; attempt < 3 && added.length < targetMore; attempt++) {
+          const page = ytMorePage++;
+          const q = queries[page % queries.length];
+          const moreTracks = await api.searchYouTubeMusic(q).catch(() => []);
+          collectTracks(moreTracks);
+        }
+
+        if (added.length > 0) {
+          const spreadAdded = shuffleAndSpreadByArtist(added, (t) => t.artist || '', tailArtists);
+          ytResults = [...ytResults, ...spreadAdded];
         }
       }
     } finally {
@@ -1124,7 +1360,7 @@
     if (tr.sourceType === 'local' && tr.id > 0) {
       return `${mediaBaseUrl}/media/local?id=${tr.id}`;
     }
-    if (tr.externalId) {
+    if (tr.externalId && !tr.externalId.startsWith('dz:') && !tr.externalId.startsWith('sp:')) {
       return `${mediaBaseUrl}/media/yt?v=${encodeURIComponent(tr.externalId)}`;
     }
     return '';
@@ -1493,7 +1729,6 @@
       audioEl.src = streamUrl;
       audioEl.load();
       audioEngine.setVolume(volume, muted);
-      switchingTrack = false;
       try {
         await audioEngine.resume();
         audioEngine.fadeIn(0.03);
@@ -1504,6 +1739,10 @@
       } catch (err: any) {
         if (err?.name !== 'AbortError' && seq === playRequestSeq) {
           isPlaying = false;
+        }
+      } finally {
+        if (seq === playRequestSeq) {
+          switchingTrack = false;
         }
       }
     }
@@ -2006,11 +2245,20 @@
           {ytPlaylistResults}
           {ytAlbumResults}
           {ytArtistResults}
-          initialFilter={currentRoute.name === 'home' ? currentRoute.filter : undefined}
+          initialFilter={currentRoute.filter ?? homeFilter}
+          onFilterChange={(f) => (homeFilter = f)}
           {ytLoading}
           {ytHomeLoading}
           {ytLoadingMore}
+          {ytLoadingMorePopularArtists}
           {loadingCollectionId}
+          currentExternalId={currentTrack?.externalId ?? null}
+          currentTrackTitle={currentTrack?.title ?? null}
+          currentTrackArtist={currentTrack?.artistName ?? null}
+          currentAlbumTitle={currentTrack?.albumTitle ?? null}
+          {queueSourceTitle}
+          {isPlaying}
+          onTogglePlay={togglePlay}
           {mediaBaseUrl}
           onPlayYTMusic={playYTMusicSingle}
           onPlayYTCollection={handlePlayYTCollection}
@@ -2026,6 +2274,7 @@
           onSearchYTMusicArtists={handleSearchYTMusicArtists}
           onRefreshYTMusicHome={loadYTMusicHome}
           onLoadMoreYTMusic={handleLoadMoreYTMusic}
+          onLoadMorePopularArtists={handleLoadMorePopularArtists}
           onNavigate={navigate}
         />
       {:else if currentRoute.name === 'search' || currentRoute.name === 'liked-songs' || currentRoute.name === 'downloaded' || currentRoute.name === 'favorite-albums' || currentRoute.name === 'favorite-artists' || currentRoute.name === 'artist-detail'}
@@ -2036,8 +2285,17 @@
           {albums}
           {artists}
           selectedArtist={currentRoute.name === 'artist-detail'
-            ? artists.find((a) => a.id === currentRoute.artistId) ?? null
+            ? artists.find(
+                (a) =>
+                  (currentRoute.artistId !== undefined && a.id === currentRoute.artistId) ||
+                  (currentRoute.artistName && a.name.toLowerCase() === currentRoute.artistName.toLowerCase())
+              ) ?? null
             : null}
+          artistFallbackName={currentRoute.name === 'artist-detail' ? currentRoute.artistName ?? '' : ''}
+          artistFallbackAvatar={currentRoute.name === 'artist-detail' ? currentRoute.avatarUrl ?? '' : ''}
+          artistFallbackBrowseId={currentRoute.name === 'artist-detail' ? currentRoute.browseId ?? '' : ''}
+          {ytArtistDetail}
+          {ytArtistLoading}
           {detailTracks}
           {ytResults}
           {ytLoading}
@@ -2063,6 +2321,7 @@
           onToggleFavoriteTrack={handleToggleFavoriteTrack}
           onToggleFavoriteAlbum={handleToggleFavoriteAlbum}
           onToggleFavoriteArtist={handleToggleFavoriteArtist}
+          onToggleFavoriteYTMusicArtist={handleToggleFavoriteYTMusicArtist}
           onAddToPlaylist={async (pid, tid) => {
             await api.addTrackToPlaylist(pid, tid);
             playlists = await api.getPlaylists(false);
@@ -2089,7 +2348,9 @@
         <PlaylistViews
           mode={currentRoute.name}
           {playlists}
+          {playlistsLoading}
           detail={selectedPlaylistDetail}
+          detailLoading={playlistDetailLoading}
           allTracks={tracks}
           {ytTop100Tracks}
           {ytTop100Loading}
@@ -2098,6 +2359,8 @@
             void loadPlaylistRecommendations(exclude);
           }}
           currentTrackId={currentTrack?.id ?? null}
+          {isPlaying}
+          onTogglePlay={togglePlay}
           {mediaBaseUrl}
           {accentColor}
           onOpenPlaylist={(playlistId) => navigate({ name: 'playlist-detail', playlistId })}

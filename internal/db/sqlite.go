@@ -299,6 +299,23 @@ func (s *Store) GetTrackByID(id int64) (Track, error) {
 	return scanTrack(row)
 }
 
+func (s *Store) GetTrackByExternalID(externalID string) (Track, error) {
+	ext := strings.TrimSpace(externalID)
+	if ext == "" {
+		return Track{}, fmt.Errorf("empty external id")
+	}
+	row := s.db.QueryRow(`SELECT id, title, artist_id, artist_name, album_id, album_title, duration_sec, format, bitrate, source_type, file_path, external_id, cover_url, is_favorite, play_count, is_downloaded, downloaded_at, created_at FROM tracks WHERE external_id = ? LIMIT 1`, ext)
+	return scanTrack(row)
+}
+
+func (s *Store) UpdateTrackExternalID(trackID int64, externalID string) error {
+	if trackID <= 0 || strings.TrimSpace(externalID) == "" {
+		return nil
+	}
+	_, err := s.db.Exec(`UPDATE tracks SET external_id = ? WHERE id = ?`, strings.TrimSpace(externalID), trackID)
+	return err
+}
+
 func (s *Store) GetTracks(filter, query string) ([]Track, error) {
 	base := `SELECT id, title, artist_id, artist_name, album_id, album_title, duration_sec, format, bitrate, source_type, file_path, external_id, cover_url, is_favorite, play_count, is_downloaded, downloaded_at, created_at FROM tracks`
 	var where []string
@@ -594,7 +611,16 @@ func (s *Store) ToggleFavoriteArtist(id int64) (bool, error) {
 
 func (s *Store) GetPlaylists(localOnly bool) ([]Playlist, error) {
 	query := `
-		SELECT p.id, p.name, p.description, p.cover_url, p.cover_color, p.is_local, p.source_type, p.external_id, p.created_at, p.updated_at,
+		SELECT p.id, p.name, p.description,
+		       COALESCE(NULLIF(p.cover_url, ''), (
+		         SELECT t2.cover_url
+		         FROM playlist_tracks pt2
+		         JOIN tracks t2 ON t2.id = pt2.track_id
+		         WHERE pt2.playlist_id = p.id AND COALESCE(t2.cover_url, '') != ''
+		         ORDER BY pt2.position ASC, pt2.id ASC
+		         LIMIT 1
+		       ), '') AS cover_url,
+		       p.cover_color, p.is_local, p.source_type, p.external_id, p.created_at, p.updated_at,
 		       COUNT(pt.id) AS track_count,
 		       COALESCE(SUM(t.duration_sec), 0) AS total_sec
 		FROM playlists p

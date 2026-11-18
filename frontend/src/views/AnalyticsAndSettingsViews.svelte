@@ -304,7 +304,7 @@
     <!-- Hero Banner -->
     <section
       class="relative z-10 px-6 sm:px-7 pt-7 pb-7"
-      style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-secondary) 26%, var(--md-sys-color-secondary-container)) 0%, color-mix(in srgb, var(--md-sys-color-secondary-container) 74%, var(--md-sys-color-surface-container-low)) 100%);"
+      style="background: linear-gradient(180deg, var(--md-sys-color-surface-container-highest) 0%, color-mix(in srgb, var(--md-sys-color-surface-container-high) 74%, var(--md-sys-color-surface-container-low)) 100%);"
     >
       <div class="flex flex-wrap items-end justify-between gap-5">
         <div class="flex flex-wrap items-end gap-5">
@@ -325,43 +325,12 @@
           </div>
         </div>
 
-        <!-- Segmented Tabs -->
-        <div class="mb-[4px] inline-flex items-center gap-1 p-1 rounded-full bg-[var(--md-sys-color-surface-container-high)]">
-          <button
-            type="button"
-            onclick={() => (historyTab = 'recent')}
-            class="px-4 py-1.5 rounded-full text-xs font-semibold transition-colors cursor-pointer {historyTab === 'recent'
-              ? 'bg-[var(--md-sys-color-on-surface)] text-[var(--md-sys-color-surface)]'
-              : 'text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'}"
-          >
-            Recent Streams
-          </button>
-          <button
-            type="button"
-            onclick={() => (historyTab = 'stats')}
-            class="px-4 py-1.5 rounded-full text-xs font-semibold transition-colors cursor-pointer {historyTab === 'stats'
-              ? 'bg-[var(--md-sys-color-on-surface)] text-[var(--md-sys-color-surface)]'
-              : 'text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'}"
-          >
-            Statistics & Insights
-          </button>
-        </div>
-      </div>
-    </section>
-
-    <div
-      class="relative z-10 px-6 sm:px-8 pt-5 pb-10 flex-1 flex flex-col gap-5"
-      style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-secondary-container) 48%, var(--md-sys-color-surface-container-low)) 0%, color-mix(in srgb, var(--md-sys-color-secondary-container) 28%, var(--md-sys-color-surface-container-low)) 120px, color-mix(in srgb, var(--md-sys-color-secondary-container) 11%, var(--md-sys-color-surface-container-low)) 240px, var(--md-sys-color-surface-container-low) 340px);"
-    >
-
-    {#if historyTab === 'recent'}
-      <!-- Action & Filter Toolbar -->
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="flex items-center gap-2.5">
+        <!-- Action Buttons -->
+        <div class="mb-[4px] flex items-center gap-2.5">
           <button
             type="button"
             onclick={playAllHistory}
-            disabled={filteredHistory.length === 0}
+            disabled={history.length === 0}
             class="h-9 px-4 rounded-full text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-transform active:scale-95 disabled:opacity-40"
             style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
           >
@@ -374,49 +343,41 @@
               class="h-9 px-3.5 rounded-full text-xs font-medium text-rose-300 flex items-center gap-1.5 cursor-pointer transition-colors hover:bg-rose-500/20"
               style="background-color: rgba(244, 63, 94, 0.14);"
             >
-              <Icon name="trash" size={14} /> Clear History
+              <Icon name="trash" size={14} /> Clear
             </button>
           {/if}
         </div>
-
-        <div class="relative w-full sm:w-64">
-          <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--md-sys-color-on-surface-variant)] opacity-75">
-            <Icon name="magnifying-glass" size={14} />
-          </span>
-          <input
-            type="text"
-            bind:value={historyFilter}
-            placeholder="Filter history by title, artist..."
-            class="w-full h-9 pl-9 pr-3 rounded-lg text-xs text-[var(--md-sys-color-on-surface)] placeholder:text-[var(--md-sys-color-on-surface-variant)] placeholder:opacity-65 bg-[var(--md-sys-color-surface-container-high)] focus:bg-[var(--md-sys-color-surface-container-highest)] outline-none transition-colors"
-          />
-        </div>
       </div>
+    </section>
 
-      {#if history.length === 0 || filteredHistory.length === 0}
+    <div
+      class="relative z-10 px-6 sm:px-8 pt-5 pb-10 flex-1 flex flex-col gap-5"
+      style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-surface-container-high) 48%, var(--md-sys-color-surface-container-low)) 0%, color-mix(in srgb, var(--md-sys-color-surface-container-high) 24%, var(--md-sys-color-surface-container-low)) 140px, var(--md-sys-color-surface-container-low) 320px);"
+    >
+
+      {#if history.length === 0}
         <div class="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
           <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
-            <Icon name={history.length === 0 ? 'music-note' : 'magnifying-glass'} weight="bold" size={38} />
+            <Icon name="music-note" weight="bold" size={38} />
           </div>
           <h2 class="text-2xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-            {history.length === 0 ? 'Belum ada riwayat putar' : 'Riwayat tidak ditemukan'}
+            Belum ada riwayat putar
           </h2>
           <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-            {history.length === 0
-              ? 'Lagu yang kamu putar akan muncul di sini.'
-              : `Tidak ada riwayat yang cocok dengan "${historyFilter.trim()}".`}
+            Lagu yang kamu putar akan muncul di sini.
           </p>
           <button
             type="button"
-            onclick={() => (history.length === 0 ? onNavigate?.({ name: 'home' }) : (historyFilter = ''))}
+            onclick={() => onNavigate?.({ name: 'home' })}
             class="mt-6 h-10 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
             style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
           >
-            {history.length === 0 ? 'Mulai dengarkan' : 'Reset filter'}
+            Mulai dengarkan
           </button>
         </div>
       {:else}
         <div class="space-y-1">
-          {#each filteredHistory as item, idx (item.id)}
+          {#each history as item, idx (item.id)}
             {@const cover = resolveCoverUrl(item.coverUrl, mediaBaseUrl)}
             <div class="group flex items-center justify-between gap-3 px-3 py-2 rounded-lg transition-colors hover:bg-[var(--md-sys-color-state-hover)]">
               <button
@@ -461,150 +422,6 @@
           {/each}
         </div>
       {/if}
-    {:else}
-      <!-- Statistics & Insights Tab (Borderless Nuclear Cards) -->
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div class="rounded-lg p-4 bg-[var(--md-sys-color-surface-container)]">
-          <div class="text-xs flex items-center gap-1.5 text-[var(--md-sys-color-on-surface-variant)]">
-            <Icon name="clock" size={14} /> Total Listening
-          </div>
-          <div class="text-2xl font-bold mt-1.5 tabular-nums text-[var(--md-sys-color-on-surface)]">{listeningStats.totalMinutes} min</div>
-          <div class="text-[11px] mt-1 tabular-nums text-[var(--md-sys-color-on-surface-variant)] opacity-85">
-            {listeningStats.totalPlays} plays • {listeningStats.uniqueTracks} unique tracks
-          </div>
-        </div>
-        <div class="rounded-lg p-4 bg-[var(--md-sys-color-surface-container)]">
-          <div class="text-xs flex items-center gap-1.5 text-[var(--md-sys-color-on-surface-variant)]">
-            <Icon name="sparkle" size={14} /> Peak Listening Hour
-          </div>
-          <div class="text-2xl font-bold mt-1.5 tabular-nums text-[var(--md-sys-color-on-surface)]">{listeningStats.peakHourLabel}</div>
-          <div class="text-[11px] mt-1 text-[var(--md-sys-color-on-surface-variant)] opacity-85">{listeningStats.peakPersona}</div>
-        </div>
-        <div class="rounded-lg p-4 bg-[var(--md-sys-color-surface-container)]">
-          <div class="text-xs flex items-center gap-1.5 text-[var(--md-sys-color-on-surface-variant)]">
-            <Icon name="calendar" size={14} /> Most Active Day
-          </div>
-          <div class="text-2xl font-bold mt-1.5 text-[var(--md-sys-color-on-surface)]">{listeningStats.mostActiveDay}</div>
-          <div class="text-[11px] mt-1 text-[var(--md-sys-color-on-surface-variant)] opacity-85">Highest total minutes</div>
-        </div>
-        <div class="rounded-lg p-4 bg-[var(--md-sys-color-surface-container)]">
-          <div class="text-xs flex items-center gap-1.5 text-[var(--md-sys-color-on-surface-variant)]">
-            <Icon name="flame" weight="fill" size={14} class="text-orange-400" /> Fire Streak
-          </div>
-          <div class="text-2xl font-bold text-orange-400 mt-1.5 tabular-nums">{fireStreak.currentStreak} Days</div>
-          <div class="text-[11px] mt-1 tabular-nums text-[var(--md-sys-color-on-surface-variant)] opacity-85">Best: {fireStreak.longestStreak} days</div>
-        </div>
-      </div>
-
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <section class="rounded-lg p-4 bg-[var(--md-sys-color-surface-container-low)] space-y-2.5">
-          <h2 class="text-sm font-semibold text-[var(--md-sys-color-on-surface)]">Time of Day (00:00 – 23:00)</h2>
-          <svg viewBox="0 0 720 180" class="w-full h-40">
-            {#each listeningStats.timeOfDay as bucket, i (bucket.hour)}
-              {@const barH = Math.max(4, (bucket.minutes / maxHourMinutes) * 120)}
-              {@const x = i * 29 + 14}
-              {@const y = 144 - barH}
-              <g>
-                <rect
-                  x={x}
-                  y={y}
-                  width="20"
-                  height={barH}
-                  rx="6"
-                  fill={bucket.minutes > 0 ? 'var(--md-sys-color-tertiary)' : 'var(--md-sys-color-surface-container-highest)'}
-                />
-                {#if i % 3 === 0}
-                  <text x={x + 10} y="166" text-anchor="middle" fill="currentColor" opacity="0.55" font-size="10">
-                    {bucket.label.slice(0, 2)}
-                  </text>
-                {/if}
-              </g>
-            {/each}
-          </svg>
-        </section>
-
-        <section class="rounded-lg p-4 bg-[var(--md-sys-color-surface-container-low)] space-y-2.5">
-          <h2 class="text-sm font-semibold text-[var(--md-sys-color-on-surface)]">Day of Week</h2>
-          <svg viewBox="0 0 420 180" class="w-full h-40">
-            {#each listeningStats.dayOfWeek as day, i (day.dayIndex)}
-              {@const barH = Math.max(6, (day.minutes / maxDayMinutes) * 116)}
-              {@const x = i * 56 + 22}
-              {@const y = 140 - barH}
-              <g>
-                <rect
-                  x={x}
-                  y={y}
-                  width="34"
-                  height={barH}
-                  rx="8"
-                  fill={day.minutes > 0 ? 'var(--md-sys-color-tertiary)' : 'var(--md-sys-color-surface-container-highest)'}
-                />
-                <text x={x + 17} y={y - 6} text-anchor="middle" fill="currentColor" opacity="0.65" font-size="10">
-                  {day.minutes}m
-                </text>
-                <text x={x + 17} y="164" text-anchor="middle" fill="currentColor" font-size="11" font-weight="600">
-                  {day.label}
-                </text>
-              </g>
-            {/each}
-          </svg>
-        </section>
-      </div>
-
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <section class="rounded-lg p-4 bg-[var(--md-sys-color-surface-container-low)] space-y-2.5">
-          <h2 class="text-sm font-semibold text-[var(--md-sys-color-on-surface)]">Top Played Tracks</h2>
-          {#if !listeningStats.topTracks || listeningStats.topTracks.length === 0}
-            <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] opacity-75 py-4">Belum ada data lagu terbanyak diputar.</p>
-          {:else}
-            <div class="space-y-1">
-              {#each listeningStats.topTracks.slice(0, 8) as top, i (top.name + i)}
-                <div class="flex items-center justify-between gap-3 px-2.5 py-2 rounded-md bg-[var(--md-sys-color-surface-container)]">
-                  <div class="flex items-center gap-2.5 min-w-0">
-                    <span class="w-5 text-xs font-bold text-[var(--md-sys-color-primary)] tabular-nums">{i + 1}</span>
-                    <div class="min-w-0">
-                      <div class="text-xs font-semibold text-[var(--md-sys-color-on-surface)] truncate">{top.name}</div>
-                      {#if top.subText}
-                        <div class="text-[11px] text-[var(--md-sys-color-on-surface-variant)] opacity-85 truncate">{top.subText}</div>
-                      {/if}
-                    </div>
-                  </div>
-                  <div class="text-[11px] text-[var(--md-sys-color-on-surface-variant)] tabular-nums shrink-0">
-                    {top.plays}x • {top.minutes}m
-                  </div>
-                </div>
-              {/each}
-            </div>
-          {/if}
-        </section>
-
-        <section class="rounded-lg p-4 bg-[var(--md-sys-color-surface-container-low)] space-y-2.5">
-          <h2 class="text-sm font-semibold text-[var(--md-sys-color-on-surface)]">Top Artists</h2>
-          {#if !listeningStats.topArtists || listeningStats.topArtists.length === 0}
-            <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] opacity-75 py-4">Belum ada data artis terbanyak diputar.</p>
-          {:else}
-            <div class="space-y-1">
-              {#each listeningStats.topArtists.slice(0, 8) as artist, i (artist.name + i)}
-                <div class="flex items-center justify-between gap-3 px-2.5 py-2 rounded-md bg-[var(--md-sys-color-surface-container)]">
-                  <div class="flex items-center gap-2.5 min-w-0">
-                    <span class="w-5 text-xs font-bold text-[var(--md-sys-color-primary)] tabular-nums">{i + 1}</span>
-                    <div class="min-w-0">
-                      <div class="text-xs font-semibold text-[var(--md-sys-color-on-surface)] truncate">{artist.name}</div>
-                      {#if artist.subText}
-                        <div class="text-[11px] text-[var(--md-sys-color-on-surface-variant)] opacity-85 truncate">{artist.subText}</div>
-                      {/if}
-                    </div>
-                  </div>
-                  <div class="text-[11px] text-[var(--md-sys-color-on-surface-variant)] tabular-nums shrink-0">
-                    {artist.plays}x • {artist.minutes}m
-                  </div>
-                </div>
-              {/each}
-            </div>
-          {/if}
-        </section>
-      </div>
-    {/if}
     </div>
   </div>
 {:else if mode === 'listening-stats'}

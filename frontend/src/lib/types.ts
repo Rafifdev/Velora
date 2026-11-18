@@ -252,6 +252,16 @@ export interface YTMusicAlbumView {
   artistAlbums: YTMusicCard[];
 }
 
+export interface YTMusicArtistView {
+  browseId: string;
+  name: string;
+  avatarUrl: string;
+  fansCount: number;
+  topTracks: Track[];
+  albums: YTMusicCard[];
+  relatedArtists: YTMusicCard[];
+}
+
 export interface LyricLine {
   timeSec: number;
   text: string;
@@ -288,7 +298,7 @@ export type ViewRoute =
   | { name: 'favorite-albums' }
   | { name: 'album-detail'; albumId: number }
   | { name: 'favorite-artists' }
-  | { name: 'artist-detail'; artistId: number }
+  | { name: 'artist-detail'; artistId?: number; browseId?: string; artistName?: string; avatarUrl?: string }
   | { name: 'playlists' }
   | { name: 'local-playlists' }
   | { name: 'downloaded' }

@@ -63,6 +63,16 @@ type YTMusicAlbumDetail struct {
 	ArtistAlbums   []YTMusicCard  `json:"artistAlbums"`
 }
 
+type YTMusicArtistDetail struct {
+	BrowseID       string         `json:"browseId"`
+	Name           string         `json:"name"`
+	AvatarURL      string         `json:"avatarUrl"`
+	FansCount      int64          `json:"fansCount"`
+	TopTracks      []YTMusicTrack `json:"topTracks"`
+	Albums         []YTMusicCard  `json:"albums"`
+	RelatedArtists []YTMusicCard  `json:"relatedArtists"`
+}
+
 type StreamInfo struct {
 	URL           string
 	MimeType      string

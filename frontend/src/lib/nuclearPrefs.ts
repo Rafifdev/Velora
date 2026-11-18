@@ -136,6 +136,40 @@ export const NUCLEAR_SETTINGS: SettingItemDef[] = [
 
   // Integrations
   {
+    id: 'integrations.deezer.enabled',
+    category: 'integrations',
+    title: 'Deezer Metadata (Hybrid Mode)',
+    description:
+      'Gunakan Deezer Public API (gratis, tanpa API key/akun Premium) untuk metadata Home, Search, Album & Artis; audio tetap diputar & di-download via YouTube Music.',
+    widget: 'toggle',
+    defaultValue: 'true'
+  },
+  {
+    id: 'integrations.spotify.enabled',
+    category: 'integrations',
+    title: 'Spotify Metadata (Hybrid Mode)',
+    description:
+      'Gunakan Spotify Web API untuk metadata Home, Search, Album & Artis; audio tetap diputar & di-download via YouTube Music. Fallback otomatis ke YouTube Music jika kredensial belum diisi.',
+    widget: 'toggle',
+    defaultValue: 'true'
+  },
+  {
+    id: 'integrations.spotify.clientId',
+    category: 'integrations',
+    title: 'Spotify Client ID',
+    description: 'Client ID dari Spotify Developer Dashboard (atau env VELORA_SPOTIFY_CLIENT_ID).',
+    widget: 'text',
+    defaultValue: ''
+  },
+  {
+    id: 'integrations.spotify.clientSecret',
+    category: 'integrations',
+    title: 'Spotify Client Secret',
+    description: 'Client Secret dari Spotify Developer Dashboard (atau env VELORA_SPOTIFY_CLIENT_SECRET).',
+    widget: 'text',
+    defaultValue: ''
+  },
+  {
     id: 'integrations.jam.enabled',
     category: 'integrations',
     title: 'Nuclear Jam',
