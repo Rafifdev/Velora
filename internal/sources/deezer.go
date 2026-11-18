@@ -1266,7 +1266,8 @@ func (c *DeezerClient) GetRecommendedTracks(ctx context.Context, seeds []History
 		var res struct {
 			Data []dzTrack `json:"data"`
 		}
-		if err := c.apiGet(ctx, "/search/track?q="+url.QueryEscape("Top Hits Indonesia")+"&limit=28", &res); err == nil {
+		// Official Deezer Charts "Top Indonesia" playlist (ID 1116188761)
+		if err := c.apiGet(ctx, "/playlist/1116188761/tracks?limit=50", &res); err == nil && len(res.Data) > 0 {
 			var list []YTMusicTrack
 			for _, tr := range res.Data {
 				if tr.ID > 0 && strings.TrimSpace(tr.Title) != "" {
@@ -1280,20 +1281,39 @@ func (c *DeezerClient) GetRecommendedTracks(ctx context.Context, seeds []History
 	}()
 	go func() {
 		defer wg.Done()
-		var res struct {
-			Data []dzTrack `json:"data"`
-		}
-		if err := c.apiGet(ctx, "/search/track?q="+url.QueryEscape("Pop Indonesia")+"&limit=28", &res); err == nil {
-			var list []YTMusicTrack
-			for _, tr := range res.Data {
-				if tr.ID > 0 && strings.TrimSpace(tr.Title) != "" {
-					list = append(list, tr.toYTMusicTrack("", ""))
+		// Popular Indonesian & English artists in Indonesia (curated rotating pool)
+		popArtists := []string{"Bernadya", "Hindia", "Tulus", "Juicy Luicy", "Mahalini", "Nadin Amizah", "LANY", "Bruno Mars", "Billie Eilish", "Sabrina Carpenter", "Taylor Swift", "The Weeknd"}
+		var list []YTMusicTrack
+		var pMu sync.Mutex
+		var pWg sync.WaitGroup
+		for _, pa := range popArtists {
+			pWg.Add(1)
+			go func(aName string) {
+				defer pWg.Done()
+				var sRes struct {
+					Data []dzArtist `json:"data"`
 				}
-			}
-			mu.Lock()
-			popPool = list
-			mu.Unlock()
+				if err := c.apiGet(ctx, "/search/artist?q="+url.QueryEscape(aName)+"&limit=1", &sRes); err != nil || len(sRes.Data) == 0 {
+					return
+				}
+				var tRes struct {
+					Data []dzTrack `json:"data"`
+				}
+				if err := c.apiGet(ctx, fmt.Sprintf("/artist/%d/top?limit=3", sRes.Data[0].ID), &tRes); err == nil {
+					pMu.Lock()
+					for _, tr := range tRes.Data {
+						if tr.ID > 0 && strings.TrimSpace(tr.Title) != "" {
+							list = append(list, tr.toYTMusicTrack("", ""))
+						}
+					}
+					pMu.Unlock()
+				}
+			}(pa)
 		}
+		pWg.Wait()
+		mu.Lock()
+		popPool = list
+		mu.Unlock()
 	}()
 	wg.Wait()
 
