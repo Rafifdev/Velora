@@ -523,6 +523,10 @@ select.m3-input option:checked {
   object-position: center 20%;
 }
 
+.velora-artist-avatar img {
+  object-position: center center;
+}
+
 .velora-card-artwork img.velora-yt-video-thumb,
 img.velora-yt-video-thumb {
   transform: none;

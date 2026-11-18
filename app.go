@@ -43,9 +43,11 @@ type App struct {
 	downloadsDir string
 	store        *db.Store
 	statsSvc     *stats.Service
-	localSrc     *sources.LocalScanner
-	ytClient     *sources.YTMusicClient
-	downloader   *sources.DownloadManager
+	localSrc      *sources.LocalScanner
+	ytClient      *sources.YTMusicClient
+	spotifyClient *sources.SpotifyClient
+	deezerClient  *sources.DeezerClient
+	downloader    *sources.DownloadManager
 	jamSrv       *jam.Server
 	frontendFS   fs.FS
 	trayIcon     []byte
@@ -100,6 +102,11 @@ func (a *App) startup(ctx context.Context) {
 	a.statsSvc = stats.NewService(store)
 	a.localSrc = sources.NewLocalScanner(store, a.uploadsDir, a.artworkDir)
 	a.ytClient = sources.NewYTMusicClient()
+	a.spotifyClient = sources.NewSpotifyClient()
+	a.deezerClient = sources.NewDeezerClient()
+	if prefs, pErr := a.store.GetPreferences(); pErr == nil {
+		a.spotifyClient.SetCredentials(prefs["integrations.spotify.clientId"], prefs["integrations.spotify.clientSecret"])
+	}
 	a.downloader = sources.NewDownloadManager(store, a.ytClient, a.downloadsDir, func(eventName string, data any) {
 		if a.ctx != nil {
 			runtime.EventsEmit(a.ctx, eventName, data)
@@ -144,28 +151,26 @@ func (a *App) startup(ctx context.Context) {
 				})
 			}
 		}
-		if a.ytClient != nil {
-			if ytHits, err := a.ytClient.Search(ctx, q); err == nil {
-				for _, yt := range ytHits {
-					if len(out) >= 25 {
-						break
-					}
-					if yt.VideoID != "" {
-						if _, dup := seen[yt.VideoID]; dup {
-							continue
-						}
-						seen[yt.VideoID] = struct{}{}
-					}
-					out = append(out, jam.SearchResult{
-						ExternalID:  yt.VideoID,
-						Title:       yt.Title,
-						Artist:      yt.Artist,
-						Album:       yt.Album,
-						DurationSec: yt.DurationSec,
-						CoverURL:    yt.CoverURL,
-						SourceType:  "ytmusic",
-					})
+		if hits, err := a.SearchYouTubeMusic(q); err == nil {
+			for _, yt := range hits {
+				if len(out) >= 25 {
+					break
 				}
+				if yt.VideoID != "" {
+					if _, dup := seen[yt.VideoID]; dup {
+						continue
+					}
+					seen[yt.VideoID] = struct{}{}
+				}
+				out = append(out, jam.SearchResult{
+					ExternalID:  yt.VideoID,
+					Title:       yt.Title,
+					Artist:      yt.Artist,
+					Album:       yt.Album,
+					DurationSec: yt.DurationSec,
+					CoverURL:    yt.CoverURL,
+					SourceType:  "ytmusic",
+				})
 			}
 		}
 		return out, nil
@@ -222,13 +227,141 @@ func (a *App) startYTMusicHomePrefetch() {
 		defer close(done)
 		reqCtx, cancel := context.WithTimeout(context.Background(), 14*time.Second)
 		defer cancel()
-		feed, err := a.ytClient.GetHomeFeed(reqCtx)
+		feed, err := a.buildHomeFeed(reqCtx)
 		a.ytHomeMu.Lock()
 		a.ytHomeFeed = feed
 		a.ytHomeErr = err
 		a.ytHomeCached = err == nil && (len(feed.Shelves) > 0 || len(feed.Tracks) > 0)
 		a.ytHomeMu.Unlock()
 	}()
+}
+
+func (a *App) buildHomeFeed(ctx context.Context) (sources.YTMusicHomeFeed, error) {
+	var feed sources.YTMusicHomeFeed
+	var err error
+	if a.useSpotifyMetadata() {
+		feed, err = a.spotifyClient.GetHomeFeed(ctx)
+	}
+	if (err != nil || (len(feed.Shelves) == 0 && len(feed.Tracks) == 0)) && a.useDeezerMetadata() {
+		feed, err = a.deezerClient.GetHomeFeed(ctx)
+		if err == nil && a.store != nil {
+			var seeds []sources.HistorySeed
+			if recent, sErr := a.store.GetRecentSeedTracks(12); sErr == nil {
+				for _, tr := range recent {
+					seeds = append(seeds, sources.HistorySeed{
+						VideoID: strings.TrimSpace(tr.ExternalID),
+						Title:   tr.Title,
+						Artist:  tr.ArtistName,
+					})
+				}
+			}
+			if recTracks, rErr := a.deezerClient.GetRecommendedTracks(ctx, seeds, nil, 28); rErr == nil && len(recTracks) > 0 {
+				items := make([]sources.YTMusicCard, 0, len(recTracks))
+				for _, t := range recTracks {
+					items = append(items, sources.YTMusicCard{
+						ID:          "song:" + t.VideoID,
+						Title:       t.Title,
+						Subtitle:    t.Artist,
+						CoverURL:    t.CoverURL,
+						Kind:        "song",
+						VideoID:     t.VideoID,
+						Artist:      t.Artist,
+						Album:       t.Album,
+						DurationSec: t.DurationSec,
+					})
+				}
+				feed.Shelves = append(feed.Shelves, sources.YTMusicShelf{
+					Title: "Lagu Lainnya untuk Anda",
+					Items: items,
+				})
+				feed.Tracks = recTracks
+			}
+		}
+	}
+	if err != nil || (len(feed.Shelves) == 0 && len(feed.Tracks) == 0) {
+		feed, err = a.ytClient.GetHomeFeed(ctx)
+	}
+	return feed, err
+}
+
+func (a *App) useSpotifyMetadata() bool {
+	if a.spotifyClient == nil || !a.spotifyClient.IsConfigured() {
+		return false
+	}
+	if a.store != nil {
+		if prefs, err := a.store.GetPreferences(); err == nil {
+			if v, ok := prefs["integrations.spotify.enabled"]; ok && strings.EqualFold(strings.TrimSpace(v), "false") {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func (a *App) useDeezerMetadata() bool {
+	if a.deezerClient == nil {
+		return false
+	}
+	if a.store != nil {
+		if prefs, err := a.store.GetPreferences(); err == nil {
+			if v, ok := prefs["integrations.deezer.enabled"]; ok && strings.EqualFold(strings.TrimSpace(v), "false") {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func isHybridTrackID(extID string) bool {
+	id := strings.TrimSpace(extID)
+	return strings.HasPrefix(id, "sp:track:") || strings.HasPrefix(id, "dz:track:")
+}
+
+func (a *App) invalidateHomeCache() {
+	a.ytHomeMu.Lock()
+	a.ytHomeCached = false
+	a.ytHomeFeed = sources.YTMusicHomeFeed{}
+	a.ytHomeErr = nil
+	a.ytHomeDone = nil
+	a.ytHomeMu.Unlock()
+}
+
+func (a *App) ensureTrackPlayableExternalID(ctx context.Context, tr db.Track) (db.Track, error) {
+	extID := strings.TrimSpace(tr.ExternalID)
+	if !isHybridTrackID(extID) {
+		return tr, nil
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	var (
+		vid string
+		err error
+	)
+	if strings.HasPrefix(extID, "dz:track:") {
+		if a.deezerClient == nil {
+			return tr, fmt.Errorf("deezer client not initialized")
+		}
+		vid, err = a.deezerClient.ResolveTrackToYTMusic(reqCtx, a.ytClient, extID, tr.Title, tr.ArtistName)
+	} else if !strings.HasPrefix(extID, "sp:import:") && a.spotifyClient != nil {
+		vid, err = a.spotifyClient.ResolveTrackToYTMusic(reqCtx, a.ytClient, extID, tr.Title, tr.ArtistName)
+	} else {
+		err = fmt.Errorf("fallback yt search")
+	}
+	if err != nil || strings.TrimSpace(vid) == "" {
+		q := strings.TrimSpace(tr.Title + " " + tr.ArtistName)
+		if hits, sErr := a.ytClient.Search(reqCtx, q); sErr == nil && len(hits) > 0 && strings.TrimSpace(hits[0].VideoID) != "" {
+			vid = strings.TrimSpace(hits[0].VideoID)
+			err = nil
+		}
+	}
+	if err != nil {
+		return tr, err
+	}
+	tr.ExternalID = vid
+	if a.store != nil && tr.ID > 0 {
+		_ = a.store.UpdateTrackExternalID(tr.ID, vid)
+	}
+	return tr, nil
 }
 
 func (a *App) domReady(ctx context.Context) {
@@ -396,7 +529,7 @@ func (a *App) ImportSpotifyPlaylist(spotifyURL string) (db.Playlist, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	reqCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 
 	sp, err := sources.FetchSpotifyPlaylist(reqCtx, spotifyURL)
@@ -496,6 +629,16 @@ func (a *App) SearchYouTubeMusic(query string) ([]sources.YTMusicTrack, error) {
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
+	if a.useSpotifyMetadata() {
+		if tracks, err := a.spotifyClient.SearchTracks(reqCtx, query); err == nil && len(tracks) > 0 {
+			return tracks, nil
+		}
+	}
+	if a.useDeezerMetadata() {
+		if tracks, err := a.deezerClient.SearchTracks(reqCtx, query); err == nil && len(tracks) > 0 {
+			return tracks, nil
+		}
+	}
 	return a.ytClient.Search(reqCtx, query)
 }
 
@@ -506,6 +649,16 @@ func (a *App) SearchYouTubeMusicPlaylists(query string) ([]sources.YTMusicCard, 
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
+	if a.useSpotifyMetadata() {
+		if cards, err := a.spotifyClient.SearchPlaylists(reqCtx, query); err == nil && len(cards) > 0 {
+			return cards, nil
+		}
+	}
+	if a.useDeezerMetadata() {
+		if cards, err := a.deezerClient.SearchPlaylists(reqCtx, query); err == nil && len(cards) > 0 {
+			return cards, nil
+		}
+	}
 	return a.ytClient.SearchPlaylists(reqCtx, query)
 }
 
@@ -516,6 +669,16 @@ func (a *App) SearchYouTubeMusicAlbums(query string) ([]sources.YTMusicCard, err
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+	if a.useSpotifyMetadata() {
+		if cards, err := a.spotifyClient.SearchAlbums(reqCtx, query); err == nil && len(cards) > 0 {
+			return cards, nil
+		}
+	}
+	if a.useDeezerMetadata() {
+		if cards, err := a.deezerClient.SearchAlbums(reqCtx, query); err == nil && len(cards) > 0 {
+			return cards, nil
+		}
+	}
 	return a.ytClient.SearchAlbums(reqCtx, query)
 }
 
@@ -526,7 +689,39 @@ func (a *App) SearchYouTubeMusicArtists(query string) ([]sources.YTMusicCard, er
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+	if a.useSpotifyMetadata() {
+		if cards, err := a.spotifyClient.SearchArtists(reqCtx, query); err == nil && len(cards) > 0 {
+			return cards, nil
+		}
+	}
+	if a.useDeezerMetadata() {
+		if cards, err := a.deezerClient.SearchArtists(reqCtx, query); err == nil && len(cards) > 0 {
+			return cards, nil
+		}
+	}
 	return a.ytClient.SearchArtists(reqCtx, query)
+}
+
+func (a *App) GetMoreArtists(offset int, excludeBrowseIDs []string) ([]sources.YTMusicCard, error) {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if a.useDeezerMetadata() {
+		if cards, err := a.deezerClient.GetMoreArtists(reqCtx, offset, excludeBrowseIDs); err == nil && len(cards) > 0 {
+			return cards, nil
+		}
+	}
+	if a.useSpotifyMetadata() {
+		fallbackQ := []string{"pop", "rock", "rnb", "indie"}[(offset/28)%4]
+		if cards, err := a.spotifyClient.SearchArtists(reqCtx, fallbackQ); err == nil && len(cards) > 0 {
+			return cards, nil
+		}
+	}
+	fallbackQ := []string{"Popular Indonesian Singers", "Top Global Pop Artists", "Best Indie Artists Indonesia"}[(offset/28)%3]
+	return a.ytClient.SearchArtists(reqCtx, fallbackQ)
 }
 
 func (a *App) GetYTMusicTop100() ([]sources.YTMusicTrack, error) {
@@ -557,7 +752,27 @@ func (a *App) GetYTMusicTop100Recommended(excludeVideoIDs []string) ([]sources.Y
 			})
 		}
 	}
+	if a.useDeezerMetadata() {
+		if tracks, dErr := a.deezerClient.GetRecommendedTracks(reqCtx, seeds, excludeVideoIDs, 28); dErr == nil && len(tracks) > 0 {
+			return tracks, nil
+		}
+	}
 	return a.ytClient.GetHistoryBasedRecommended(reqCtx, seeds, excludeVideoIDs)
+}
+
+func (a *App) GetMoreTopSongs(offset int, excludeVideoIDs []string) ([]sources.YTMusicTrack, error) {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if a.useDeezerMetadata() {
+		if tracks, err := a.deezerClient.GetMoreTopSongs(reqCtx, offset, excludeVideoIDs, 35); err == nil && len(tracks) > 0 {
+			return tracks, nil
+		}
+	}
+	return a.ytClient.GetHistoryBasedRecommended(reqCtx, nil, excludeVideoIDs)
 }
 
 func (a *App) GetYTMusicHome() (sources.YTMusicHomeFeed, error) {
@@ -592,7 +807,7 @@ func (a *App) GetYTMusicHome() (sources.YTMusicHomeFeed, error) {
 
 	reqCtx, cancel := context.WithTimeout(ctx, 14*time.Second)
 	defer cancel()
-	feed, err := a.ytClient.GetHomeFeed(reqCtx)
+	feed, err := a.buildHomeFeed(reqCtx)
 	if err == nil && (len(feed.Shelves) > 0 || len(feed.Tracks) > 0) {
 		a.ytHomeMu.Lock()
 		a.ytHomeFeed = feed
@@ -610,7 +825,20 @@ func (a *App) PlayYTMusicCollection(browseID, playlistID, title, subtitle, cover
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 14*time.Second)
 	defer cancel()
-	ytTracks, err := a.ytClient.GetCollectionTracks(reqCtx, browseID, playlistID, subtitle, title, coverURL)
+	var ytTracks []sources.YTMusicTrack
+	var err error
+	colID := strings.TrimSpace(browseID)
+	if !strings.HasPrefix(colID, "sp:") && !strings.HasPrefix(colID, "dz:") &&
+		(strings.HasPrefix(strings.TrimSpace(playlistID), "sp:") || strings.HasPrefix(strings.TrimSpace(playlistID), "dz:")) {
+		colID = strings.TrimSpace(playlistID)
+	}
+	if strings.HasPrefix(colID, "sp:") && a.spotifyClient != nil && a.spotifyClient.IsConfigured() {
+		ytTracks, err = a.spotifyClient.GetCollectionTracks(reqCtx, colID)
+	} else if strings.HasPrefix(colID, "dz:") && a.deezerClient != nil {
+		ytTracks, err = a.deezerClient.GetCollectionTracks(reqCtx, colID)
+	} else {
+		ytTracks, err = a.ytClient.GetCollectionTracks(reqCtx, browseID, playlistID, subtitle, title, coverURL)
+	}
 	if err != nil || len(ytTracks) == 0 {
 		return nil, fmt.Errorf("tidak ada lagu ditemukan untuk koleksi ini")
 	}
@@ -626,6 +854,9 @@ func (a *App) PlayYTMusicCollection(browseID, playlistID, title, subtitle, cover
 		}
 	}
 	if len(saved) > 0 {
+		if resolved, rErr := a.ensureTrackPlayableExternalID(reqCtx, saved[0]); rErr == nil {
+			saved[0] = resolved
+		}
 		a.player.SetCurrentTrack(saved[0])
 	}
 	return saved, nil
@@ -651,7 +882,29 @@ func (a *App) GetYTMusicTrackAlbum(videoID, browseID, title, artist, albumTitle,
 	reqCtx, cancel := context.WithTimeout(ctx, 16*time.Second)
 	defer cancel()
 
-	detail, err := a.ytClient.GetTrackAlbumDetail(reqCtx, videoID, browseID, title, artist, albumTitle, coverURL)
+	var detail sources.YTMusicAlbumDetail
+	var err error
+	bID := strings.TrimSpace(browseID)
+	vID := strings.TrimSpace(videoID)
+	if strings.HasPrefix(bID, "dz:album:") && a.deezerClient != nil {
+		detail, err = a.deezerClient.GetAlbumDetail(reqCtx, bID)
+	} else if strings.HasPrefix(vID, "dz:track:") && a.deezerClient != nil {
+		if albID, aErr := a.deezerClient.GetTrackAlbumID(reqCtx, vID); aErr == nil && albID != "" {
+			detail, err = a.deezerClient.GetAlbumDetail(reqCtx, albID)
+		} else {
+			err = aErr
+		}
+	} else if a.spotifyClient != nil && a.spotifyClient.IsConfigured() && strings.HasPrefix(bID, "sp:album:") {
+		detail, err = a.spotifyClient.GetAlbumDetail(reqCtx, bID)
+	} else if a.spotifyClient != nil && a.spotifyClient.IsConfigured() && strings.HasPrefix(vID, "sp:track:") {
+		if albID, aErr := a.spotifyClient.GetTrackAlbumID(reqCtx, vID); aErr == nil && albID != "" {
+			detail, err = a.spotifyClient.GetAlbumDetail(reqCtx, albID)
+		} else {
+			err = aErr
+		}
+	} else {
+		detail, err = a.ytClient.GetTrackAlbumDetail(reqCtx, videoID, browseID, title, artist, albumTitle, coverURL)
+	}
 	if err != nil {
 		return YTMusicAlbumView{}, err
 	}
@@ -679,6 +932,91 @@ func (a *App) GetYTMusicTrackAlbum(videoID, browseID, title, artist, albumTitle,
 		Subtitle:       detail.Subtitle,
 		Tracks:         saved,
 		ArtistAlbums:   detail.ArtistAlbums,
+	}, nil
+}
+
+type YTMusicArtistView struct {
+	BrowseID       string                `json:"browseId"`
+	Name           string                `json:"name"`
+	AvatarURL      string                `json:"avatarUrl"`
+	FansCount      int64                 `json:"fansCount"`
+	TopTracks      []db.Track            `json:"topTracks"`
+	Albums         []sources.YTMusicCard `json:"albums"`
+	RelatedArtists []sources.YTMusicCard `json:"relatedArtists"`
+}
+
+func (a *App) GetYTMusicArtistDetail(browseID, name, avatarURL string) (YTMusicArtistView, error) {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 16*time.Second)
+	defer cancel()
+
+	bID := strings.TrimSpace(browseID)
+	qName := strings.TrimSpace(name)
+
+	var detail sources.YTMusicArtistDetail
+	var err error
+
+	if strings.HasPrefix(bID, "dz:artist:") && a.deezerClient != nil {
+		detail, err = a.deezerClient.GetArtistDetail(reqCtx, bID)
+	} else if strings.HasPrefix(bID, "sp:artist:") && a.spotifyClient != nil && a.spotifyClient.IsConfigured() {
+		detail, err = a.spotifyClient.GetArtistDetail(reqCtx, bID)
+	} else if qName != "" {
+		if a.useSpotifyMetadata() {
+			if hits, sErr := a.spotifyClient.SearchArtists(reqCtx, qName); sErr == nil && len(hits) > 0 {
+				detail, err = a.spotifyClient.GetArtistDetail(reqCtx, hits[0].BrowseID)
+			}
+		}
+		if len(detail.TopTracks) == 0 && a.useDeezerMetadata() {
+			if hits, dErr := a.deezerClient.SearchArtists(reqCtx, qName); dErr == nil && len(hits) > 0 {
+				detail, err = a.deezerClient.GetArtistDetail(reqCtx, hits[0].BrowseID)
+			}
+		}
+		if len(detail.TopTracks) == 0 && a.ytClient != nil {
+			trs, _ := a.ytClient.Search(reqCtx, qName)
+			albs, _ := a.ytClient.SearchAlbums(reqCtx, qName)
+			detail = sources.YTMusicArtistDetail{
+				BrowseID:  bID,
+				Name:      qName,
+				AvatarURL: avatarURL,
+				TopTracks: trs,
+				Albums:    albs,
+			}
+		}
+	}
+	if err != nil && len(detail.TopTracks) == 0 && len(detail.Albums) == 0 {
+		return YTMusicArtistView{}, err
+	}
+
+	if detail.Name == "" {
+		detail.Name = qName
+	}
+	if detail.AvatarURL == "" {
+		detail.AvatarURL = avatarURL
+	}
+
+	limit := len(detail.TopTracks)
+	if limit > 15 {
+		limit = 15
+	}
+	saved := make([]db.Track, 0, limit)
+	for i := 0; i < limit; i++ {
+		tr, sErr := a.SaveYTMusicTrack(detail.TopTracks[i])
+		if sErr == nil {
+			saved = append(saved, tr)
+		}
+	}
+
+	return YTMusicArtistView{
+		BrowseID:       detail.BrowseID,
+		Name:           detail.Name,
+		AvatarURL:      detail.AvatarURL,
+		FansCount:      detail.FansCount,
+		TopTracks:      saved,
+		Albums:         detail.Albums,
+		RelatedArtists: detail.RelatedArtists,
 	}, nil
 }
 
@@ -728,7 +1066,8 @@ func (a *App) GetTrackLyrics(trackID int64, title, artist, album string, duratio
 }
 
 func (a *App) SaveYTMusicTrack(yt sources.YTMusicTrack) (db.Track, error) {
-	if strings.TrimSpace(yt.Album) == "" || strings.EqualFold(strings.TrimSpace(yt.Album), "YouTube Music") {
+	isHybridTrack := isHybridTrackID(yt.VideoID)
+	if !isHybridTrack && (strings.TrimSpace(yt.Album) == "" || strings.EqualFold(strings.TrimSpace(yt.Album), "YouTube Music")) {
 		ctx := a.ctx
 		if ctx == nil {
 			ctx = context.Background()
@@ -752,6 +1091,8 @@ func (a *App) SaveYTMusicTrack(yt sources.YTMusicTrack) (db.Track, error) {
 		if strings.TrimSpace(yt.Album) == "" || strings.EqualFold(strings.TrimSpace(yt.Album), "YouTube Music") {
 			yt.Album = "Single"
 		}
+	} else if strings.TrimSpace(yt.Album) == "" {
+		yt.Album = "Single"
 	}
 	return a.store.UpsertTrack(db.Track{
 		Title:       yt.Title,
@@ -771,6 +1112,15 @@ func (a *App) PlayYTMusicTrack(yt sources.YTMusicTrack) (db.Track, error) {
 	if err != nil {
 		return db.Track{}, err
 	}
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if resolved, rErr := a.ensureTrackPlayableExternalID(ctx, tr); rErr == nil {
+		tr = resolved
+	} else if isHybridTrackID(tr.ExternalID) {
+		return db.Track{}, rErr
+	}
 	a.player.SetCurrentTrack(tr)
 	return tr, nil
 }
@@ -779,6 +1129,13 @@ func (a *App) GetStreamURL(trackID int64) (string, error) {
 	tr, err := a.store.GetTrackByID(trackID)
 	if err != nil {
 		return "", err
+	}
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if resolved, rErr := a.ensureTrackPlayableExternalID(ctx, tr); rErr == nil {
+		tr = resolved
 	}
 	a.player.SetCurrentTrack(tr)
 	return a.player.GetStreamURL(tr), nil
@@ -812,7 +1169,20 @@ func (a *App) GetFireStreak() (stats.FireStreakStatus, error) {
 }
 
 func (a *App) SavePreferences(prefs map[string]string) error {
-	return a.store.SavePreferences(prefs)
+	if err := a.store.SavePreferences(prefs); err != nil {
+		return err
+	}
+	_, hasID := prefs["integrations.spotify.clientId"]
+	_, hasSecret := prefs["integrations.spotify.clientSecret"]
+	_, hasEnabled := prefs["integrations.spotify.enabled"]
+	_, hasDeezer := prefs["integrations.deezer.enabled"]
+	if hasID || hasSecret || hasEnabled || hasDeezer {
+		if all, err := a.store.GetPreferences(); err == nil && a.spotifyClient != nil {
+			a.spotifyClient.SetCredentials(all["integrations.spotify.clientId"], all["integrations.spotify.clientSecret"])
+		}
+		a.invalidateHomeCache()
+	}
+	return nil
 }
 
 func (a *App) ClearCache() (int, error) {
@@ -855,6 +1225,15 @@ func (a *App) DownloadTrack(trackID int64) (db.Track, error) {
 	if err != nil {
 		return db.Track{}, err
 	}
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if resolved, rErr := a.ensureTrackPlayableExternalID(ctx, tr); rErr == nil {
+		tr = resolved
+	} else if isHybridTrackID(tr.ExternalID) {
+		return db.Track{}, rErr
+	}
 	return a.downloader.Enqueue(tr)
 }
 
@@ -862,6 +1241,15 @@ func (a *App) DownloadYTMusicTrack(yt sources.YTMusicTrack) (db.Track, error) {
 	tr, err := a.SaveYTMusicTrack(yt)
 	if err != nil {
 		return db.Track{}, err
+	}
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if resolved, rErr := a.ensureTrackPlayableExternalID(ctx, tr); rErr == nil {
+		tr = resolved
+	} else if isHybridTrackID(tr.ExternalID) {
+		return db.Track{}, rErr
 	}
 	return a.downloader.Enqueue(tr)
 }

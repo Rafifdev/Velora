@@ -14,6 +14,7 @@ import type {
   JamPlaybackSnapshot,
   JamStatus,
   YTMusicAlbumView,
+  YTMusicArtistView,
   YTMusicCard,
   YTMusicHomeFeed,
   YTMusicTrack
@@ -224,6 +225,9 @@ export const api = {
   async searchYouTubeMusicArtists(query: string): Promise<YTMusicCard[]> {
     return appBridge().SearchYouTubeMusicArtists(query);
   },
+  async getMoreArtists(offset: number, excludeBrowseIds: string[]): Promise<YTMusicCard[]> {
+    return appBridge().GetMoreArtists(offset, excludeBrowseIds);
+  },
   async getYTMusicHome(): Promise<YTMusicHomeFeed> {
     return appBridge().GetYTMusicHome();
   },
@@ -231,6 +235,13 @@ export const api = {
     return appBridge().GetYTMusicTop100();
   },
   async getYTMusicTop100Recommended(excludeVideoIDs: string[]): Promise<YTMusicTrack[]> {
+    return appBridge().GetYTMusicTop100Recommended(excludeVideoIDs);
+  },
+  async getMoreTopSongs(offset: number, excludeVideoIDs: string[]): Promise<YTMusicTrack[]> {
+    const fn = appBridge().GetMoreTopSongs;
+    if (typeof fn === 'function') {
+      return fn(offset, excludeVideoIDs);
+    }
     return appBridge().GetYTMusicTop100Recommended(excludeVideoIDs);
   },
   async playYTMusicCollection(
@@ -251,6 +262,13 @@ export const api = {
     coverUrl: string
   ): Promise<YTMusicAlbumView> {
     return appBridge().GetYTMusicTrackAlbum(videoId, browseId, title, artist, albumTitle, coverUrl);
+  },
+  async getYTMusicArtistDetail(
+    browseId: string,
+    name: string,
+    avatarUrl: string
+  ): Promise<YTMusicArtistView> {
+    return appBridge().GetYTMusicArtistDetail(browseId, name, avatarUrl);
   },
   async getTrackLyrics(
     trackId: number,

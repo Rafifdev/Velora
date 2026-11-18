@@ -48,6 +48,10 @@ export function GetJamStatus():Promise<jam.Status>;
 
 export function GetListeningStats():Promise<stats.ListeningStats>;
 
+export function GetMoreArtists(arg1:number,arg2:Array<string>):Promise<Array<sources.YTMusicCard>>;
+
+export function GetMoreTopSongs(arg1:number,arg2:Array<string>):Promise<Array<sources.YTMusicTrack>>;
+
 export function GetPlayHistory():Promise<Array<db.PlayHistoryItem>>;
 
 export function GetPlaylistDetail(arg1:number):Promise<db.PlaylistDetail>;
@@ -61,6 +65,8 @@ export function GetStreamURL(arg1:number):Promise<string>;
 export function GetTrackLyrics(arg1:number,arg2:string,arg3:string,arg4:string,arg5:number):Promise<sources.TrackLyrics>;
 
 export function GetTracks(arg1:string,arg2:string):Promise<Array<db.Track>>;
+
+export function GetYTMusicArtistDetail(arg1:string,arg2:string,arg3:string):Promise<main.YTMusicArtistView>;
 
 export function GetYTMusicHome():Promise<sources.YTMusicHomeFeed>;
 
