@@ -618,19 +618,11 @@
                     </div>
 
                     <span
-                      class="absolute z-20 bottom-1.5 right-1.5 w-10 h-10 rounded-full border-0 outline-none shadow-lg bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center transition-all duration-200 {isItemLoading || isCardActive
+                      class="absolute z-20 bottom-1.5 right-1.5 w-10 h-10 rounded-full border-0 outline-none shadow-lg bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center transition-all duration-200 {isCardActive
                         ? 'opacity-100 translate-y-0'
                         : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'}"
                     >
-                      {#if isItemLoading}
-                        <span class="velora-eq-loader" style="--loader-color: currentColor; transform: scale(0.75);" aria-hidden="true">
-                          <span class="velora-eq-bar"></span>
-                          <span class="velora-eq-bar"></span>
-                          <span class="velora-eq-bar"></span>
-                          <span class="velora-eq-bar"></span>
-                          <span class="velora-eq-bar"></span>
-                        </span>
-                      {:else if isCardActive && isPlaying}
+                      {#if isCardActive && isPlaying}
                         <span class="velora-playing-eq" style="color: currentColor;" aria-hidden="true">
                           <span></span>
                           <span></span>
@@ -856,19 +848,11 @@
                       type="button"
                       onclick={() => (isAlbumActive && onTogglePlay ? onTogglePlay() : onPlayYTCollection(item))}
                       aria-label="Putar album {item.title}"
-                      class="absolute z-20 bottom-2 right-2 w-10 h-10 rounded-full border-0 outline-none shadow-lg bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer transition-all duration-200 {isItemLoading || isAlbumActive
+                      class="absolute z-20 bottom-2 right-2 w-10 h-10 rounded-full border-0 outline-none shadow-lg bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer transition-all duration-200 {isAlbumActive
                         ? 'opacity-100 translate-y-0'
                         : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'}"
                     >
-                      {#if isItemLoading}
-                        <span class="velora-eq-loader" style="--loader-color: currentColor; transform: scale(0.75);" aria-hidden="true">
-                          <span class="velora-eq-bar"></span>
-                          <span class="velora-eq-bar"></span>
-                          <span class="velora-eq-bar"></span>
-                          <span class="velora-eq-bar"></span>
-                          <span class="velora-eq-bar"></span>
-                        </span>
-                      {:else if isAlbumActive && isPlaying}
+                      {#if isAlbumActive && isPlaying}
                         <span class="velora-playing-eq" style="color: currentColor;" aria-hidden="true">
                           <span></span>
                           <span></span>
@@ -925,10 +909,10 @@
             <div class="velora-card-grid-7">
               {#each displayedFilteredPlaylists as item (item.id)}
                 {@const cover = resolveCoverUrl(item.coverUrl, mediaBaseUrl)}
-                {@const isItemLoading = loadingCollectionId === item.id}
+                {@const isPlaylistActive = isCollectionCardActive(item)}
                 <button
                   type="button"
-                  onclick={() => onPlayYTCollection(item)}
+                  onclick={() => (isPlaylistActive && onTogglePlay ? onTogglePlay() : onPlayYTCollection(item))}
                   class="group w-full min-w-0 flex flex-col justify-start items-stretch self-start p-2.5 rounded-lg text-left cursor-pointer transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]"
                 >
                   <div
@@ -950,17 +934,19 @@
                     {/if}
 
                     <span
-                      class="absolute bottom-2 right-2 w-10 h-10 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center transition-all duration-200 {isItemLoading
+                      class="absolute bottom-2 right-2 w-10 h-10 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center transition-all duration-200 {isPlaylistActive
                         ? 'opacity-100 translate-y-0'
                         : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'}"
                     >
-                      {#if isItemLoading}
-                        <span class="velora-eq-loader" style="--loader-color: currentColor; transform: scale(0.75);" aria-hidden="true">
-                          <span class="velora-eq-bar"></span>
-                          <span class="velora-eq-bar"></span>
-                          <span class="velora-eq-bar"></span>
-                          <span class="velora-eq-bar"></span>
-                          <span class="velora-eq-bar"></span>
+                      {#if isPlaylistActive && isPlaying}
+                        <span class="velora-playing-eq" style="color: currentColor;" aria-hidden="true">
+                          <span></span>
+                          <span></span>
+                          <span></span>
+                          <span></span>
+                        </span>
+                        <span class="hidden group-hover:inline-flex items-center justify-center">
+                          <Icon name="pause" weight="fill" size={18} />
                         </span>
                       {:else}
                         <Icon name="play" weight="fill" size={18} />

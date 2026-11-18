@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fade, fly } from 'svelte/transition';
-  import { formatDuration, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
+  import { api, formatDuration, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
   import type { Track } from '../lib/types';
   import Icon from './Icon.svelte';
 
@@ -154,17 +154,27 @@
 >
   <!-- Top Edge Full-Width Seekbar + Timestamps -->
   <div class="relative w-full">
-    <input
-      type="range"
-      min="0"
-      max={Math.max(1, effectiveDuration)}
-      step="0.5"
-      value={Math.min(positionSec, Math.max(1, effectiveDuration))}
-      oninput={(e) => onSeek(Number((e.target as HTMLInputElement).value))}
-      aria-label="Seekbar durasi lagu"
-      class="velora-seekbar w-full block"
-      style="background: linear-gradient(to right, var(--md-sys-color-primary) {progressPct}%, var(--md-sys-color-surface-container-highest) {progressPct}%);"
-    />
+    <div
+      class="w-full py-1.5 -mt-1.5 cursor-pointer"
+      onpointerdown={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        if (rect.width <= 0) return;
+        const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        onSeek(ratio * Math.max(1, effectiveDuration));
+      }}
+    >
+      <input
+        type="range"
+        min="0"
+        max={Math.max(1, effectiveDuration)}
+        step="0.5"
+        value={Math.min(positionSec, Math.max(1, effectiveDuration))}
+        oninput={(e) => onSeek(Number((e.target as HTMLInputElement).value))}
+        aria-label="Seekbar durasi lagu"
+        class="velora-seekbar w-full block"
+        style="background: linear-gradient(to right, var(--md-sys-color-primary) {progressPct}%, var(--md-sys-color-surface-container-highest) {progressPct}%);"
+      />
+    </div>
     <div
       class="flex items-center justify-between px-6 pt-1 text-[11px] font-medium tabular-nums"
       style="color: var(--md-sys-color-on-surface-variant);"
@@ -351,6 +361,15 @@
           style={!rightCollapsed && rightPanelMode === 'queue' ? 'color: var(--md-sys-color-primary);' : ''}
         >
           <Icon name="queue" weight={!rightCollapsed && rightPanelMode === 'queue' ? 'bold' : 'regular'} size={17} />
+        </button>
+        <button
+          type="button"
+          onclick={() => api.windowMinimize()}
+          title="Mini Player (Dynamic Island)"
+          aria-label="Minimize to Dynamic Island"
+          class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer"
+        >
+          <Icon name="picture-in-picture" size={17} />
         </button>
       </div>
 

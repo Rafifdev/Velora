@@ -372,6 +372,50 @@ export const api = {
   updateTaskbarState(title: string, artist: string, coverUrl: string, isPlaying: boolean): void {
     if (isJamRemote) return;
     appBridge()?.UpdateTaskbarState?.(title, artist, coverUrl, isPlaying);
+  },
+  updateDynamicIslandProgress(positionSec: number, durationSec: number): void {
+    if (isJamRemote) return;
+    appBridge()?.UpdateDynamicIslandProgress?.(positionSec, durationSec);
+  },
+  setDynamicIslandEnabled(enabled: boolean): void {
+    if (isJamRemote) return;
+    appBridge()?.SetDynamicIslandEnabled?.(enabled);
+  },
+  syncDynamicIsland(payload: {
+    title: string;
+    artist: string;
+    album: string;
+    coverUrl: string;
+    isPlaying: boolean;
+    isFavorite: boolean;
+    positionSec: number;
+    durationSec: number;
+    volume: number;
+    muted: boolean;
+    shuffle: boolean;
+    repeatMode: string;
+    eqPreset: string;
+    themeSeed: string;
+    accentColor: string;
+    streakDays: number;
+    lyricsLoading: boolean;
+    queueTitle: string;
+    queueIndex: number;
+    queue: Array<{
+      id: number;
+      externalId: string;
+      title: string;
+      artist: string;
+      coverUrl: string;
+      isFavorite: boolean;
+    }>;
+  }): void {
+    if (isJamRemote) return;
+    appBridge()?.SyncDynamicIsland?.(payload);
+  },
+  notifyDynamicIslandAudioDevice(deviceName = ''): void {
+    if (isJamRemote) return;
+    appBridge()?.NotifyDynamicIslandAudioDevice?.(deviceName);
   }
 };
 
