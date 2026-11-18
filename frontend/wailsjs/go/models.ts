@@ -464,6 +464,96 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class DynamicIslandQueueItem {
+	    id: number;
+	    externalId: string;
+	    title: string;
+	    artist: string;
+	    coverUrl: string;
+	    isFavorite: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new DynamicIslandQueueItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.externalId = source["externalId"];
+	        this.title = source["title"];
+	        this.artist = source["artist"];
+	        this.coverUrl = source["coverUrl"];
+	        this.isFavorite = source["isFavorite"];
+	    }
+	}
+	export class DynamicIslandSyncPayload {
+	    title: string;
+	    artist: string;
+	    album: string;
+	    coverUrl: string;
+	    isPlaying: boolean;
+	    isFavorite: boolean;
+	    positionSec: number;
+	    durationSec: number;
+	    volume: number;
+	    muted: boolean;
+	    shuffle: boolean;
+	    repeatMode: string;
+	    eqPreset: string;
+	    themeSeed: string;
+	    accentColor: string;
+	    streakDays: number;
+	    lyricsLoading: boolean;
+	    queueTitle: string;
+	    queueIndex: number;
+	    queue: DynamicIslandQueueItem[];
+	
+	    static createFrom(source: any = {}) {
+	        return new DynamicIslandSyncPayload(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.title = source["title"];
+	        this.artist = source["artist"];
+	        this.album = source["album"];
+	        this.coverUrl = source["coverUrl"];
+	        this.isPlaying = source["isPlaying"];
+	        this.isFavorite = source["isFavorite"];
+	        this.positionSec = source["positionSec"];
+	        this.durationSec = source["durationSec"];
+	        this.volume = source["volume"];
+	        this.muted = source["muted"];
+	        this.shuffle = source["shuffle"];
+	        this.repeatMode = source["repeatMode"];
+	        this.eqPreset = source["eqPreset"];
+	        this.themeSeed = source["themeSeed"];
+	        this.accentColor = source["accentColor"];
+	        this.streakDays = source["streakDays"];
+	        this.lyricsLoading = source["lyricsLoading"];
+	        this.queueTitle = source["queueTitle"];
+	        this.queueIndex = source["queueIndex"];
+	        this.queue = this.convertValues(source["queue"], DynamicIslandQueueItem);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class YTMusicAlbumView {
 	    browseId: string;
 	    title: string;

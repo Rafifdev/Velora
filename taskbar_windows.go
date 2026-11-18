@@ -259,6 +259,8 @@ func (a *App) shutdownTaskbar() {
 }
 
 func (a *App) UpdateTaskbarState(title string, artist string, coverURL string, isPlaying bool) {
+	a.updateDynamicIslandState(title, artist, coverURL, isPlaying)
+
 	pendingMu.Lock()
 	pendingTitle = title
 	pendingArtist = artist

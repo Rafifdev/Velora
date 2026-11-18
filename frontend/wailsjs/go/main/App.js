@@ -150,6 +150,10 @@ export function ImportSpotifyPlaylist(arg1) {
   return window['go']['main']['App']['ImportSpotifyPlaylist'](arg1);
 }
 
+export function NotifyDynamicIslandAudioDevice(arg1) {
+  return window['go']['main']['App']['NotifyDynamicIslandAudioDevice'](arg1);
+}
+
 export function PlayYTMusicCollection(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['PlayYTMusicCollection'](arg1, arg2, arg3, arg4, arg5);
 }
@@ -210,6 +214,10 @@ export function SearchYouTubeMusicPlaylists(arg1) {
   return window['go']['main']['App']['SearchYouTubeMusicPlaylists'](arg1);
 }
 
+export function SetDynamicIslandEnabled(arg1) {
+  return window['go']['main']['App']['SetDynamicIslandEnabled'](arg1);
+}
+
 export function SetFrontendFS(arg1) {
   return window['go']['main']['App']['SetFrontendFS'](arg1);
 }
@@ -224,6 +232,10 @@ export function StartJam() {
 
 export function StopJam() {
   return window['go']['main']['App']['StopJam']();
+}
+
+export function SyncDynamicIsland(arg1) {
+  return window['go']['main']['App']['SyncDynamicIsland'](arg1);
 }
 
 export function ToggleFavoriteAlbum(arg1) {
@@ -244,6 +256,10 @@ export function ToggleFavoriteYTMusicAlbum(arg1, arg2, arg3, arg4, arg5) {
 
 export function ToggleFavoriteYTMusicArtist(arg1, arg2, arg3) {
   return window['go']['main']['App']['ToggleFavoriteYTMusicArtist'](arg1, arg2, arg3);
+}
+
+export function UpdateDynamicIslandProgress(arg1, arg2) {
+  return window['go']['main']['App']['UpdateDynamicIslandProgress'](arg1, arg2);
 }
 
 export function UpdateJamState(arg1) {

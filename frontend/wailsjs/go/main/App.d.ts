@@ -82,6 +82,8 @@ export function ImportLocalPlaylistM3U():Promise<db.Playlist>;
 
 export function ImportSpotifyPlaylist(arg1:string):Promise<db.Playlist>;
 
+export function NotifyDynamicIslandAudioDevice(arg1:string):Promise<void>;
+
 export function PlayYTMusicCollection(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<Array<db.Track>>;
 
 export function PlayYTMusicTrack(arg1:sources.YTMusicTrack):Promise<db.Track>;
@@ -112,6 +114,8 @@ export function SearchYouTubeMusicArtists(arg1:string):Promise<Array<sources.YTM
 
 export function SearchYouTubeMusicPlaylists(arg1:string):Promise<Array<sources.YTMusicCard>>;
 
+export function SetDynamicIslandEnabled(arg1:boolean):Promise<void>;
+
 export function SetFrontendFS(arg1:fs.FS):Promise<void>;
 
 export function SetTrayIcon(arg1:Array<number>):Promise<void>;
@@ -119,6 +123,8 @@ export function SetTrayIcon(arg1:Array<number>):Promise<void>;
 export function StartJam():Promise<jam.Status>;
 
 export function StopJam():Promise<jam.Status>;
+
+export function SyncDynamicIsland(arg1:main.DynamicIslandSyncPayload):Promise<void>;
 
 export function ToggleFavoriteAlbum(arg1:number):Promise<boolean>;
 
@@ -129,6 +135,8 @@ export function ToggleFavoriteTrack(arg1:number):Promise<boolean>;
 export function ToggleFavoriteYTMusicAlbum(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number):Promise<db.Album>;
 
 export function ToggleFavoriteYTMusicArtist(arg1:string,arg2:string,arg3:string):Promise<db.Artist>;
+
+export function UpdateDynamicIslandProgress(arg1:number,arg2:number):Promise<void>;
 
 export function UpdateJamState(arg1:jam.PlaybackSnapshot):Promise<void>;
 
