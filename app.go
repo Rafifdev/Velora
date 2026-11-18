@@ -366,6 +366,7 @@ func (a *App) ensureTrackPlayableExternalID(ctx context.Context, tr db.Track) (d
 
 func (a *App) domReady(ctx context.Context) {
 	a.initTaskbar(ctx)
+	a.initDynamicIsland(ctx)
 }
 
 func (a *App) beforeClose(ctx context.Context) (prevent bool) {
@@ -378,6 +379,7 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 
 func (a *App) shutdown(ctx context.Context) {
 	a.shutdownTaskbar()
+	a.shutdownDynamicIsland()
 	if a.trayCtrl != nil {
 		a.trayCtrl.Shutdown()
 	}
@@ -1033,6 +1035,7 @@ func (a *App) GetTrackLyrics(trackID int64, title, artist, album string, duratio
 			if lines == nil {
 				lines = []sources.LyricLine{}
 			}
+			a.updateDynamicIslandLyrics(lines, plain)
 			return sources.TrackLyrics{
 				TrackID:      trackID,
 				Title:        title,
@@ -1062,6 +1065,7 @@ func (a *App) GetTrackLyrics(trackID int64, title, artist, album string, duratio
 		b, _ := json.Marshal(res.SyncedLyrics)
 		a.store.SaveCachedLyrics(trackID, res.PlainLyrics, string(b), res.Source)
 	}
+	a.updateDynamicIslandLyrics(res.SyncedLyrics, res.PlainLyrics)
 	return res
 }
 

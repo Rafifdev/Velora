@@ -311,6 +311,49 @@
         void togglePlay();
       }
     });
+    const offIslandSeek = safeEventsOn('island:seek', (sec: number) => {
+      if (Number.isFinite(sec)) {
+        handleSeek(sec);
+      }
+    });
+    const offIslandAction = safeEventsOn('island:action', (action: string) => {
+      if (action === 'toggle-favorite') {
+        if (currentTrack && currentTrack.id > 0) {
+          void handleToggleFavoriteTrack(currentTrack.id);
+        }
+      } else if (action === 'toggle-shuffle') {
+        shuffle = !shuffle;
+      } else if (action === 'cycle-repeat') {
+        repeatMode = repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off';
+      } else if (action === 'toggle-mute') {
+        handleToggleMute();
+      } else if (action === 'vol-up') {
+        const base = muted ? 0 : volume;
+        handleVolumeChange(Math.min(100, base + 5));
+      } else if (action === 'vol-down') {
+        const base = muted ? 0 : volume;
+        handleVolumeChange(Math.max(0, base - 5));
+      } else if (action === 'cycle-eq') {
+        const eqOrder = ['spotify', 'bass', 'vocal', 'electronic', 'flat'];
+        const curEq = getPrefValue(preferences, 'playback.eqPreset') || 'spotify';
+        const nextEq = eqOrder[(eqOrder.indexOf(curEq) + 1) % eqOrder.length];
+        void patchPrefs({ 'playback.eqPreset': nextEq });
+      }
+    });
+    const offIslandPlayQueue = safeEventsOn('island:play-queue-index', (idx: number) => {
+      if (Number.isInteger(idx) && idx >= 0 && idx < queue.length) {
+        void playTrack(queue[idx], queue, queueSourceTitle);
+      }
+    });
+    const offIslandFavId = safeEventsOn('island:toggle-favorite-id', (tid: number) => {
+      if (Number.isInteger(tid) && tid > 0) {
+        void handleToggleFavoriteTrack(tid);
+      }
+    });
+    const onMediaDeviceChange = () => {
+      api.notifyDynamicIslandAudioDevice('');
+    };
+    navigator.mediaDevices?.addEventListener?.('devicechange', onMediaDeviceChange);
     const offDownload = safeEventsOn('download:progress', (p: DownloadProgress) => {
       if (!p || !p.trackId) return;
       if (p.status === 'completed') {
@@ -439,6 +482,11 @@
       document.removeEventListener('scroll', hideTooltip, true);
       hideTooltip();
       offTaskbar?.();
+      offIslandSeek?.();
+      offIslandAction?.();
+      offIslandPlayQueue?.();
+      offIslandFavId?.();
+      navigator.mediaDevices?.removeEventListener?.('devicechange', onMediaDeviceChange);
       offDownload?.();
       offJamStatus?.();
       offJamCmd?.();
@@ -452,6 +500,43 @@
     const playing = isPlaying;
     const cover = tr ? resolveCoverUrl(tr.coverUrl, mediaBaseUrl) : '';
     api.updateTaskbarState(tr?.title ?? '', tr?.artistName ?? '', cover, playing);
+  });
+
+  $effect(() => {
+    if (isJamRemote) return;
+    const tr = currentTrack;
+    const cover = tr ? resolveCoverUrl(tr.coverUrl, mediaBaseUrl) : '';
+    const eqPreset = getPrefValue(preferences, 'playback.eqPreset') || 'spotify';
+    const qIdx = tr ? queue.findIndex((q) => (tr.id > 0 && q.id === tr.id) || (tr.externalId && q.externalId === tr.externalId)) : -1;
+    api.syncDynamicIsland({
+      title: tr?.title ?? '',
+      artist: tr?.artistName ?? '',
+      album: tr?.albumTitle ?? '',
+      coverUrl: cover,
+      isPlaying,
+      isFavorite: Boolean(tr?.isFavorite),
+      positionSec,
+      durationSec: durationSec || tr?.durationSec || 0,
+      volume,
+      muted,
+      shuffle,
+      repeatMode,
+      eqPreset,
+      themeSeed,
+      accentColor,
+      streakDays: fireStreak?.currentStreak ?? 0,
+      lyricsLoading,
+      queueTitle: queueSourceTitle || 'Queue',
+      queueIndex: qIdx,
+      queue: queue.slice(0, 250).map((q) => ({
+        id: q.id,
+        externalId: q.externalId ?? '',
+        title: q.title,
+        artist: q.artistName,
+        coverUrl: resolveCoverUrl(q.coverUrl, mediaBaseUrl),
+        isFavorite: Boolean(q.isFavorite)
+      }))
+    });
   });
 
   function shuffleAndSpreadByArtist<T>(
@@ -602,12 +687,13 @@
     mediaBaseUrl = boot.mediaBaseUrl;
 
     if (queue.length === 0 && tracks.length > 0) {
-      queue = [...tracks];
       if (!currentTrack) {
         currentTrack = tracks[0];
         durationSec = tracks[0].durationSec;
         loadLyricsForTrack(tracks[0]);
       }
+      queue = buildLocalAlgorithmQueue(currentTrack ?? tracks[0]);
+      void populateYTMusicAlgorithmQueue(currentTrack ?? tracks[0]);
     }
 
     const lw = Number(preferences['layout.leftSidebarWidth']);
@@ -1439,34 +1525,42 @@
       addIfNew(t);
     }
 
-    return shuffleArray(pool).slice(0, limit);
+    const diverse: Track[] = [];
+    const artistCounts = new Map<string, number>();
+    const albumCounts = new Map<string, number>();
+    for (const cand of shuffleArray(pool)) {
+      const ar = (cand.artistName || '').trim().toLowerCase();
+      const al = (cand.albumTitle || '').trim().toLowerCase();
+      if (ar && (artistCounts.get(ar) ?? 0) >= 2) continue;
+      if (al && al !== 'single' && al !== 'youtube music' && (albumCounts.get(al) ?? 0) >= 1) continue;
+      if (ar) artistCounts.set(ar, (artistCounts.get(ar) ?? 0) + 1);
+      if (al) albumCounts.set(al, (albumCounts.get(al) ?? 0) + 1);
+      diverse.push(cand);
+      if (diverse.length >= limit) break;
+    }
+    return shuffleAndSpreadByArtist(diverse, (t) => t.artistName || t.albumTitle || '').slice(0, limit);
   }
 
   function buildLocalAlgorithmQueue(tr: Track): Track[] {
     const k = trackQueueKey(tr);
     playedAlgoKeys = new Set<string>([k]);
     algoBatchRound = 0;
-    const sameArtist = tracks.filter(
-      (t) => t.id !== tr.id && t.artistName.toLowerCase() === tr.artistName.toLowerCase()
-    );
-    const sameAlbum = tracks.filter(
-      (t) =>
-        t.id !== tr.id &&
-        t.artistName.toLowerCase() !== tr.artistName.toLowerCase() &&
-        tr.albumTitle &&
-        t.albumTitle.toLowerCase() === tr.albumTitle.toLowerCase()
-    );
-    const others = tracks.filter(
-      (t) =>
-        t.id !== tr.id &&
-        t.artistName.toLowerCase() !== tr.artistName.toLowerCase() &&
-        (!tr.albumTitle || t.albumTitle.toLowerCase() !== tr.albumTitle.toLowerCase())
-    );
-    const combined = shuffleArray([...sameArtist, ...sameAlbum, ...others]);
-    const picked = combined.slice(0, 20);
+    const trArtist = (tr.artistName || '').trim().toLowerCase();
+    const others = tracks.filter((t) => t.id !== tr.id);
+    const artistCounts = new Map<string, number>();
+    if (trArtist) artistCounts.set(trArtist, 1);
+    const diverse: Track[] = [];
+    for (const cand of shuffleArray(others)) {
+      const ar = (cand.artistName || '').trim().toLowerCase();
+      if (ar && (artistCounts.get(ar) ?? 0) >= 2) continue;
+      if (ar) artistCounts.set(ar, (artistCounts.get(ar) ?? 0) + 1);
+      diverse.push(cand);
+      if (diverse.length >= 20) break;
+    }
+    let picked = shuffleAndSpreadByArtist(diverse, (t) => t.artistName || t.albumTitle || '').slice(0, 20);
     if (picked.length < 20) {
       const extra = collectFallbackGenrePool(new Set([k, ...picked.map(trackQueueKey)]), 20 - picked.length);
-      picked.push(...extra);
+      picked = shuffleAndSpreadByArtist([...picked, ...extra], (t) => t.artistName || t.albumTitle || '').slice(0, 20);
     }
     for (const item of picked) {
       playedAlgoKeys.add(trackQueueKey(item));
@@ -1474,20 +1568,18 @@
     return [tr, ...picked.slice(0, 20)];
   }
 
-  function getGenreQueriesForBatch(baseTrack: Track, round: number): string[] {
-    const artist = baseTrack.artistName && baseTrack.artistName !== 'YouTube Music' ? baseTrack.artistName : '';
-    const genre = baseTrack.albumTitle && baseTrack.albumTitle !== 'YouTube Music' ? baseTrack.albumTitle : '';
+  function getGenreQueriesForBatch(_baseTrack: Track, round: number): string[] {
     const allQueries = [
-      artist ? `${artist} lagu` : 'Lagu Indonesia Populer Terbaru',
-      artist ? `${artist} mix` : 'Top Global Hits Music',
-      'Pop Indonesia Hits',
-      'Lagu Indie & Chill Indonesia',
-      'Musik Indonesia Terbaru',
-      'Top Pop Hits Mix',
-      'Acoustic & Chill Pop',
-      'R&B Soul Groove Hits',
-      genre ? `${genre} music` : 'Trending Music Mix'
-    ].filter(Boolean);
+      'Top Hits Indonesia',
+      'Hot Hits Indonesia',
+      'Lagu Barat Terpopuler di Indonesia',
+      'Pop Indonesia Hits Terbaru',
+      'Top 50 Indonesia Viral',
+      'Top Global Pop Hits',
+      'Lagu Indonesia Populer Terbaru',
+      'Trending English Pop Songs',
+      'Indo Pop & Indie Hits'
+    ];
 
     const start = (round * 3) % allQueries.length;
     return [
@@ -1502,29 +1594,65 @@
     excludeKeys: Set<string>,
     round: number
   ): Promise<Track[]> {
-    const queries = getGenreQueriesForBatch(baseTrack, round);
-    const responses = await Promise.all(
-      queries.map((q) => api.searchYouTubeMusic(q).catch(() => [] as YTMusicTrack[]))
-    );
+    const excludeVideoIds = Array.from(excludeKeys)
+      .filter((k) => k.startsWith('yt:'))
+      .map((k) => k.slice(3));
 
     const seen = new Set<string>(excludeKeys);
     const candidates: Track[] = [];
     let idxCounter = 0;
 
-    for (const list of responses) {
-      for (const item of list || []) {
+    // Primary: Backend Top Indonesia + Popular Global + History-based Recommendations
+    try {
+      const recItems = await api.getYTMusicTop100Recommended(excludeVideoIds);
+      for (const item of recItems || []) {
         if (!item.videoId) continue;
         const key = `yt:${item.videoId}`;
         if (seen.has(key)) continue;
         seen.add(key);
         candidates.push(ytTrackToQueueTrack(item, idxCounter++));
       }
+    } catch {
+      // fallback to query search below
     }
 
-    let picked = shuffleArray(candidates).slice(0, 20);
+    if (candidates.length < 15) {
+      const queries = getGenreQueriesForBatch(baseTrack, round);
+      const responses = await Promise.all(
+        queries.map((q) => api.searchYouTubeMusic(q).catch(() => [] as YTMusicTrack[]))
+      );
+      for (const list of responses) {
+        for (const item of list || []) {
+          if (!item.videoId) continue;
+          const key = `yt:${item.videoId}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          candidates.push(ytTrackToQueueTrack(item, idxCounter++));
+        }
+      }
+    }
+
+    const artistCounts = new Map<string, number>();
+    const albumCounts = new Map<string, number>();
+    const baseArtist = (baseTrack.artistName || '').trim().toLowerCase();
+    if (baseArtist) artistCounts.set(baseArtist, 1);
+
+    const diverse: Track[] = [];
+    for (const cand of shuffleArray(candidates)) {
+      const ar = (cand.artistName || '').trim().toLowerCase();
+      const al = (cand.albumTitle || '').trim().toLowerCase();
+      if (ar && (artistCounts.get(ar) ?? 0) >= 2) continue;
+      if (al && al !== 'single' && al !== 'youtube music' && (albumCounts.get(al) ?? 0) >= 1) continue;
+      if (ar) artistCounts.set(ar, (artistCounts.get(ar) ?? 0) + 1);
+      if (al) albumCounts.set(al, (albumCounts.get(al) ?? 0) + 1);
+      diverse.push(cand);
+      if (diverse.length >= 20) break;
+    }
+
+    let picked = shuffleAndSpreadByArtist(diverse, (t) => t.artistName || t.albumTitle || '').slice(0, 20);
     if (picked.length < 20) {
       const extra = collectFallbackGenrePool(seen, 20 - picked.length);
-      picked = [...picked, ...extra].slice(0, 20);
+      picked = shuffleAndSpreadByArtist([...picked, ...extra], (t) => t.artistName || t.albumTitle || '').slice(0, 20);
     }
 
     for (const item of picked) {
@@ -1557,8 +1685,8 @@
       playedAlgoKeys.add(trackQueueKey(s));
     }
     await playTrack(tr, [tr, ...seed], '');
-    void refreshAll();
     void populateYTMusicAlgorithmQueue(tr);
+    void refreshAll();
   }
 
   async function handlePlayYTCollection(card: YTMusicCard) {
@@ -1692,9 +1820,16 @@
     }
 
     if (list.length > 0) {
-      queue = [...list];
+      if (list === queue) {
+        queue = [...list];
+      } else {
+        const curKey = trackQueueKey(tr);
+        const rest = list.filter((item) => trackQueueKey(item) !== curKey);
+        queue = [tr, ...shuffleAndSpreadByArtist(rest, (item) => item.artistName || item.albumTitle || '')];
+      }
     } else {
       queue = buildLocalAlgorithmQueue(tr);
+      void populateYTMusicAlgorithmQueue(tr);
     }
 
     const prevTrack = currentTrack;
@@ -1764,6 +1899,7 @@
     if (Number.isFinite(audioEl.duration) && audioEl.duration > 0) {
       durationSec = audioEl.duration;
     }
+    api.updateDynamicIslandProgress(positionSec, durationSec);
     if (isPlaying) {
       listenedAccumulator += 0.25;
       if (listenedAccumulator >= 10 && !recordedForCurrentTrack) {
