@@ -11,7 +11,6 @@
     canGoForward: boolean;
     searchQuery: string;
     fireStreak: FireStreakStatus;
-    isDark: boolean;
     accentColor: string;
     tracks?: Track[];
     artists?: Artist[];
@@ -33,7 +32,6 @@
       name: string;
       avatarUrl: string;
     }) => void;
-    onToggleTheme: () => void;
     onOpenStreakModal: () => void;
     onOpenJam?: () => void;
     onCloseJam?: () => void;
@@ -52,7 +50,6 @@
     canGoForward,
     searchQuery,
     fireStreak,
-    isDark,
     tracks = [],
     artists = [],
     ytResults = [],
@@ -69,7 +66,6 @@
     onPlayYTMusic,
     onToggleFavoriteArtist,
     onToggleFavoriteYTMusicArtist,
-    onToggleTheme,
     onOpenStreakModal,
     onOpenJam,
     onCloseJam,
@@ -720,9 +716,7 @@
             <!-- Gradasi halus di bagian bawah card tanpa menutupi item terakhir -->
             <div
               class="pointer-events-none absolute inset-x-0 bottom-0 h-7"
-              style={isDark
-                ? 'background: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.45) 65%, rgba(0, 0, 0, 0.78) 100%);'
-                : 'background: linear-gradient(to bottom, transparent 0%, var(--md-sys-color-surface-container-high) 95%);'}
+              style="background: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.45) 65%, rgba(0, 0, 0, 0.78) 100%);"
             ></div>
           </div>
         </div>
@@ -786,17 +780,6 @@
         {/if}
       </div>
     {/if}
-
-    <button
-      type="button"
-      onclick={onToggleTheme}
-      title={isDark ? 'Switch to Material Light' : 'Switch to Material Dark'}
-      aria-label="Toggle Theme"
-      class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:brightness-125"
-      style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant);"
-    >
-      <Icon name={isDark ? 'sun' : 'moon'} weight="bold" size={17} />
-    </button>
 
     {#if !isJamRemote}
       <div class="flex items-stretch self-stretch ml-2">
