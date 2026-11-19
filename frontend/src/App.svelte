@@ -4,7 +4,7 @@
   import { cubicIn, cubicOut } from 'svelte/easing';
   import { api, isJamRemote, resolveCoverUrl, safeEventsOn, sendJamCommand } from './lib/api';
   import { VeloraAudioEngine } from './lib/audioEngine';
-  import { getPrefBool, getPrefValue } from './lib/nuclearPrefs';
+  import { getPrefBool, getPrefValue } from './lib/preferences';
   import type {
     Album,
     Artist,
@@ -82,11 +82,7 @@
   let playlistDetailLoading = $state(false);
   let sources = $state<Source[]>([]);
   let history = $state<PlayHistoryItem[]>([]);
-  const initialThemeDark =
-    typeof localStorage !== 'undefined' ? localStorage.getItem('velora.theme.dark') : null;
-  let preferences = $state<Record<string, string>>(
-    initialThemeDark !== null ? { 'theme.dark': initialThemeDark } : {}
-  );
+  let preferences = $state<Record<string, string>>({});
   let mediaBaseUrl = $state('');
 
   let fireStreak = $state<FireStreakStatus>({
@@ -222,16 +218,7 @@
   let listenedAccumulator = 0;
   let recordedForCurrentTrack = false;
 
-  const isDark = $derived(getPrefBool(preferences, 'theme.dark'));
-  $effect(() => {
-    if (preferences['theme.dark'] !== undefined) {
-      localStorage.setItem('velora.theme.dark', String(isDark));
-    }
-  });
-  const themeSeed = $derived(getPrefValue(preferences, 'theme.seed') || 'monolith');
-  const accentColor = $derived(
-    preferences['accent_color'] || (isDark ? '#FF9E64' : '#EA6A1F')
-  );
+  const accentColor = '#F6847E';
 
   onMount(() => {
     const savedZoom = Number(localStorage.getItem('velora.zoom') || '1');
@@ -522,7 +509,7 @@
       shuffle,
       repeatMode,
       eqPreset,
-      themeSeed,
+      themeSeed: 'monolith',
       accentColor,
       streakDays: fireStreak?.currentStreak ?? 0,
       lyricsLoading,
@@ -2076,6 +2063,9 @@
   function applyZoom(next: number, showBadge = true) {
     const clamped = Math.round(Math.min(1.3, Math.max(0.7, next)) * 100) / 100;
     zoomLevel = clamped;
+    if (preferences['general.zoomLevel'] !== String(clamped)) {
+      preferences = { ...preferences, 'general.zoomLevel': String(clamped) };
+    }
     try {
       localStorage.setItem('velora.zoom', String(clamped));
     } catch {
@@ -2277,13 +2267,11 @@
 ></audio>
 
 <div
-  data-theme={isDark ? 'dark' : 'light'}
-  data-seed={themeSeed}
   class="flex flex-col overflow-hidden transition-colors duration-300"
   style="zoom: {zoomLevel}; width: {100 / zoomLevel}vw; height: {100 / zoomLevel}dvh; background-color: var(--md-sys-color-surface-container-lowest); color: var(--md-sys-color-on-surface);"
 >
   {#if showSplash}
-    <SplashScreen {isDark} onComplete={() => (showSplash = false)} />
+    <SplashScreen onComplete={() => (showSplash = false)} />
   {/if}
 
   <!-- Top App Bar (Borderless) -->
@@ -2293,7 +2281,6 @@
     canGoForward={navIndex < navStack.length - 1}
     {searchQuery}
     {fireStreak}
-    {isDark}
     {accentColor}
     {tracks}
     {artists}
@@ -2332,7 +2319,6 @@
     }}
     onToggleFavoriteArtist={handleToggleFavoriteArtist}
     onToggleFavoriteYTMusicArtist={handleToggleFavoriteYTMusicArtist}
-    onToggleTheme={() => patchPrefs({ 'theme.dark': isDark ? 'false' : 'true' })}
     onOpenStreakModal={() => (showStreakModal = true)}
     onResetZoom={() => applyZoom(1)}
   />

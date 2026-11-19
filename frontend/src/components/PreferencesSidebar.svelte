@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fly } from 'svelte/transition';
-  import { NUCLEAR_APP_TABS, NUCLEAR_CATEGORIES } from '../lib/nuclearPrefs';
+  import { PREFERENCE_APP_TABS, PREFERENCE_CATEGORIES } from '../lib/preferences';
   import Icon from './Icon.svelte';
 
   interface Props {
@@ -37,7 +37,7 @@
           <Icon name="arrow-left" size={17} />
         </button>
         <span class="text-[13px] font-bold tracking-tight truncate" style="color: var(--md-sys-color-on-surface);">
-          Preferences
+          Pengaturan
         </span>
       </div>
       {#if savedToast}
@@ -72,9 +72,9 @@
         class="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider"
         style="color: var(--md-sys-color-on-surface-variant); opacity: 0.78;"
       >
-        Pengaturan
+        Kategori
       </div>
-      {#each NUCLEAR_CATEGORIES as cat (cat.id)}
+      {#each PREFERENCE_CATEGORIES as cat (cat.id)}
         {@const active = !search.trim() && activeTab === cat.id}
         <button
           type="button"
@@ -103,7 +103,7 @@
       >
         Aplikasi
       </div>
-      {#each NUCLEAR_APP_TABS as tab (tab.id)}
+      {#each PREFERENCE_APP_TABS as tab (tab.id)}
         {@const active = !search.trim() && activeTab === tab.id}
         <button
           type="button"
