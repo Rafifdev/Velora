@@ -3,15 +3,11 @@
 
   interface Props {
     onComplete: () => void;
-    isDark?: boolean;
   }
 
-  let { onComplete, isDark = true }: Props = $props();
+  let { onComplete }: Props = $props();
 
-  // Animasi dirender menjadi WebM ber-alpha untuk tema gelap & terang,
-  // lalu diputar sinkron agar pergantian tema tetap mulus.
   let darkVideo = $state<HTMLVideoElement | null>(null);
-  let lightVideo = $state<HTMLVideoElement | null>(null);
   let ready = $state(false);
   let exiting = $state(false);
   let finished = $state(false);
@@ -26,36 +22,30 @@
   }
 
   onMount(() => {
-    const videos = [darkVideo, lightVideo].filter((v): v is HTMLVideoElement => v !== null);
+    const v = darkVideo;
+    if (!v) {
+      finishSplash();
+      return;
+    }
     const safety = setTimeout(finishSplash, 8000);
 
-    const waitReady = (v: HTMLVideoElement) =>
+    const waitReady = () =>
       new Promise<void>((resolve, reject) => {
         if (v.readyState >= 3) return resolve();
         v.addEventListener('canplaythrough', () => resolve(), { once: true });
         v.addEventListener('error', () => reject(v.error), { once: true });
       });
 
-    Promise.all(videos.map(waitReady))
+    waitReady()
       .then(() => {
-        for (const v of videos) v.currentTime = 0;
+        v.currentTime = 0;
         ready = true;
-        return Promise.all(videos.map((v) => v.play()));
+        return v.play();
       })
       .catch(() => setTimeout(finishSplash, 300));
 
-    // jaga kedua video tetap sinkron
-    let rafId = 0;
-    const sync = () => {
-      const [a, b] = videos;
-      if (a && b && Math.abs(a.currentTime - b.currentTime) > 0.04) b.currentTime = a.currentTime;
-      rafId = requestAnimationFrame(sync);
-    };
-    rafId = requestAnimationFrame(sync);
-
     return () => {
       clearTimeout(safety);
-      cancelAnimationFrame(rafId);
     };
   });
 </script>
@@ -85,22 +75,11 @@
         bind:this={darkVideo}
         src="/splash/velora-splash-dark.webm"
         class="splash-video"
-        style="opacity: {isDark ? 1 : 0};"
         muted
         playsinline
         preload="auto"
         disablepictureinpicture
         onended={finishSplash}
-      ></video>
-      <video
-        bind:this={lightVideo}
-        src="/splash/velora-splash-light.webm"
-        class="splash-video"
-        style="opacity: {isDark ? 0 : 1};"
-        muted
-        playsinline
-        preload="auto"
-        disablepictureinpicture
       ></video>
     </div>
   </div>
@@ -112,9 +91,6 @@
     backdrop-filter: blur(28px);
     -webkit-backdrop-filter: blur(28px);
   }
-  :global([data-theme='light']) .splash-backdrop {
-    background-color: rgba(255, 255, 255, 0.56);
-  }
   .splash-stage {
     width: 320px;
     height: 368px;
@@ -124,7 +100,7 @@
     inset: 0;
     width: 100%;
     height: 100%;
+    object-fit: contain;
     pointer-events: none;
-    transition: opacity 300ms ease;
   }
 </style>

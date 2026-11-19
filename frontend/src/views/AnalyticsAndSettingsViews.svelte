@@ -3,14 +3,13 @@
   import { formatDuration, resolveCoverUrl } from '../lib/api';
   import { svelteMotionEnter } from '../lib/motion';
   import {
-    NUCLEAR_APP_TABS,
-    NUCLEAR_CATEGORIES,
-    NUCLEAR_SETTINGS,
-    NUCLEAR_THEMES,
+    PREFERENCE_APP_TABS,
+    PREFERENCE_CATEGORIES,
+    PREFERENCE_SETTINGS,
     getPrefBool,
     getPrefValue,
-    type SettingItemDef
-  } from '../lib/nuclearPrefs';
+    type PreferenceItemDef
+  } from '../lib/preferences';
   import type { FireStreakStatus, ListeningStats, PlayHistoryItem, Track, ViewRoute } from '../lib/types';
   import Icon from '../components/Icon.svelte';
 
@@ -53,6 +52,8 @@
   let savedToast = $state('');
   let copiedKey = $state('');
   let openSelectId = $state<string | null>(null);
+  let openSelectFlipUp = $state(false);
+  let clearingCache = $state(false);
   let historyTab = $state<'recent' | 'stats'>('recent');
   let historyFilter = $state('');
 
@@ -69,7 +70,10 @@
 
   const visibleSettingsForCategory = $derived.by(() => {
     const q = prefSearch.trim().toLowerCase();
-    return NUCLEAR_SETTINGS.filter((s) => {
+    return PREFERENCE_SETTINGS.filter((s) => {
+      if (s.visibleWhen && getPrefValue(preferences, s.visibleWhen.id) !== s.visibleWhen.equals) {
+        return false;
+      }
       if (q) {
         return (
           s.title.toLowerCase().includes(q) ||
@@ -83,7 +87,7 @@
   });
 
   const groupedVisibleSettings = $derived.by(() => {
-    const groups: { name: string; items: SettingItemDef[] }[] = [];
+    const groups: { name: string; items: PreferenceItemDef[] }[] = [];
     for (const item of visibleSettingsForCategory) {
       let grp = groups.find((g) => g.name === item.group);
       if (!grp) {
@@ -96,7 +100,7 @@
   });
 
   const activeCategoryTitle = $derived(
-    NUCLEAR_CATEGORIES.find((c) => c.id === activePrefTab)?.title ?? activePrefTab
+    PREFERENCE_CATEGORIES.find((c) => c.id === activePrefTab)?.title ?? activePrefTab
   );
 
   const maxHourMinutes = $derived(
@@ -106,21 +110,27 @@
     Math.max(1, ...listeningStats.dayOfWeek.map((d) => d.minutes))
   );
 
-  function updateSetting(key: string, value: string) {
-    onSavePreferences({ [key]: value });
-    savedToast = 'Preference saved';
-    setTimeout(() => (savedToast = ''), 1800);
+  function showSavedToast(msg: string) {
+    savedToast = msg;
+    setTimeout(() => {
+      if (savedToast === msg) savedToast = '';
+    }, 2000);
   }
 
-  function applyThemePreset(theme: (typeof NUCLEAR_THEMES)[number]) {
-    onSavePreferences({
-      'theme.seed': theme.seed,
-      'theme.dark': theme.dark ? 'true' : 'false',
-      'theme.active.id': theme.id,
-      accent_color: theme.accent
-    });
-    savedToast = `Theme "${theme.name}" applied`;
-    setTimeout(() => (savedToast = ''), 2000);
+  function updateSetting(key: string, value: string) {
+    onSavePreferences({ [key]: value });
+    showSavedToast('Pengaturan disimpan');
+  }
+
+  async function handleClearCacheClick() {
+    if (clearingCache) return;
+    clearingCache = true;
+    try {
+      await onClearCache();
+      showSavedToast('Cache berhasil dibersihkan');
+    } finally {
+      clearingCache = false;
+    }
   }
 
   function copyInfoValue(id: string, val: string) {
@@ -165,11 +175,18 @@
   }
 
   function isAppTab(tab: string): boolean {
-    return NUCLEAR_APP_TABS.some((t) => t.id === tab);
+    return PREFERENCE_APP_TABS.some((t) => t.id === tab);
   }
 </script>
 
-<svelte:window onclick={() => (openSelectId = null)} />
+<svelte:window
+  onclick={() => (openSelectId = null)}
+  onkeydown={(e) => {
+    if (e.key === 'Escape' && openSelectId) {
+      openSelectId = null;
+    }
+  }}
+/>
 
 {#snippet m3Switch(checked: boolean, label: string, onToggle: () => void)}
   <button
@@ -192,7 +209,7 @@
   </button>
 {/snippet}
 
-{#snippet settingControl(item: SettingItemDef)}
+{#snippet settingControl(item: PreferenceItemDef)}
   {@const val = getPrefValue(preferences, item.id)}
   {@const checked = val === 'true'}
   {@const isOpen = openSelectId === item.id}
@@ -207,6 +224,83 @@
     <div class="shrink-0 flex items-center gap-2">
       {#if item.widget === 'toggle'}
         {@render m3Switch(checked, item.title, () => updateSetting(item.id, checked ? 'false' : 'true'))}
+      {:else if item.widget === 'segmented'}
+        <div
+          role="radiogroup"
+          aria-label={item.title}
+          class="inline-flex p-1 rounded-xl gap-1"
+          style="background-color: var(--md-sys-color-surface-container-highest); border: 1px solid var(--md-sys-color-outline-variant);"
+        >
+          {#each item.options || [] as opt (opt.value)}
+            {@const isActive = val === opt.value}
+            <button
+              type="button"
+              role="radio"
+              aria-checked={isActive}
+              onclick={() => updateSetting(item.id, opt.value)}
+              class="px-3.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-all duration-150 {isActive ? 'font-semibold shadow-xs' : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
+              style={isActive
+                ? 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'
+                : 'color: var(--md-sys-color-on-surface-variant);'}
+            >
+              {opt.label}
+            </button>
+          {/each}
+        </div>
+      {:else if item.widget === 'stepper'}
+        {@const curNum = Number(val) || 1}
+        {@const minV = item.min ?? 0.7}
+        {@const maxV = item.max ?? 1.3}
+        {@const stepV = item.step ?? 0.1}
+        {@const pct = Math.round(curNum * 100)}
+        <div class="flex items-center gap-2">
+          {#if pct !== 100}
+            <button
+              type="button"
+              onclick={() => updateSetting(item.id, '1')}
+              class="m3-btn-outlined px-2.5 h-9 text-[11px] font-medium cursor-pointer"
+            >
+              Reset
+            </button>
+          {/if}
+          <div
+            class="inline-flex items-center h-9 rounded-lg overflow-hidden"
+            style="background-color: var(--md-sys-color-surface-container-highest); border: 1px solid var(--md-sys-color-outline-variant);"
+          >
+            <button
+              type="button"
+              aria-label="Perkecil skala"
+              disabled={curNum <= minV + 0.001}
+              onclick={() => updateSetting(item.id, String(Math.round(Math.max(minV, curNum - stepV) * 100) / 100))}
+              class="w-9 h-full flex items-center justify-center cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed hover:bg-[var(--md-sys-color-state-hover)]"
+              style="color: var(--md-sys-color-on-surface);"
+            >
+              <Icon name="minus" size={14} weight="bold" />
+            </button>
+            <span class="px-3 text-xs font-semibold tabular-nums min-w-[54px] text-center" style="color: var(--md-sys-color-on-surface);">
+              {pct}%
+            </span>
+            <button
+              type="button"
+              aria-label="Perbesar skala"
+              disabled={curNum >= maxV - 0.001}
+              onclick={() => updateSetting(item.id, String(Math.round(Math.min(maxV, curNum + stepV) * 100) / 100))}
+              class="w-9 h-full flex items-center justify-center cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed hover:bg-[var(--md-sys-color-state-hover)]"
+              style="color: var(--md-sys-color-on-surface);"
+            >
+              <Icon name="plus" size={14} weight="bold" />
+            </button>
+          </div>
+        </div>
+      {:else if item.widget === 'action'}
+        <button
+          type="button"
+          disabled={clearingCache}
+          onclick={handleClearCacheClick}
+          class="m3-btn-tonal px-4 h-9 text-xs font-semibold cursor-pointer disabled:opacity-50"
+        >
+          {clearingCache ? 'Membersihkan...' : item.actionLabel || 'Jalankan'}
+        </button>
       {:else if item.widget === 'select'}
         {@const activeOpt = (item.options || []).find((o) => o.value === val) ?? item.options?.[0]}
         <div class="relative">
@@ -216,7 +310,13 @@
             aria-expanded={isOpen}
             onclick={(e) => {
               e.stopPropagation();
-              openSelectId = isOpen ? null : item.id;
+              if (isOpen) {
+                openSelectId = null;
+              } else {
+                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                openSelectFlipUp = window.innerHeight - rect.bottom < 220;
+                openSelectId = item.id;
+              }
             }}
             class="h-10 min-w-[168px] px-3.5 rounded-lg text-xs font-medium flex items-center justify-between gap-3 cursor-pointer transition-colors duration-150"
             style="background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface); border: 1px solid {isOpen ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-outline-variant)'};"
@@ -231,8 +331,8 @@
             <div
               role="listbox"
               aria-label={item.title}
-              in:fly={{ y: -6, duration: 150 }}
-              class="absolute right-0 mt-1.5 min-w-[196px] py-1.5 rounded-xl shadow-xl z-40 overflow-hidden"
+              in:fly={{ y: openSelectFlipUp ? 6 : -6, duration: 150 }}
+              class="absolute right-0 {openSelectFlipUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'} min-w-[196px] py-1.5 rounded-xl shadow-xl z-40 overflow-hidden"
               style="background-color: var(--md-sys-color-surface-container-high); border: 1px solid var(--md-sys-color-outline-variant);"
             >
               {#each item.options || [] as opt (opt.value)}
@@ -304,7 +404,7 @@
           <button
             type="button"
             onclick={() => copyInfoValue(item.id, val)}
-            title="Copy URL"
+            title="Salin alamat"
             class="m3-icon-btn-tonal w-8 h-8 flex items-center justify-center cursor-pointer"
           >
             <Icon name={copiedKey === item.id ? 'check' : 'copy'} weight="bold" size={14} />
@@ -606,67 +706,26 @@
   </div>
 {:else}
   <!-- VELORA PREFERENCES MAIN PAGE (Matched with Home & M3 Design Tokens) -->
-  <div class="h-full min-h-0 flex flex-col overflow-hidden" use:svelteMotionEnter={{ y: 8 }}>
+  <div class="h-full min-h-0 flex flex-col overflow-hidden relative" use:svelteMotionEnter={{ y: 8 }}>
     <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-6 space-y-5">
       {#if !prefSearch.trim() && isAppTab(activePrefTab)}
-        {#if activePrefTab === 'themes'}
-          <div class="w-full">
-            <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-              Tema Warna Material You
-            </h2>
-            <p class="text-xs mt-1" style="color: var(--md-sys-color-on-surface-variant);">
-              Pilih palet warna tonal Google Material Design 3 untuk seluruh tampilan Velora
-            </p>
+        <div class="w-full">
+          <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+            Tentang Velora
+          </h2>
+          <p class="text-xs mt-1" style="color: var(--md-sys-color-on-surface-variant);">Catatan Rilis dan Fitur</p>
+        </div>
+        <div class="w-full m3-card p-5 rounded-lg space-y-2.5 text-xs leading-relaxed">
+          <div class="text-sm font-semibold" style="color: var(--md-sys-color-on-surface);">
+            Velora v2.0 — Studio Musik Material Design 3
           </div>
-          <div class="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-            {#each NUCLEAR_THEMES as th (th.id)}
-              {@const isSelected = getPrefValue(preferences, 'theme.active.id') === th.id}
-              <button
-                type="button"
-                onclick={() => applyThemePreset(th)}
-                class="m3-card p-4 rounded-lg text-left cursor-pointer space-y-3"
-                style={isSelected ? `box-shadow: 0 0 0 2px var(--md-sys-color-primary);` : ''}
-              >
-                <div class="h-14 rounded-md flex overflow-hidden">
-                  <div class="w-1/4 h-full" style="background-color: {th.previewPanel};"></div>
-                  <div class="flex-1 h-full p-2.5 flex items-center gap-2" style="background-color: {th.previewBg};">
-                    <span class="w-6 h-6 rounded-full shrink-0" style="background-color: {th.accent};"></span>
-                    <span class="h-3 flex-1 rounded-full" style="background-color: {th.previewPanel};"></span>
-                  </div>
-                </div>
-                <div>
-                  <div class="text-sm font-semibold flex items-center justify-between" style="color: var(--md-sys-color-on-surface);">
-                    <span>{th.name}</span>
-                    {#if isSelected}
-                      <Icon name="check-circle" weight="fill" size={18} style="color: var(--md-sys-color-primary);" />
-                    {/if}
-                  </div>
-                  <div class="text-xs mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-                    {th.description}
-                  </div>
-                </div>
-              </button>
-            {/each}
-          </div>
-        {:else}
-          <div class="w-full">
-            <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-              Tentang Velora
-            </h2>
-            <p class="text-xs mt-1" style="color: var(--md-sys-color-on-surface-variant);">Catatan Rilis dan Fitur</p>
-          </div>
-          <div class="w-full m3-card p-5 rounded-lg space-y-2.5 text-xs leading-relaxed">
-            <div class="text-sm font-semibold" style="color: var(--md-sys-color-on-surface);">
-              Velora v2.0 — Studio Musik Material Design 3
-            </div>
-            <ul class="list-disc pl-5 space-y-1" style="color: var(--md-sys-color-on-surface-variant);">
-              <li>Antarmuka Material Design 3 dengan tema warna dinamis, kartu modern, dan navigasi responsif.</li>
-              <li>Dynamic Island native Windows dengan kontrol pemutaran, lirik sinkron, antrean, dan pemilih perangkat audio.</li>
-              <li>Mesin audio lima band Equalizer, normalisasi kenyaringan, serta pemutaran dan unduhan musik offline.</li>
-              <li>Velora Jam untuk kendali jarak jauh pemutar musik melalui jaringan Wi-Fi lokal.</li>
-            </ul>
-          </div>
-        {/if}
+          <ul class="list-disc pl-5 space-y-1" style="color: var(--md-sys-color-on-surface-variant);">
+            <li>Antarmuka Material Design 3 dengan tema gelap terpadu, kartu modern, dan navigasi responsif.</li>
+            <li>Dynamic Island native Windows dengan kontrol pemutaran, lirik sinkron, antrean, dan pemilih perangkat audio.</li>
+            <li>Mesin audio lima band Equalizer, normalisasi kenyaringan, serta pemutaran dan unduhan musik offline.</li>
+            <li>Velora Jam untuk kendali jarak jauh pemutar musik melalui jaringan Wi-Fi lokal.</li>
+          </ul>
+        </div>
       {:else}
         <div class="w-full flex items-center justify-between">
           <div>
@@ -702,5 +761,15 @@
         </div>
       {/if}
     </div>
+    {#if savedToast}
+      <div
+        in:fly={{ y: 12, duration: 160 }}
+        class="absolute bottom-5 right-6 px-4 py-2 rounded-full text-xs font-semibold shadow-lg pointer-events-none flex items-center gap-2"
+        style="background-color: var(--md-sys-color-inverse-surface); color: var(--md-sys-color-inverse-on-surface);"
+      >
+        <Icon name="check-circle" weight="fill" size={15} />
+        <span>{savedToast}</span>
+      </div>
+    {/if}
   </div>
 {/if}

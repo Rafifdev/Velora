@@ -4,7 +4,7 @@
   import { fade, fly, slide } from 'svelte/transition';
   import { isYTVideoThumb, resolveCoverUrl } from '../lib/api';
   import { svelteMotionEnter } from '../lib/motion';
-  import { getPrefBool, getPrefValue } from '../lib/nuclearPrefs';
+  import { getPrefBool, getPrefValue } from '../lib/preferences';
   import type { Track, TrackLyrics } from '../lib/types';
   import Icon from './Icon.svelte';
 
