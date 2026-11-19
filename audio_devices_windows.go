@@ -16,6 +16,7 @@ type windowsAudioEndpoint struct {
 	ConnType string // "bluetooth", "wired", "speaker"
 	IsActive bool
 	BatPct   int // -1 if no battery (wired/speaker), 0..100 if Bluetooth battery reported
+	VolPct   int // 0..100 endpoint master volume (-1 if unavailable)
 }
 
 var (
@@ -31,6 +32,8 @@ var (
 
 	clsidPolicyConfig = windows.GUID{Data1: 0x870AF99C, Data2: 0x171D, Data3: 0x4F9E, Data4: [8]byte{0xAF, 0x0D, 0xE6, 0x3D, 0xF4, 0x0C, 0x2B, 0xC9}}
 	iidIPolicyConfig  = windows.GUID{Data1: 0xF8679F50, Data2: 0x850A, Data3: 0x41CF, Data4: [8]byte{0x9C, 0x72, 0x43, 0x0F, 0x29, 0x02, 0x90, 0xC8}}
+
+	iidIAudioEndpointVolume = windows.GUID{Data1: 0x5CDF2C82, Data2: 0x841E, Data3: 0x4546, Data4: [8]byte{0x97, 0x22, 0x0C, 0xF7, 0x40, 0x78, 0x22, 0x9A}}
 
 	pkeyDeviceFriendlyName = struct {
 		fmtid windows.GUID
@@ -151,6 +154,27 @@ func listWindowsAudioOutputs(btBat int, btFriendly string) []windowsAudioEndpoin
 			}
 			comRelease(psPtr)
 		}
+
+		volPct := -1
+		var epVolPtr uintptr
+		if rVol, _, _ := syscall.SyscallN(devObj.vtbl[3], devPtr, uintptr(unsafe.Pointer(&iidIAudioEndpointVolume)), 1, 0, uintptr(unsafe.Pointer(&epVolPtr))); rVol == 0 && epVolPtr != 0 {
+			epVolObj := (*comObj)(unsafe.Pointer(epVolPtr))
+			var scalar float32
+			if rGet, _, _ := syscall.SyscallN(epVolObj.vtbl[9], epVolPtr, uintptr(unsafe.Pointer(&scalar))); rGet == 0 {
+				v := int(scalar*100.0 + 0.5)
+				if v < 0 {
+					v = 0
+				} else if v > 100 {
+					v = 100
+				}
+				volPct = v
+			}
+			var isMuted int32
+			if rMute, _, _ := syscall.SyscallN(epVolObj.vtbl[15], epVolPtr, uintptr(unsafe.Pointer(&isMuted))); rMute == 0 && isMuted != 0 {
+				volPct = 0
+			}
+			comRelease(epVolPtr)
+		}
 		comRelease(devPtr)
 
 		if idStr == "" || friendly == "" {
@@ -163,6 +187,7 @@ func listWindowsAudioOutputs(btBat int, btFriendly string) []windowsAudioEndpoin
 			ConnType: connType,
 			IsActive: idStr == defID,
 			BatPct:   batPct,
+			VolPct:   volPct,
 		})
 	}
 	return out

@@ -1,10 +1,10 @@
 <script lang="ts">
+  import { fly } from 'svelte/transition';
   import { formatDuration, resolveCoverUrl } from '../lib/api';
   import { svelteMotionEnter } from '../lib/motion';
   import {
-    BUILTIN_PLUGINS,
-    KEY_SHORTCUTS_LIST,
     NUCLEAR_APP_TABS,
+    NUCLEAR_CATEGORIES,
     NUCLEAR_SETTINGS,
     NUCLEAR_THEMES,
     getPrefBool,
@@ -41,7 +41,7 @@
     tracks,
     mediaBaseUrl,
     accentColor: _accentColor,
-    activePrefTab = $bindable('appearance'),
+    activePrefTab = $bindable('general'),
     prefSearch = $bindable(''),
     onPlayTrack,
     onClearHistory,
@@ -51,9 +51,8 @@
   }: Props = $props();
 
   let savedToast = $state('');
-  let recordingShortcutId = $state<string | null>(null);
-  let shortcutConflict = $state('');
   let copiedKey = $state('');
+  let openSelectId = $state<string | null>(null);
   let historyTab = $state<'recent' | 'stats'>('recent');
   let historyFilter = $state('');
 
@@ -75,12 +74,30 @@
         return (
           s.title.toLowerCase().includes(q) ||
           s.description.toLowerCase().includes(q) ||
+          s.group.toLowerCase().includes(q) ||
           s.category.toLowerCase().includes(q)
         );
       }
       return s.category === activePrefTab;
     });
   });
+
+  const groupedVisibleSettings = $derived.by(() => {
+    const groups: { name: string; items: SettingItemDef[] }[] = [];
+    for (const item of visibleSettingsForCategory) {
+      let grp = groups.find((g) => g.name === item.group);
+      if (!grp) {
+        grp = { name: item.group, items: [] };
+        groups.push(grp);
+      }
+      grp.items.push(item);
+    }
+    return groups;
+  });
+
+  const activeCategoryTitle = $derived(
+    NUCLEAR_CATEGORIES.find((c) => c.id === activePrefTab)?.title ?? activePrefTab
+  );
 
   const maxHourMinutes = $derived(
     Math.max(1, ...listeningStats.timeOfDay.map((b) => b.minutes))
@@ -103,42 +120,6 @@
       accent_color: theme.accent
     });
     savedToast = `Theme "${theme.name}" applied`;
-    setTimeout(() => (savedToast = ''), 2000);
-  }
-
-  function handleShortcutKeyDown(e: KeyboardEvent, cmdId: string) {
-    if (recordingShortcutId !== cmdId) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const parts: string[] = [];
-    if (e.ctrlKey || e.metaKey) parts.push('Ctrl');
-    if (e.altKey) parts.push('Alt');
-    if (e.shiftKey) parts.push('Shift');
-    const keyName = e.key === ' ' ? 'Space' : e.key.length === 1 ? e.key.toUpperCase() : e.key;
-    if (!['Control', 'Shift', 'Alt', 'Meta'].includes(keyName)) {
-      parts.push(keyName);
-      const combo = parts.join('+');
-      const dup = KEY_SHORTCUTS_LIST.find(
-        (k) => k.id !== cmdId && getPrefValue(preferences, `shortcut.${k.id}`) === combo
-      );
-      if (dup) {
-        shortcutConflict = `This shortcut is already used by "${dup.label}"`;
-      } else {
-        shortcutConflict = '';
-        updateSetting(`shortcut.${cmdId}`, combo);
-      }
-      recordingShortcutId = null;
-    }
-  }
-
-  function resetAllShortcuts() {
-    const patch: Record<string, string> = {};
-    for (const sc of KEY_SHORTCUTS_LIST) {
-      patch[`shortcut.${sc.id}`] = sc.defaultKey;
-    }
-    onSavePreferences(patch);
-    shortcutConflict = '';
-    savedToast = 'All key shortcuts reset to defaults';
     setTimeout(() => (savedToast = ''), 2000);
   }
 
@@ -188,6 +169,8 @@
   }
 </script>
 
+<svelte:window onclick={() => (openSelectId = null)} />
+
 {#snippet m3Switch(checked: boolean, label: string, onToggle: () => void)}
   <button
     type="button"
@@ -212,7 +195,8 @@
 {#snippet settingControl(item: SettingItemDef)}
   {@const val = getPrefValue(preferences, item.id)}
   {@const checked = val === 'true'}
-  <div class="m3-card p-4 rounded-lg flex flex-wrap items-center justify-between gap-4">
+  {@const isOpen = openSelectId === item.id}
+  <div class="m3-card p-4 rounded-lg flex flex-wrap items-center justify-between gap-4 relative {isOpen ? 'z-30' : ''}">
     <div class="min-w-0 flex-1 space-y-0.5">
       <div class="text-sm font-semibold" style="color: var(--md-sys-color-on-surface);">{item.title}</div>
       <div class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
@@ -224,15 +208,58 @@
       {#if item.widget === 'toggle'}
         {@render m3Switch(checked, item.title, () => updateSetting(item.id, checked ? 'false' : 'true'))}
       {:else if item.widget === 'select'}
-        <select
-          value={val}
-          onchange={(e) => updateSetting(item.id, (e.target as HTMLSelectElement).value)}
-          class="m3-input h-9 px-3.5 rounded-md text-xs font-medium outline-none cursor-pointer"
-        >
-          {#each item.options || [] as opt (opt.value)}
-            <option value={opt.value}>{opt.label}</option>
-          {/each}
-        </select>
+        {@const activeOpt = (item.options || []).find((o) => o.value === val) ?? item.options?.[0]}
+        <div class="relative">
+          <button
+            type="button"
+            aria-haspopup="listbox"
+            aria-expanded={isOpen}
+            onclick={(e) => {
+              e.stopPropagation();
+              openSelectId = isOpen ? null : item.id;
+            }}
+            class="h-10 min-w-[168px] px-3.5 rounded-lg text-xs font-medium flex items-center justify-between gap-3 cursor-pointer transition-colors duration-150"
+            style="background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface); border: 1px solid {isOpen ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-outline-variant)'};"
+          >
+            <span class="truncate">{activeOpt?.label ?? val}</span>
+            <span class="transition-transform duration-200 {isOpen ? 'rotate-180' : ''}" style="color: var(--md-sys-color-on-surface-variant);">
+              <Icon name="caret-down" size={14} weight="bold" />
+            </span>
+          </button>
+
+          {#if isOpen}
+            <div
+              role="listbox"
+              aria-label={item.title}
+              in:fly={{ y: -6, duration: 150 }}
+              class="absolute right-0 mt-1.5 min-w-[196px] py-1.5 rounded-xl shadow-xl z-40 overflow-hidden"
+              style="background-color: var(--md-sys-color-surface-container-high); border: 1px solid var(--md-sys-color-outline-variant);"
+            >
+              {#each item.options || [] as opt (opt.value)}
+                {@const isSelected = opt.value === val}
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    updateSetting(item.id, opt.value);
+                    openSelectId = null;
+                  }}
+                  class="w-full px-3.5 py-2.5 text-xs font-medium flex items-center justify-between gap-3 text-left cursor-pointer transition-colors duration-150 {isSelected ? 'font-semibold' : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
+                  style={isSelected
+                    ? 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'
+                    : 'color: var(--md-sys-color-on-surface);'}
+                >
+                  <span class="truncate">{opt.label}</span>
+                  {#if isSelected}
+                    <Icon name="check" size={14} weight="bold" />
+                  {/if}
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
       {:else if item.widget === 'slider'}
         <div class="w-44 space-y-1.5">
           <div class="flex items-center justify-between text-[10px] font-medium" style="color: var(--md-sys-color-on-surface-variant);">
@@ -578,109 +605,17 @@
     </div>
   </div>
 {:else}
-  <!-- 1:1 NUCLEAR PREFERENCES MAIN PAGE (Matched with Home & M3 Design Tokens) -->
+  <!-- VELORA PREFERENCES MAIN PAGE (Matched with Home & M3 Design Tokens) -->
   <div class="h-full min-h-0 flex flex-col overflow-hidden" use:svelteMotionEnter={{ y: 8 }}>
     <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-6 space-y-5">
       {#if !prefSearch.trim() && isAppTab(activePrefTab)}
-        {#if activePrefTab === 'shortcuts'}
-          <div class="w-full flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-                Key Shortcuts
-              </h2>
-              <p class="text-xs mt-1" style="color: var(--md-sys-color-on-surface-variant);">
-                Click any shortcut to rebind key combinations
-              </p>
-            </div>
-            <button type="button" onclick={resetAllShortcuts} class="m3-btn-tonal px-4 py-2 text-xs cursor-pointer">
-              Reset all to defaults
-            </button>
-          </div>
-
-          {#if shortcutConflict}
-            <div
-              class="w-full p-3.5 rounded-lg text-xs font-medium"
-              style="background-color: var(--md-sys-color-error-container); color: var(--md-sys-color-on-error-container);"
-            >
-              {shortcutConflict}
-            </div>
-          {/if}
-
-          {#each ['Playback', 'General'] as section (section)}
-            <div class="w-full space-y-2 pt-2">
-              <div
-                class="text-[11px] font-semibold uppercase tracking-wider"
-                style="color: var(--md-sys-color-on-surface-variant);"
-              >
-                {section}
-              </div>
-              {#each KEY_SHORTCUTS_LIST.filter((k) => k.section === section) as sc (sc.id)}
-                {@const curKey = getPrefValue(preferences, `shortcut.${sc.id}`) || sc.defaultKey}
-                <div class="m3-card px-4 py-3 rounded-lg flex items-center justify-between gap-3">
-                  <span class="text-sm font-medium" style="color: var(--md-sys-color-on-surface);">{sc.label}</span>
-                  <div class="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onclick={() => (recordingShortcutId = recordingShortcutId === sc.id ? null : sc.id)}
-                      onkeydown={(e) => handleShortcutKeyDown(e, sc.id)}
-                      class="px-3.5 py-1.5 text-xs font-mono cursor-pointer {recordingShortcutId === sc.id
-                        ? 'm3-btn-filled'
-                        : 'm3-btn-tonal'}"
-                    >
-                      {recordingShortcutId === sc.id ? 'Press a key combination...' : curKey}
-                    </button>
-                    <button
-                      type="button"
-                      onclick={() => updateSetting(`shortcut.${sc.id}`, sc.defaultKey)}
-                      class="m3-btn-outlined px-3 py-1 text-xs cursor-pointer"
-                    >
-                      Reset
-                    </button>
-                  </div>
-                </div>
-              {/each}
-            </div>
-          {/each}
-        {:else if activePrefTab === 'app-plugins'}
-          <div class="w-full">
-            <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">Plugins</h2>
-            <p class="text-xs mt-1" style="color: var(--md-sys-color-on-surface-variant);">
-              Active metadata, stream & discovery plugins
-            </p>
-          </div>
-          <div class="w-full space-y-2.5">
-            {#each BUILTIN_PLUGINS as plugin (plugin.id)}
-              {@const enabled = getPrefValue(preferences, `plugin.${plugin.id}.enabled`) !== 'false'}
-              <div class="m3-card p-4 rounded-lg flex items-center justify-between gap-4">
-                <div class="space-y-0.5 min-w-0">
-                  <div class="flex items-center gap-2">
-                    <span class="text-sm font-semibold" style="color: var(--md-sys-color-on-surface);">
-                      {plugin.name}
-                    </span>
-                    <span
-                      class="px-2 py-0.5 rounded-full text-[10px] font-semibold"
-                      style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
-                    >
-                      v{plugin.version}
-                    </span>
-                  </div>
-                  <div class="text-xs" style="color: var(--md-sys-color-on-surface-variant);">
-                    {plugin.description} • {plugin.author}
-                  </div>
-                </div>
-                {@render m3Switch(enabled, `Toggle ${plugin.name}`, () =>
-                  updateSetting(`plugin.${plugin.id}.enabled`, enabled ? 'false' : 'true')
-                )}
-              </div>
-            {/each}
-          </div>
-        {:else if activePrefTab === 'themes'}
+        {#if activePrefTab === 'themes'}
           <div class="w-full">
             <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-              Material You Themes
+              Tema Warna Material You
             </h2>
             <p class="text-xs mt-1" style="color: var(--md-sys-color-on-surface-variant);">
-              Choose a Google Material Design 3 tonal palette and seed color for Velora
+              Pilih palet warna tonal Google Material Design 3 untuk seluruh tampilan Velora
             </p>
           </div>
           <div class="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
@@ -716,46 +651,52 @@
         {:else}
           <div class="w-full">
             <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-              What's New
+              Tentang Velora
             </h2>
-            <p class="text-xs mt-1" style="color: var(--md-sys-color-on-surface-variant);">Velora Release Notes</p>
+            <p class="text-xs mt-1" style="color: var(--md-sys-color-on-surface-variant);">Catatan Rilis dan Fitur</p>
           </div>
           <div class="w-full m3-card p-5 rounded-lg space-y-2.5 text-xs leading-relaxed">
             <div class="text-sm font-semibold" style="color: var(--md-sys-color-on-surface);">
-              Velora v2.0 — Material Design 3 Workspace
+              Velora v2.0 — Studio Musik Material Design 3
             </div>
             <ul class="list-disc pl-5 space-y-1" style="color: var(--md-sys-color-on-surface-variant);">
-              <li>Google Material Design 3 tonal surfaces, dynamic color seeds, elevated cards, and pill navigation.</li>
-              <li>Dynamic resizable Left Menu & Right Studio Panel with smooth morphing animations.</li>
-              <li>Right Panel with 3 dedicated cards: Album Lagu, Synchronized Lirik Lagu, and Antrean berikutnya.</li>
-              <li>Phosphor Icons + Motion One spring physics across all interactions.</li>
-              <li>
-                Full Preferences covering Appearance, General, History, Integrations (MCP, MPD, Jam, Discord),
-                Playback, Plugins & Updates.
-              </li>
+              <li>Antarmuka Material Design 3 dengan tema warna dinamis, kartu modern, dan navigasi responsif.</li>
+              <li>Dynamic Island native Windows dengan kontrol pemutaran, lirik sinkron, antrean, dan pemilih perangkat audio.</li>
+              <li>Mesin audio lima band Equalizer, normalisasi kenyaringan, serta pemutaran dan unduhan musik offline.</li>
+              <li>Velora Jam untuk kendali jarak jauh pemutar musik melalui jaringan Wi-Fi lokal.</li>
             </ul>
           </div>
         {/if}
       {:else}
         <div class="w-full flex items-center justify-between">
           <div>
-            <h2 class="text-2xl font-bold capitalize tracking-tight" style="color: var(--md-sys-color-on-surface);">
-              {prefSearch.trim() ? `Search results for "${prefSearch}"` : activePrefTab}
+            <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+              {prefSearch.trim() ? `Hasil pencarian "${prefSearch}"` : activeCategoryTitle}
             </h2>
             <p class="text-xs mt-1" style="color: var(--md-sys-color-on-surface-variant);">
-              Changes apply and persist automatically
+              Perubahan diterapkan dan disimpan secara otomatis
             </p>
           </div>
         </div>
 
-        <div class="w-full space-y-2.5">
-          {#if visibleSettingsForCategory.length === 0}
+        <div class="w-full space-y-5">
+          {#if groupedVisibleSettings.length === 0}
             <div class="m3-card p-6 rounded-lg text-xs text-center" style="color: var(--md-sys-color-on-surface-variant);">
-              No matching preferences found.
+              Tidak ada pengaturan yang cocok.
             </div>
           {:else}
-            {#each visibleSettingsForCategory as item (item.id)}
-              {@render settingControl(item)}
+            {#each groupedVisibleSettings as grp (grp.name)}
+              <div class="space-y-2.5">
+                <div
+                  class="px-1 text-[11px] font-semibold uppercase tracking-wider"
+                  style="color: var(--md-sys-color-on-surface-variant); opacity: 0.78;"
+                >
+                  {grp.name}
+                </div>
+                {#each grp.items as item (item.id)}
+                  {@render settingControl(item)}
+                {/each}
+              </div>
             {/each}
           {/if}
         </div>

@@ -11,7 +11,7 @@
   }
 
   let {
-    activeTab = $bindable('appearance'),
+    activeTab = $bindable('general'),
     search = $bindable(''),
     savedToast = '',
     onBack
@@ -45,7 +45,7 @@
           class="px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0"
           style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
         >
-          Saved
+          Tersimpan
         </span>
       {/if}
     </div>
@@ -61,18 +61,18 @@
       <input
         type="search"
         bind:value={search}
-        placeholder="Filter settings..."
+        placeholder="Cari pengaturan..."
         class="m3-input w-full h-9 pl-8 pr-3 rounded-md text-[12px] outline-none"
       />
     </div>
 
-    <!-- Section 1: Settings -->
+    <!-- Section 1: Pengaturan -->
     <div class="space-y-1">
       <div
         class="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider"
         style="color: var(--md-sys-color-on-surface-variant); opacity: 0.78;"
       >
-        Settings
+        Pengaturan
       </div>
       {#each NUCLEAR_CATEGORIES as cat (cat.id)}
         {@const active = !search.trim() && activeTab === cat.id}
@@ -95,13 +95,13 @@
       {/each}
     </div>
 
-    <!-- Section 2: App -->
+    <!-- Section 2: Aplikasi -->
     <div class="space-y-1">
       <div
         class="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider"
         style="color: var(--md-sys-color-on-surface-variant); opacity: 0.78;"
       >
-        App
+        Aplikasi
       </div>
       {#each NUCLEAR_APP_TABS as tab (tab.id)}
         {@const active = !search.trim() && activeTab === tab.id}

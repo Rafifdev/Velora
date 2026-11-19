@@ -198,6 +198,9 @@ var (
 	diProcTrackMouseEvent              = user32.NewProc("TrackMouseEvent")
 	diProcLoadCursorW                  = user32.NewProc("LoadCursorW")
 	diProcSetCursor                    = user32.NewProc("SetCursor")
+	diProcGetCursorPos                 = user32.NewProc("GetCursorPos")
+	diProcSetCapture                   = user32.NewProc("SetCapture")
+	diProcReleaseCapture               = user32.NewProc("ReleaseCapture")
 	diProcGetDC                        = user32.NewProc("GetDC")
 	diProcReleaseDC                    = user32.NewProc("ReleaseDC")
 	diProcIsIconic                     = user32.NewProc("IsIconic")
@@ -468,6 +471,24 @@ type dynamicIslandController struct {
 	lastMouseRx          float64
 	edgeLeftProg         float64
 	edgeRightProg        float64
+	pageSlideDir         int
+	cursorMove           uintptr
+	winX                 int
+	winXFloat            float64
+	winTargetX           float64
+	winVelX              float64
+	lastTickAt           time.Time
+	liquidSkewDp         float64
+	screenW              int
+	holdPending          bool
+	holdStart            time.Time
+	holdStartScreenX     int32
+	holdStartScreenY     int32
+	holdStartWinX        int
+	winDragActive        bool
+	dockSide             int // -1 = docked left, 0 = free/center, +1 = docked right
+	dockLeftProg         float64
+	dockRightProg        float64
 
 	// Real-time Velora playback & brand state
 	title         string
@@ -496,6 +517,7 @@ type dynamicIslandController struct {
 	isBtAudio       bool
 	audioOutputs    []windowsAudioEndpoint
 	hpListOpen      bool
+	hpListProg      float64
 	wifiOn          bool
 	gpsOn           bool
 	btOn            bool
@@ -1597,6 +1619,7 @@ func (c *dynamicIslandController) runWindowLoop() {
 	className, _ := windows.UTF16PtrFromString("VeloraDynamicIslandClass")
 	c.cursorArrow, _, _ = diProcLoadCursorW.Call(0, 32512)
 	c.cursorHand, _, _ = diProcLoadCursorW.Call(0, 32649)
+	c.cursorMove, _, _ = diProcLoadCursorW.Call(0, 32646) // IDC_SIZEALL
 
 	wc := diWndClassExW{
 		CbSize:        uint32(unsafe.Sizeof(diWndClassExW{})),
@@ -1612,6 +1635,12 @@ func (c *dynamicIslandController) runWindowLoop() {
 	if x < 0 {
 		x = 0
 	}
+	c.mu.Lock()
+	c.screenW = int(screenW)
+	c.winX = x
+	c.winXFloat = float64(x)
+	c.winTargetX = float64(x)
+	c.mu.Unlock()
 
 	titlePtr, _ := windows.UTF16PtrFromString("Velora Dynamic Island")
 	exStyle := uintptr(diWsExTopmost | diWsExToolWindow | diWsExLayered | diWsExNoActivate)
@@ -1701,10 +1730,14 @@ func diWndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 	case diWmSetCursor:
 		c.mu.Lock()
 		zone := c.hoverZone
+		winDrag := c.winDragActive
+		moveCur := c.cursorMove
 		hand := c.cursorHand
 		arrow := c.cursorArrow
 		c.mu.Unlock()
-		if zone >= diHitArt && hand != 0 {
+		if winDrag && moveCur != 0 {
+			_, _, _ = diProcSetCursor.Call(moveCur)
+		} else if zone >= diHitArt && hand != 0 {
 			_, _, _ = diProcSetCursor.Call(hand)
 		} else if arrow != 0 {
 			_, _, _ = diProcSetCursor.Call(arrow)
@@ -1717,6 +1750,25 @@ func diWndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 		return 0
 	case diWmMouseLeave:
 		c.mu.Lock()
+		if c.winDragActive || c.holdPending {
+			c.mu.Unlock()
+			return 0
+		}
+		uLeave := c.dpiScale
+		if uLeave <= 0 {
+			uLeave = 1.0
+		}
+		var ptLeave diPoint
+		_, _, _ = diProcGetCursorPos.Call(uintptr(unsafe.Pointer(&ptLeave)))
+		nxLeave := (float64(diLogicalW) - c.curW) / 2.0
+		leftPx := float64(c.winX) + nxLeave*uLeave - 4.0*uLeave
+		rightPx := float64(c.winX) + (nxLeave+c.curW)*uLeave + 4.0*uLeave
+		botPx := c.curH*uLeave + 4.0*uLeave
+		if float64(ptLeave.X) >= leftPx && float64(ptLeave.X) <= rightPx && float64(ptLeave.Y) >= 0 && float64(ptLeave.Y) <= botPx {
+			c.tracking = false
+			c.mu.Unlock()
+			return 0
+		}
 		c.hovered = false
 		c.hoverZone = diHitNone
 		c.hoverLyric = -1
@@ -1809,12 +1861,45 @@ func diWndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 		c.queueDragStartScroll = c.queueTargetScrollDp
 		c.lyricDragStartOffset = c.lyricTargetOffsetDp
 		c.lyricDragScroll = false
+		var pt diPoint
+		_, _, _ = diProcGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+		c.holdPending = true
+		c.winDragActive = false
+		c.holdStart = time.Now()
+		c.holdStartScreenX = pt.X
+		c.holdStartScreenY = pt.Y
+		c.holdStartWinX = c.winX
 		c.mu.Unlock()
+		_, _, _ = diProcSetCapture.Call(hwnd)
 		return 0
 	case diWmLButtonUp:
+		_, _, _ = diProcReleaseCapture.Call()
 		mx := int(int16(lParam & 0xFFFF))
 		my := int(int16((lParam >> 16) & 0xFFFF))
 		c.mu.Lock()
+		c.holdPending = false
+		if c.winDragActive {
+			c.winDragActive = false
+			c.dragActive = false
+			c.lyricDragScroll = false
+			u := c.dpiScale
+			if u <= 0 {
+				u = 1.0
+			}
+			nx := (float64(diLogicalW) - c.curW) / 2.0
+			rx := float64(mx)/u - nx
+			ry := float64(my) / u
+			if rx < 0 || rx > c.curW || ry < 0 || ry > c.curH {
+				c.hovered = false
+				c.hoverZone = diHitNone
+			}
+			arrow := c.cursorArrow
+			c.mu.Unlock()
+			if arrow != 0 {
+				_, _, _ = diProcSetCursor.Call(arrow)
+			}
+			return 0
+		}
 		if c.lyricDragScroll {
 			c.lyricDragScroll = false
 			c.dragActive = false
@@ -1843,15 +1928,6 @@ func diWndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 			c.mu.Unlock()
 			return 0
 		}
-		if wasDrag && math.Abs(dxDp) >= 32.0 {
-			if dxDp < 0 {
-				c.switchPageByDeltaLocked(1)
-			} else {
-				c.switchPageByDeltaLocked(-1)
-			}
-			c.mu.Unlock()
-			return 0
-		}
 		c.mu.Unlock()
 		c.handleClick(mx, my)
 		return 0
@@ -1868,8 +1944,98 @@ func diWndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 	return ret
 }
 
+func (c *dynamicIslandController) clampWinXLocked(rawX int, withSnap bool) (int, int) {
+	u := c.dpiScale
+	if u <= 0 {
+		u = 1.0
+	}
+	screenW := c.screenW
+	if screenW <= 0 {
+		sw, _, _ := diProcGetSystemMetrics.Call(0)
+		screenW = int(sw)
+		c.screenW = screenW
+	}
+	nx := (float64(diLogicalW) - c.curW) / 2.0
+	minX := -int(math.Round(nx * u))
+	maxX := screenW - int(math.Round((nx+c.curW)*u))
+	if maxX < minX {
+		minX = (screenW - c.physW) / 2
+		maxX = minX
+	}
+	dock := 0
+	if withSnap {
+		centerX := (screenW - c.physW) / 2
+		centerSnapPx := int(math.Round(20.0 * u))
+		edgeSnapPx := int(math.Round(10.0 * u))
+		if rawX >= centerX-centerSnapPx && rawX <= centerX+centerSnapPx {
+			rawX = centerX
+		} else if rawX <= minX+edgeSnapPx {
+			rawX = minX
+			dock = -1
+		} else if rawX >= maxX-edgeSnapPx {
+			rawX = maxX
+			dock = 1
+		}
+	}
+	if rawX <= minX {
+		if withSnap {
+			dock = -1
+		}
+		return minX, dock
+	}
+	if rawX >= maxX {
+		if withSnap {
+			dock = 1
+		}
+		return maxX, dock
+	}
+	return rawX, dock
+}
+
 func (c *dynamicIslandController) handleMouseMove(mx, my int) {
 	c.mu.Lock()
+	if c.winDragActive {
+		var pt diPoint
+		_, _, _ = diProcGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+		rawX := c.holdStartWinX + int(pt.X-c.holdStartScreenX)
+		newTarget, dock := c.clampWinXLocked(rawX, true)
+		c.winTargetX = float64(newTarget)
+		c.dockSide = dock
+		moveCur := c.cursorMove
+		c.mu.Unlock()
+		if moveCur != 0 {
+			_, _, _ = diProcSetCursor.Call(moveCur)
+		}
+		return
+	}
+	if c.holdPending && !c.winDragActive {
+		u := c.dpiScale
+		if u <= 0 {
+			u = 1.0
+		}
+		var pt diPoint
+		_, _, _ = diProcGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+		dxScreen := float64(pt.X - c.holdStartScreenX)
+		dyScreen := float64(pt.Y - c.holdStartScreenY)
+		isVertScroll := (c.activeMode == diModeQueue || (c.activeMode == diModeLyrics && c.lastMouseRx >= 246)) && math.Abs(dyScreen) > math.Abs(dxScreen) && math.Abs(dyScreen) > 5.0*u
+		if isVertScroll {
+			c.holdPending = false
+		} else if math.Abs(dxScreen) > 5.0*u || time.Since(c.holdStart) >= 180*time.Millisecond {
+			c.winDragActive = true
+			c.holdPending = false
+			c.dragActive = false
+			c.lyricDragScroll = false
+			newTarget, dock := c.clampWinXLocked(c.holdStartWinX+int(pt.X-c.holdStartScreenX), true)
+			c.winTargetX = float64(newTarget)
+			c.dockSide = dock
+			moveCur := c.cursorMove
+			c.mu.Unlock()
+			if moveCur != 0 {
+				_, _, _ = diProcSetCursor.Call(moveCur)
+			}
+			return
+		}
+	}
 	if !c.tracking {
 		var tme diTrackMouseEventStruct
 		tme.CbSize = uint32(unsafe.Sizeof(tme))
@@ -1878,13 +2044,22 @@ func (c *dynamicIslandController) handleMouseMove(mx, my int) {
 		_, _, _ = diProcTrackMouseEvent.Call(uintptr(unsafe.Pointer(&tme)))
 		c.tracking = true
 	}
-	c.hovered = true
 	u := c.dpiScale
 	if u <= 0 {
 		u = 1.0
 	}
-	nxCur := (float64(diLogicalW) - c.curW) / 2.0
-	c.lastMouseRx = float64(mx)/u - nxCur
+	nxCur := (float64(diLogicalW)-c.curW)/2.0 - c.liquidSkewDp*0.35*(1.0-math.Max(c.dockLeftProg, c.dockRightProg))
+	if nxCur < 0 {
+		nxCur = 0
+	} else if nxCur > float64(diLogicalW)-c.curW {
+		nxCur = float64(diLogicalW) - c.curW
+	}
+	rxCur := float64(mx)/u - nxCur
+	ryCur := float64(my) / u
+	if rxCur >= 0 && rxCur <= c.curW && ryCur >= 0 && ryCur <= c.curH {
+		c.hovered = true
+	}
+	c.lastMouseRx = rxCur
 	maxScrollDp := math.Max(0.0, float64(len(c.queueItems))*54.0-162.0)
 	if c.queueDragScroll && c.activeMode == diModeQueue && maxScrollDp > 0 {
 		ry := float64(my) / u
@@ -1953,7 +2128,13 @@ func (c *dynamicIslandController) currentPageIndexLocked() int {
 }
 
 func (c *dynamicIslandController) setPageLocked(page int) {
+	cur := c.currentPageIndexLocked()
 	page = ((page % 3) + 3) % 3
+	if page > cur {
+		c.pageSlideDir = 1
+	} else if page < cur {
+		c.pageSlideDir = -1
+	}
 	c.pinnedMode = ""
 	switch page {
 	case 0:
@@ -1985,6 +2166,11 @@ func (c *dynamicIslandController) setPageLocked(page int) {
 func (c *dynamicIslandController) switchPageByDeltaLocked(delta int) {
 	cur := c.currentPageIndexLocked()
 	c.setPageLocked(cur + delta)
+	if delta > 0 {
+		c.pageSlideDir = 1
+	} else if delta < 0 {
+		c.pageSlideDir = -1
+	}
 }
 
 func (c *dynamicIslandController) handleClick(mx, my int) {
@@ -2034,10 +2220,12 @@ func (c *dynamicIslandController) handleClick(mx, my int) {
 		go c.pollAudioHardware(false)
 		return
 	case diHitAudioDev0, diHitAudioDev1, diHitAudioDev2:
-		idx := zone - diHitAudioDev0
+		k := zone - diHitAudioDev0
+		others := diOtherAudioIndices(c.audioOutputs)
 		var devID string
-		if idx >= 0 && idx < len(c.audioOutputs) {
-			devID = c.audioOutputs[idx].ID
+		if k >= 0 && k < len(others) {
+			devID = c.audioOutputs[others[k]].ID
+			c.hpListOpen = false
 		}
 		c.mu.Unlock()
 		if devID != "" {
@@ -2190,6 +2378,19 @@ func (c *dynamicIslandController) handleClick(mx, my int) {
 	}
 }
 
+func diOtherAudioIndices(outputs []windowsAudioEndpoint) []int {
+	var res []int
+	for i, d := range outputs {
+		if !d.IsActive {
+			res = append(res, i)
+			if len(res) >= 3 {
+				break
+			}
+		}
+	}
+	return res
+}
+
 func (c *dynamicIslandController) hitTestLocked(mxPhys, myPhys int) (int, float64, int) {
 	u := c.dpiScale
 	if u <= 0 {
@@ -2200,7 +2401,12 @@ func (c *dynamicIslandController) hitTestLocked(mxPhys, myPhys int) (int, float6
 
 	w := c.curW
 	h := c.curH
-	nx := (float64(diLogicalW) - w) / 2.0
+	nx := (float64(diLogicalW)-w)/2.0 - c.liquidSkewDp*0.35*(1.0-math.Max(c.dockLeftProg, c.dockRightProg))
+	if nx < 0 {
+		nx = 0
+	} else if nx > float64(diLogicalW)-w {
+		nx = float64(diLogicalW) - w
+	}
 	rx := mx - nx
 	ry := my
 
@@ -2218,10 +2424,10 @@ func (c *dynamicIslandController) hitTestLocked(mxPhys, myPhys int) (int, float6
 		if c.edgeRightProg > 0.15 {
 			rightLim = w - 38.0
 		}
-		if rx >= 0 && rx <= leftLim && ry >= 28 && ry <= h-14 {
+		if rx >= 0 && rx <= leftLim && ry >= 44 && ry <= h-22 {
 			return diHitEdgeLeft, 0, -1
 		}
-		if rx >= rightLim && rx <= w && ry >= 28 && ry <= h-14 {
+		if rx >= rightLim && rx <= w && ry >= 44 && ry <= h-22 {
 			return diHitEdgeRight, 0, -1
 		}
 	}
@@ -2246,14 +2452,14 @@ func (c *dynamicIslandController) hitTestLocked(mxPhys, myPhys int) (int, float6
 			}
 			return diHitDot0 + idx, 0, -1
 		}
-		if math.Hypot(rx-344, ry-58) <= 20 {
+		if rx >= 18 && rx <= 362 && ry >= 32 && ry <= 84 {
 			return diHitHpToggle, 0, -1
 		}
 		if c.hpListOpen {
-			maxDevs := minInt(3, maxInt(1, len(c.audioOutputs)))
-			for i := 0; i < maxDevs; i++ {
-				rowTop := 92.0 + float64(i)*40.0
-				if ry >= rowTop && ry <= rowTop+36.0 && rx >= 18 && rx <= 362 {
+			others := diOtherAudioIndices(c.audioOutputs)
+			for i := 0; i < len(others); i++ {
+				cy := 68.0 + float64(i+1)*56.0
+				if ry >= cy-26.0 && ry <= cy+26.0 && rx >= 18 && rx <= 362 {
 					return diHitAudioDev0 + i, 0, -1
 				}
 			}
@@ -2438,6 +2644,9 @@ func (c *dynamicIslandController) currentLyricIndexLocked() int {
 }
 
 func (c *dynamicIslandController) resolveTargetModeLocked() string {
+	if c.winDragActive {
+		return diModeClosed
+	}
 	now := time.Now()
 	if c.pinnedMode != "" && now.Before(c.pinnedUntil) {
 		return c.pinnedMode
@@ -2537,13 +2746,20 @@ func (c *dynamicIslandController) tickAndRender() {
 			c.closedWStart = now
 		} else if targetMode == diModeHeadphones {
 			if c.hpListOpen {
-				cnt := minInt(3, maxInt(1, len(c.audioOutputs)))
-				th = 114.0 + float64(cnt)*40.0
+				otherCnt := len(diOtherAudioIndices(c.audioOutputs))
+				if otherCnt > 0 {
+					th = 118.0 + float64(otherCnt)*56.0
+				} else {
+					th = 106.0
+				}
 			} else {
 				th = 106.0
 			}
 		}
 		oldW, oldH, _, _ := nusaModeDims(c.activeMode)
+		if c.activeMode == diModeClosed || c.activeMode == diModeResting || targetMode == diModeClosed || targetMode == diModeResting {
+			c.pageSlideDir = 0
+		}
 		c.shrinking = (tw * th) < (oldW * oldH)
 		c.fromW, c.fromH, c.fromR, c.fromE = c.curW, c.curH, c.curR, c.curE
 		c.toW, c.toH, c.toR, c.toE = tw, th, tr, te
@@ -2559,12 +2775,23 @@ func (c *dynamicIslandController) tickAndRender() {
 	if targetMode == diModeHeadphones {
 		wantH := 106.0
 		if c.hpListOpen {
-			cnt := minInt(3, maxInt(1, len(c.audioOutputs)))
-			wantH = 114.0 + float64(cnt)*40.0
+			otherCnt := len(diOtherAudioIndices(c.audioOutputs))
+			if otherCnt > 0 {
+				wantH = 118.0 + float64(otherCnt)*56.0
+			}
 		}
 		if math.Abs(wantH-c.toH) > 0.5 {
+			c.fromW, c.fromH, c.fromR, c.fromE = c.curW, c.curH, c.curR, c.curE
 			c.toH = wantH
+			c.shrinking = wantH < c.curH
+			c.pageSlideDir = 0
+			c.transStart = now
 		}
+	}
+	if c.activeMode == diModeHeadphones && c.hpListOpen {
+		c.hpListProg = math.Min(1.0, c.hpListProg+0.085)
+	} else {
+		c.hpListProg = math.Max(0.0, c.hpListProg-0.11)
 	}
 
 	el := now.Sub(c.transStart).Seconds()
@@ -2595,6 +2822,119 @@ func (c *dynamicIslandController) tickAndRender() {
 	c.curH = c.fromH + (c.toH-c.fromH)*whEase
 	c.curR = c.fromR + (c.toR-c.fromR)*reEase
 	c.curE = c.fromE + (c.toE-c.fromE)*reEase
+
+	// Immediate/short-hold (~180ms) drag activation + keep island inside screen edges when expanding
+	var promoteMoveCur uintptr
+	if c.holdPending && !c.winDragActive {
+		u := c.dpiScale
+		if u <= 0 {
+			u = 1.0
+		}
+		var pt diPoint
+		_, _, _ = diProcGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+		if math.Hypot(float64(pt.X-c.holdStartScreenX), float64(pt.Y-c.holdStartScreenY)) > 6.0*u {
+			c.holdPending = false
+		} else if now.Sub(c.holdStart) >= 180*time.Millisecond {
+			c.winDragActive = true
+			c.holdPending = false
+			c.dragActive = false
+			c.lyricDragScroll = false
+			promoteMoveCur = c.cursorMove
+		}
+	}
+	// dt-normalized smooth liquid glide (jitter-free across SetTimer intervals, zero bounce-back)
+	dt := 0.016
+	if !c.lastTickAt.IsZero() {
+		dt = now.Sub(c.lastTickAt).Seconds()
+		if dt < 0.004 {
+			dt = 0.004
+		} else if dt > 0.05 {
+			dt = 0.05
+		}
+	}
+	c.lastTickAt = now
+
+	uVal := c.dpiScale
+	if uVal <= 0 {
+		uVal = 1.0
+	}
+	nxBaseCur := (float64(diLogicalW) - c.curW) / 2.0
+	minEdgeX := -int(math.Round(nxBaseCur * uVal))
+	maxEdgeX := c.screenW - int(math.Round((nxBaseCur+c.curW)*uVal))
+	if c.dockSide < 0 {
+		c.winTargetX = float64(minEdgeX)
+	} else if c.dockSide > 0 {
+		c.winTargetX = float64(maxEdgeX)
+	} else {
+		clampedT, _ := c.clampWinXLocked(int(math.Round(c.winTargetX)), false)
+		c.winTargetX = float64(clampedT)
+	}
+	diffX := c.winTargetX - c.winXFloat
+	prevWinXFloat := c.winXFloat
+	if math.Abs(diffX) < 0.25 {
+		c.winXFloat = c.winTargetX
+		c.winVelX = 0
+	} else {
+		alphaPos := 1.0 - math.Exp(-22.0*dt)
+		c.winXFloat += diffX * alphaPos
+		c.winVelX = ((c.winXFloat - prevWinXFloat) / dt) * 0.016
+	}
+	velSignedDp := c.winVelX / uVal
+	targetSkew := math.Max(-14.0, math.Min(14.0, velSignedDp*0.50))
+	alphaSkew := 1.0 - math.Exp(-18.0*dt)
+	c.liquidSkewDp += (targetSkew - c.liquidSkewDp) * alphaSkew
+	if math.Abs(c.liquidSkewDp) < 0.05 && math.Abs(targetSkew) < 0.05 {
+		c.liquidSkewDp = 0
+	}
+	absSkew := math.Abs(c.liquidSkewDp)
+	if c.winDragActive {
+		c.curW += math.Max(3.0, absSkew)
+		c.curR += absSkew * 0.25
+		c.curE += absSkew * 0.22
+	} else if absSkew > 0.1 {
+		c.curW += absSkew
+		c.curR += absSkew * 0.25
+		c.curE += absSkew * 0.22
+	}
+
+	// Verify hover reliably using screen cursor coords to prevent corner SetWindowPos flicker
+	if c.hovered && !c.winDragActive && !c.holdPending && c.winShown {
+		var ptHover diPoint
+		_, _, _ = diProcGetCursorPos.Call(uintptr(unsafe.Pointer(&ptHover)))
+		nxH := (float64(diLogicalW) - c.curW) / 2.0
+		pad := 10.0 * uVal
+		inX := float64(ptHover.X) >= float64(c.winX)+nxH*uVal-pad && float64(ptHover.X) <= float64(c.winX)+(nxH+c.curW)*uVal+pad
+		inY := float64(ptHover.Y) >= 0 && float64(ptHover.Y) <= c.curH*uVal+pad
+		if !inX || !inY {
+			c.hovered = false
+			c.hoverZone = diHitNone
+		}
+	}
+
+	// Recompute docked target after liquid stretch so glued corner never detaches
+	nxBasePost := (float64(diLogicalW) - c.curW) / 2.0
+	if c.dockSide < 0 {
+		c.winXFloat = float64(-int(math.Round(nxBasePost * uVal)))
+	} else if c.dockSide > 0 {
+		c.winXFloat = float64(c.screenW - int(math.Round((nxBasePost+c.curW)*uVal)))
+	}
+	newWinX, _ := c.clampWinXLocked(int(math.Round(c.winXFloat)), false)
+	if newWinX != c.winX {
+		c.winX = newWinX
+	}
+
+	// Smoothly dock left/right notch edges when flush against screen corners
+	leftScreenPx := float64(newWinX) + nxBasePost*uVal
+	rightGapPx := float64(c.screenW) - (float64(newWinX) + (nxBasePost+c.curW)*uVal)
+	targetDockL := clamp01(1.0 - leftScreenPx/(14.0*uVal))
+	targetDockR := clamp01(1.0 - rightGapPx/(14.0*uVal))
+	if c.dockSide < 0 {
+		targetDockL = 1.0
+	} else if c.dockSide > 0 {
+		targetDockR = 1.0
+	}
+	c.dockLeftProg += (targetDockL - c.dockLeftProg) * 0.32
+	c.dockRightProg += (targetDockR - c.dockRightProg) * 0.32
 
 	if shouldAppear {
 		c.appearProg = math.Min(1.0, c.appearProg+0.12)
@@ -2672,15 +3012,15 @@ func (c *dynamicIslandController) tickAndRender() {
 	appearProg := c.appearProg
 	physW := c.physW
 	physH := c.physH
+	curWinX := c.winX
 	c.mu.Unlock()
 
+	if promoteMoveCur != 0 {
+		_, _, _ = diProcSetCursor.Call(promoteMoveCur)
+	}
+
 	if appearProg > 0.01 && !winShown {
-		screenW, _, _ := diProcGetSystemMetrics.Call(0)
-		x := (int(screenW) - physW) / 2
-		if x < 0 {
-			x = 0
-		}
-		_, _, _ = diProcSetWindowPos.Call(c.hwnd, ^uintptr(0), uintptr(x), 0, uintptr(physW), uintptr(physH), 0x0010|0x0040)
+		_, _, _ = diProcSetWindowPos.Call(c.hwnd, ^uintptr(0), uintptr(curWinX), 0, uintptr(physW), uintptr(physH), 0x0010|0x0040)
 		_, _, _ = diProcShowWindow.Call(c.hwnd, diSwShowNoActivate)
 		c.mu.Lock()
 		c.winShown = true
@@ -2745,6 +3085,7 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	isBt := c.isBtAudio
 	audioOutputs := c.audioOutputs
 	hpListOpen := c.hpListOpen
+	hpListProg := c.hpListProg
 	hoverZone := c.hoverZone
 	hoverRatio := c.hoverRatio
 	hoverLyric := c.hoverLyric
@@ -2780,7 +3121,12 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	btOn := c.btOn
 	edgeLeftProg := c.edgeLeftProg
 	edgeRightProg := c.edgeRightProg
+	pageSlideDir := c.pageSlideDir
+	liquidSkewDp := c.liquidSkewDp
+	dockLeftProg := c.dockLeftProg
+	dockRightProg := c.dockRightProg
 	curPage := c.currentPageIndexLocked()
+	curWinX := c.winX
 	pal := c.resolvePaletteLocked()
 	c.mu.Unlock()
 
@@ -2798,14 +3144,30 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 
 	contentOp := nusaCssEase(clamp01((transEl - 0.10) / 0.55))
 	contentPop := nusaContentPop(clamp01((transEl - 0.05) / 0.50))
+	contentScaleX := 0.86 + 0.14*contentPop
+	contentScaleY := 0.90 + 0.10*contentPop
+	pageShift := 0.0
+	if pageSlideDir != 0 && mode != diModeResting && mode != diModeClosed {
+		slideEase := nusaSpring(clamp01(transEl / 0.44))
+		contentOp = nusaCssEase(clamp01(transEl / 0.24))
+		contentScaleX = 0.96 + 0.04*slideEase
+		contentScaleY = 0.97 + 0.03*slideEase
+		pageShift = float64(pageSlideDir) * (1.0 - slideEase) * 56.0
+	}
 	if mode == diModeResting || mode == diModeClosed {
 		contentOp = 1.0
 		contentPop = 1.0
+		contentScaleX = 1.0
+		contentScaleY = 1.0
+		pageShift = 0.0
 	}
-	contentScaleX := 0.86 + 0.14*contentPop
-	contentScaleY := 0.90 + 0.10*contentPop
 
-	nx := (float64(diLogicalW) - w) / 2.0
+	nx := (float64(diLogicalW)-w)/2.0 - liquidSkewDp*0.35*(1.0-math.Max(dockLeftProg, dockRightProg))
+	if nx < 0 {
+		nx = 0
+	} else if nx > float64(diLogicalW)-w {
+		nx = float64(diLogicalW) - w
+	}
 
 	bufLen := physW * physH * 4
 	pix := unsafe.Slice((*byte)(c.dibBits), bufLen)
@@ -2827,10 +3189,17 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 		return
 	}
 
-	// 1. Draw Velora Obsidian Carbon Notch Shape + Concave Ears + Brand Ambient Gradients
-	drawVeloraNotchShapePhys(pix, physW, physH, nx*u, w*u, h*u, r*u, e*u, mode, pal)
+	rL := r * (1.0 - dockLeftProg)
+	eL := e * (1.0 - dockLeftProg)
+	eBotL := e * dockLeftProg
+	rR := r * (1.0 - dockRightProg)
+	eR := e * (1.0 - dockRightProg)
+	eBotR := e * dockRightProg
 
-	shiftX := (edgeLeftProg - edgeRightProg) * 24.0
+	// 1. Draw Velora Obsidian Carbon Notch Shape + Concave Ears + Brand Ambient Gradients
+	drawVeloraNotchShapePhys(pix, physW, physH, nx*u, w*u, h*u, rL*u, eL*u, eBotL*u, rR*u, eR*u, eBotR*u, mode, pal)
+
+	shiftX := (edgeLeftProg-edgeRightProg)*24.0 + pageShift - liquidSkewDp*0.24
 	mapXStatic := func(lx float64) float64 {
 		rel := lx - w/2.0
 		return (nx + w/2.0 + rel*contentScaleX) * u
@@ -2913,6 +3282,7 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 					ConnType: connType,
 					IsActive: true,
 					BatPct:   bat,
+					VolPct:   vol,
 				}}
 			}
 
@@ -2924,51 +3294,73 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 				}
 			}
 
-			// Nusa-style Active Device Summary (left circular ring + icon, right borderless headset toggle)
+			// Nusa-style Active Device Summary (click anywhere on row to toggle dropdown)
+			if hoverZone == diHitHpToggle {
+				drawFilledPillGdip(g, mapX(18), mapY(32), mapW(344), mapH(52), 12.0*u, rgbaToARGB(color.RGBA{R: 0x1C, G: 0x20, B: 0x26, A: 255}, 0.60*contentOp))
+			}
+
 			activeGlyph := rune(0xE44A)
 			if activeDev.ConnType == "bluetooth" {
 				activeGlyph = 0xE0DA
 			} else if activeDev.ConnType == "wired" {
 				activeGlyph = 0xE2A6
 			}
-			if activeDev.BatPct >= 0 && activeDev.BatPct <= 100 {
-				ringCol := rgbaToRGBHex(pal.Primary)
-				if activeDev.BatPct <= 20 {
-					ringCol = rgbaToRGBHex(pal.Accent)
-				}
-				drawPkRingGdip(g, mapX(40), mapY(58), 14.5*u, 3.2*u, float64(activeDev.BatPct)/100.0, contentOp,
-					ringCol, rgbaToARGB(pal.Primary, 0.22))
-			} else {
-				drawPkRingGdip(g, mapX(40), mapY(58), 14.5*u, 2.8*u, 0.0, contentOp,
-					rgbaToRGBHex(pal.Primary), rgbaToARGB(pal.Primary, 0.35))
+
+			activeVol := activeDev.VolPct
+			if activeVol < 0 {
+				activeVol = vol
 			}
+			if muted {
+				activeVol = 0
+			}
+			drawPkRingGdip(g, mapX(40), mapY(58), 14.5*u, 3.2*u, clamp01(float64(activeVol)/100.0), contentOp,
+				rgbaToRGBHex(pal.Accent), rgbaToARGB(pal.Accent, 0.22))
 			c.drawPhosphorGlyphGdip(g, false, activeGlyph, mapX(40), mapY(58), 14.5*u, rgbaToARGB(pal.TextMain, contentOp))
 
-			// Right side: plain borderless headset icon; click to toggle connected devices list
+			// Right side: borderless headset icon as dropdown toggle indicator (orange when hovered/open)
 			hpCol := pal.TextMain
-			if hpListOpen || hoverZone == diHitHpToggle {
-				hpCol = pal.Primary
+			hpSize := 19.5 + 1.8*hpListProg
+			if hoverZone == diHitHpToggle || hpListOpen {
+				hpCol = pal.Accent
+				if hoverZone == diHitHpToggle {
+					hpSize += 1.0
+				}
 			}
-			c.drawPhosphorGlyphGdip(g, hpListOpen, 0xE2A6, mapX(344), mapY(58), 20.0*u, rgbaToARGB(hpCol, contentOp))
+			c.drawPhosphorGlyphGdip(g, hpListOpen, 0xE2A6, mapX(344), mapY(58), hpSize*u, rgbaToARGB(hpCol, contentOp))
 
-			if hpListOpen {
-				maxDevs := minInt(3, len(outputs))
-				for idx := 0; idx < maxDevs; idx++ {
-					dev := outputs[idx]
-					rowTop := 92.0 + float64(idx)*40.0
-					cy := rowTop + 18.0
+			others := diOtherAudioIndices(outputs)
+			if hpListProg > 0.01 && len(others) > 0 {
+				// Short centered orange pill divider (exact 16x4 dp size matching active page dot) with top/bottom breathing space
+				listEase := nusaCssEase(hpListProg)
+				divW := 16.0 * listEase
+				drawFilledPillGdip(g, mapX(190.0-divW/2.0), mapY(91.0)-2.0*u, mapW(divW), 4.0*u, 2.0*u, rgbaToARGB(pal.Accent, listEase*contentOp))
+
+				// Clip animated dropdown rows cleanly below divider
+				_, _, _ = diProcGdipSetClipRect.Call(
+					g,
+					uintptr(math.Float32bits(float32(mapX(14)))),
+					uintptr(math.Float32bits(float32(mapY(96)))),
+					uintptr(math.Float32bits(float32(mapW(352)))),
+					uintptr(math.Float32bits(float32(math.Max(0, mapH(h-114))))),
+					0,
+				)
+
+				for idx, origIdx := range others {
+					dev := outputs[origIdx]
+					rowDelay := float64(idx) * 0.12
+					rowProg := clamp01((hpListProg - rowDelay) / (1.0 - rowDelay))
+					rowEase := nusaCssEase(rowProg)
+					if rowEase <= 0.01 {
+						continue
+					}
+					slideY := (1.0 - rowEase) * 10.0
+					rowOp := contentOp * rowEase
+					cy := 68.0 + float64(idx+1)*56.0 + slideY
 					rowHovered := hoverZone == diHitAudioDev0+idx
 
-					rowBg := color.RGBA{R: 0x14, G: 0x16, B: 0x18, A: 255}
-					rowAlpha := 0.85 * contentOp
-					if dev.IsActive {
-						rowBg = color.RGBA{R: 0x1C, G: 0x20, B: 0x26, A: 255}
-						rowAlpha = 0.96 * contentOp
-					} else if rowHovered {
-						rowBg = color.RGBA{R: 0x22, G: 0x25, B: 0x2A, A: 255}
-						rowAlpha = 0.96 * contentOp
+					if rowHovered {
+						drawFilledPillGdip(g, mapX(18), mapY(cy-26), mapW(344), mapH(52), 12.0*u, rgbaToARGB(color.RGBA{R: 0x1C, G: 0x20, B: 0x26, A: 255}, 0.80*rowOp))
 					}
-					drawFilledPillGdip(g, mapX(18), mapY(rowTop), mapW(344), mapH(36), 9.0*u, rgbaToARGB(rowBg, rowAlpha))
 
 					iconGlyph := rune(0xE44A)
 					if dev.ConnType == "bluetooth" {
@@ -2977,23 +3369,27 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 						iconGlyph = 0xE2A6
 					}
 
+					// Inactive device: empty muted ring + greyish icon
+					drawPkRingGdip(g, mapX(40), mapY(cy), 14.5*u, 2.8*u, 0.0, rowOp,
+						rgbaToRGBHex(pal.TextVariant), rgbaToARGB(pal.TextVariant, 0.24))
 					iconCol := pal.TextVariant
-					if dev.IsActive {
-						iconCol = pal.Primary
+					iconOp := 0.58 * rowOp
+					if rowHovered {
+						iconCol = pal.TextMain
+						iconOp = 0.85 * rowOp
 					}
+					c.drawPhosphorGlyphGdip(g, false, iconGlyph, mapX(40), mapY(cy), 14.5*u, rgbaToARGB(iconCol, iconOp))
 
-					if dev.BatPct >= 0 && dev.BatPct <= 100 {
-						ringCol := rgbaToRGBHex(pal.Primary)
-						if dev.BatPct <= 20 {
-							ringCol = rgbaToRGBHex(pal.Accent)
-						}
-						drawPkRingGdip(g, mapX(38), mapY(cy), 11.0*u, 2.4*u, float64(dev.BatPct)/100.0, contentOp,
-							ringCol, rgbaToARGB(pal.Primary, 0.20))
-						c.drawPhosphorGlyphGdip(g, false, iconGlyph, mapX(38), mapY(cy), 12.0*u, rgbaToARGB(iconCol, contentOp))
-					} else {
-						c.drawPhosphorGlyphGdip(g, false, iconGlyph, mapX(38), mapY(cy), 15.0*u, rgbaToARGB(iconCol, contentOp))
+					// Right-side unselected radio circle (muted grey)
+					radioCol := pal.TextVariant
+					radioAlpha := 0.35 * rowOp
+					if rowHovered {
+						radioCol = pal.Accent
+						radioAlpha = 0.85 * rowOp
 					}
+					drawRoundedRectStrokeGdip(g, mapX(344)-7.5*u, mapY(cy)-7.5*u, 15*u, 15*u, 7.5*u, 1.6*u, rgbaToARGB(radioCol, radioAlpha))
 				}
+				_, _, _ = diProcGdipResetClip.Call(g)
 			}
 
 			drawVelora5DotsGdip(g, mapX(190), mapY(h-11.0), u, 2, hoverZone, contentOp, pal)
@@ -3278,21 +3674,28 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	c.drawVeloraTextGdip(
 		g, nx, w, h, u, mode, contentOp, mapX, mapXStatic, mapY, mapW, mapH,
 		title, artist, pos, dur, playing, lyricsOpen, vol, muted, eqPreset, streakDays,
-		audioDev, connType, btBat, sysBat, isBt, audioOutputs, hpListOpen, lyricsLoading, lyrics, lyricIdx, prevLyricIdx, lyricAnimProg, lyricCurY, lyricManualOffsetDp, hoverLyric,
+		audioDev, connType, btBat, sysBat, isBt, audioOutputs, hpListOpen, hpListProg, lyricsLoading, lyrics, lyricIdx, prevLyricIdx, lyricAnimProg, lyricCurY, lyricManualOffsetDp, hoverLyric,
 		closedLyricFrom, closedLyricTo, closedLyricProg,
 		qTitle, qIndex, qScrollDp, qItems, pal, now.Sub(c.marqueeStart).Seconds(),
 	)
 
-	// 4. Per-pixel smooth black edge gradient (zero banding/lines) + borderless gray edge nav button
+	// 4. Per-pixel smooth top/bottom scroll fade for Queue list (fades rows, thumbnails & text without banding)
+	if mode == diModeQueue && contentOp > 0.02 && len(qItems) > 0 {
+		maxScrollDp := math.Max(0.0, float64(len(qItems))*54.0-162.0)
+		drawQueueScrollFadePhys(pix, physW, physH, mapX(14), mapW(402), mapY(78), mapY(242), u, qScrollDp, maxScrollDp, contentOp, pal)
+	}
+
+	// 5. Per-pixel smooth black edge gradient (zero banding/lines) + borderless gray edge nav button
 	if (edgeLeftProg > 0.02 || edgeRightProg > 0.02) && (mode == diModeMusic || mode == diModeLyrics || mode == diModeQueue || mode == diModeHeadphones) {
 		drawEdgeGradientPhys(pix, physW, physH, nx*u, w*u, h*u, u, curPage, edgeLeftProg, edgeRightProg, contentOp, pal)
 		c.drawEdgePeekGdip(g, nx, w, h, u, curPage, edgeLeftProg, edgeRightProg, contentOp, pal)
 	}
 
-	// 4. Clip outside the notch SDF & draw subtle Velora bottom contour rim
-	clipOutsideNotchPhys(pix, physW, physH, nx*u, w*u, h*u, r*u, e*u, activeAccent, pal.Primary)
+	// 6. Clip outside the notch SDF & draw subtle Velora bottom contour rim
+	clipOutsideNotchPhys(pix, physW, physH, nx*u, w*u, h*u, rL*u, eL*u, eBotL*u, rR*u, eR*u, eBotR*u, activeAccent, pal.Primary)
 
 	sizeDst := diSize{Cx: int32(physW), Cy: int32(physH)}
+	ptDst := diPoint{X: int32(curWinX), Y: 0}
 	ptSrc := diPoint{}
 	blend := diBlendFunction{
 		BlendOp:             diAcSrcOver,
@@ -3302,7 +3705,7 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	_, _, _ = diProcUpdateLayeredWindow.Call(
 		c.hwnd,
 		0,
-		0,
+		uintptr(unsafe.Pointer(&ptDst)),
 		uintptr(unsafe.Pointer(&sizeDst)),
 		c.memDC,
 		uintptr(unsafe.Pointer(&ptSrc)),
@@ -3728,6 +4131,52 @@ func drawEdgeGradientPhys(
 	if rightProg > 0.02 {
 		blendGrad(nxPx+wPx-64.0*rightProg*u, 64.0*rightProg*u, 0.96*rightProg*op, true)
 		blendGrad(nxPx, 48.0*rightProg*u, 0.96*rightProg*op, false)
+	}
+}
+
+func drawQueueScrollFadePhys(
+	pix []byte,
+	cw, ch int,
+	xStartPx, widthPx, yTopPx, yBotPx, u float64,
+	qScrollDp, maxScrollDp, op float64,
+	pal veloraBrandPalette,
+) {
+	x0 := maxInt(0, int(math.Floor(xStartPx)))
+	x1 := minInt(cw-1, int(math.Ceil(xStartPx+widthPx)))
+	if x1 <= x0 {
+		return
+	}
+	blendVert := func(yStart, yEnd, maxAlpha float64, fadeDown bool) {
+		h := yEnd - yStart
+		if h <= 1.0 || maxAlpha <= 0.01 {
+			return
+		}
+		py0 := maxInt(0, int(math.Floor(yStart)))
+		py1 := minInt(ch-1, int(math.Ceil(yEnd)))
+		for py := py0; py <= py1; py++ {
+			fy := float64(py) + 0.5
+			t := (fy - yStart) / h
+			if fadeDown {
+				t = 1.0 - t
+			}
+			t = clamp01(t)
+			alpha := maxAlpha * (t * t)
+			if alpha <= 0.005 {
+				continue
+			}
+			for px := x0; px <= x1; px++ {
+				blendPremulPixel(pix, cw, px, py, pal.BgDeep, alpha)
+			}
+		}
+	}
+
+	topFactor := clamp01(qScrollDp / 14.0)
+	if topFactor > 0.01 {
+		blendVert(yTopPx, yTopPx+20.0*u, 0.98*topFactor*op, true)
+	}
+	botFactor := clamp01((maxScrollDp - qScrollDp) / 14.0)
+	if botFactor > 0.01 {
+		blendVert(yBotPx-22.0*u, yBotPx, 0.98*botFactor*op, false)
 	}
 }
 
@@ -4698,6 +5147,7 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 	isBt bool,
 	audioOutputs []windowsAudioEndpoint,
 	hpListOpen bool,
+	hpListProg float64,
 	lyricsLoading bool,
 	lyrics []sources.LyricLine,
 	lyricIdx int,
@@ -4966,32 +5416,48 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 		}
 		drawStrPhys(subTxt, f115Reg, brushVar, sfLeft, mapX(68), mapY(60), mapW(250), 18*u)
 
-		if hpListOpen {
-			maxDevs := minInt(3, len(outputs))
-			for idx := 0; idx < maxDevs; idx++ {
-				dev := outputs[idx]
-				rowTop := 92.0 + float64(idx)*40.0
-				nameBrush := brushMain
-				if dev.IsActive {
-					nameBrush = brushAcc
-				}
-				drawStrPhys(dev.Name, f13Semi, nameBrush, sfLeft, mapX(58), mapY(rowTop+7), mapW(200), 22*u)
+		others := diOtherAudioIndices(outputs)
+		if hpListProg > 0.01 && len(others) > 0 {
+			_, _, _ = diProcGdipSetClipRect.Call(
+				g,
+				uintptr(math.Float32bits(float32(mapX(14)))),
+				uintptr(math.Float32bits(float32(mapY(96)))),
+				uintptr(math.Float32bits(float32(mapW(352)))),
+				uintptr(math.Float32bits(float32(math.Max(0, mapH(h-114))))),
+				0,
+			)
 
-				statusTxt := "Pindah"
-				statusBrush := brushVar
-				if dev.IsActive {
-					if dev.BatPct >= 0 && dev.BatPct <= 100 {
-						statusTxt = fmt.Sprintf("Aktif · %d%%", dev.BatPct)
-					} else {
-						statusTxt = "Aktif"
-					}
-					statusBrush = brushPrim
-				} else if dev.BatPct >= 0 && dev.BatPct <= 100 {
-					statusTxt = fmt.Sprintf("%d%%", dev.BatPct)
-					statusBrush = brushPrim
+			for idx, origIdx := range others {
+				dev := outputs[origIdx]
+				rowDelay := float64(idx) * 0.12
+				rowProg := clamp01((hpListProg - rowDelay) / (1.0 - rowDelay))
+				rowEase := nusaCssEase(rowProg)
+				if rowEase <= 0.01 {
+					continue
 				}
-				drawStrPhys(statusTxt, f115Semi, statusBrush, sfRight, mapX(258), mapY(rowTop+8), mapW(94), 20*u)
+				slideY := (1.0 - rowEase) * 10.0
+				rowOp := contentOp * rowEase
+				cy := 68.0 + float64(idx+1)*56.0 + slideY
+
+				var bName uintptr
+				_, _, _ = diProcGdipCreateSolidFill.Call(uintptr(rgbaToARGB(pal.TextVariant, 0.75*rowOp)), uintptr(unsafe.Pointer(&bName)))
+				if bName != 0 {
+					drawStrPhys(dev.Name, f14Semi, bName, sfLeft, mapX(68), mapY(cy-20), mapW(250), 22*u)
+					_, _, _ = diProcGdipDeleteBrush.Call(bName)
+				}
+
+				subTxt := "Tersedia"
+				if dev.BatPct >= 0 && dev.BatPct <= 100 {
+					subTxt = fmt.Sprintf("Tersedia · %d%%", dev.BatPct)
+				}
+				var bSub uintptr
+				_, _, _ = diProcGdipCreateSolidFill.Call(uintptr(rgbaToARGB(pal.TextVariant, 0.52*rowOp)), uintptr(unsafe.Pointer(&bSub)))
+				if bSub != 0 {
+					drawStrPhys(subTxt, f115Reg, bSub, sfLeft, mapX(68), mapY(cy+2), mapW(250), 18*u)
+					_, _, _ = diProcGdipDeleteBrush.Call(bSub)
+				}
 			}
+			_, _, _ = diProcGdipResetClip.Call(g)
 		}
 
 	case diModeMusic:
@@ -5193,25 +5659,31 @@ func formatMMSS(sec float64) string {
 	return fmt.Sprintf("%02d:%02d", total/60, total%60)
 }
 
-func drawVeloraNotchShapePhys(pix []byte, cw, ch int, nx, w, h, r, e float64, mode string, pal veloraBrandPalette) {
+func drawVeloraNotchShapePhys(pix []byte, cw, ch int, nx, w, h, rL, eL, eBotL, rR, eR, eBotR float64, mode string, pal veloraBrandPalette) {
 	if w <= 0 || h <= 0 {
 		return
 	}
-	if r > w/2 {
-		r = w / 2
+	if rL > w/2 {
+		rL = w / 2
 	}
-	if r > h {
-		r = h
+	if rL > h {
+		rL = h
 	}
-	xStart := maxInt(0, int(math.Floor(nx-e-2)))
-	xEnd := minInt(cw-1, int(math.Ceil(nx+w+e+2)))
-	yEnd := minInt(ch-1, int(math.Ceil(h+2)))
+	if rR > w/2 {
+		rR = w / 2
+	}
+	if rR > h {
+		rR = h
+	}
+	xStart := maxInt(0, int(math.Floor(nx-eL-2)))
+	xEnd := minInt(cw-1, int(math.Ceil(nx+w+eR+2)))
+	yEnd := minInt(ch-1, int(math.Ceil(h+math.Max(eBotL, eBotR)+2)))
 
 	for py := 0; py <= yEnd; py++ {
 		fy := float64(py) + 0.5
 		for px := xStart; px <= xEnd; px++ {
 			fx := float64(px) + 0.5
-			dist := nusaNotchSignedDist(fx, fy, nx, w, h, r, e)
+			dist := nusaNotchSignedDistLR(fx, fy, nx, w, h, rL, eL, eBotL, rR, eR, eBotR)
 			if dist > 0.75 {
 				continue
 			}
@@ -5224,36 +5696,39 @@ func drawVeloraNotchShapePhys(pix []byte, cw, ch int, nx, w, h, r, e float64, mo
 	}
 }
 
-func nusaNotchSignedDist(fx, fy, nx, w, h, r, e float64) float64 {
-	if fy > h+1.0 {
+func nusaNotchSignedDistLR(fx, fy, nx, w, h, rL, eL, eBotL, rR, eR, eBotR float64) float64 {
+	if fy > h {
+		if eBotL > 0.1 && fx >= nx && fx <= nx+eBotL && fy <= h+eBotL {
+			return eBotL - math.Hypot(fx-(nx+eBotL), fy-(h+eBotL))
+		}
+		if eBotR > 0.1 && fx <= nx+w && fx >= nx+w-eBotR && fy <= h+eBotR {
+			return eBotR - math.Hypot(fx-(nx+w-eBotR), fy-(h+eBotR))
+		}
 		return fy - h
 	}
 	if fx < nx {
-		if e <= 0.1 || fy > e {
+		if eL <= 0.1 || fy > eL {
 			return 10.0
 		}
-		return e - math.Hypot(fx-(nx-e), fy-e)
+		return eL - math.Hypot(fx-(nx-eL), fy-eL)
 	}
 	if fx > nx+w {
-		if e <= 0.1 || fy > e {
+		if eR <= 0.1 || fy > eR {
 			return 10.0
 		}
-		return e - math.Hypot(fx-(nx+w+e), fy-e)
+		return eR - math.Hypot(fx-(nx+w+eR), fy-eR)
 	}
-	if fy <= h-r {
-		return fy - h
+	if rL > 0.1 && fx < nx+rL && fy > h-rL {
+		return math.Hypot(fx-(nx+rL), fy-(h-rL)) - rL
 	}
-	if fx < nx+r {
-		return math.Hypot(fx-(nx+r), fy-(h-r)) - r
-	}
-	if fx > nx+w-r {
-		return math.Hypot(fx-(nx+w-r), fy-(h-r)) - r
+	if rR > 0.1 && fx > nx+w-rR && fy > h-rR {
+		return math.Hypot(fx-(nx+w-rR), fy-(h-rR)) - rR
 	}
 	return fy - h
 }
 
-func clipOutsideNotchPhys(pix []byte, cw, ch int, nx, w, h, r, e float64, accent, primary color.RGBA) {
-	yEnd := minInt(ch-1, int(math.Ceil(h+4)))
+func clipOutsideNotchPhys(pix []byte, cw, ch int, nx, w, h, rL, eL, eBotL, rR, eR, eBotR float64, accent, primary color.RGBA) {
+	yEnd := minInt(ch-1, int(math.Ceil(h+math.Max(eBotL, eBotR)+4)))
 	for py := 0; py <= yEnd; py++ {
 		fy := float64(py) + 0.5
 		for px := 0; px < cw; px++ {
@@ -5262,7 +5737,7 @@ func clipOutsideNotchPhys(pix []byte, cw, ch int, nx, w, h, r, e float64, accent
 				continue
 			}
 			fx := float64(px) + 0.5
-			dist := nusaNotchSignedDist(fx, fy, nx, w, h, r, e)
+			dist := nusaNotchSignedDistLR(fx, fy, nx, w, h, rL, eL, eBotL, rR, eR, eBotR)
 			if dist > 0.75 {
 				pix[idx+0] = 0
 				pix[idx+1] = 0
