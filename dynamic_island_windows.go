@@ -637,7 +637,7 @@ func (a *App) initDynamicIsland(ctx context.Context) {
 	}
 	enabled := true
 	themeSeed := "monolith"
-	accentHex := "#FF9E64"
+	accentHex := "#F6847E"
 	eqPreset := "spotify"
 	if a.store != nil {
 		if prefs, err := a.store.GetPreferences(); err == nil {
@@ -1280,38 +1280,16 @@ func getWindowsFormattedTime() string {
 
 func (c *dynamicIslandController) resolvePaletteLocked() veloraBrandPalette {
 	pal := veloraBrandPalette{
-		BgDeep:      color.RGBA{R: 0x09, G: 0x0A, B: 0x0D, A: 255},
-		BgSurface:   color.RGBA{R: 0x10, G: 0x11, B: 0x13, A: 255},
-		Primary:     color.RGBA{R: 0xB8, G: 0xEA, B: 0xFF, A: 255}, // Titanium Ice Cyan (#B8EAFF)
-		PrimaryDim:  color.RGBA{R: 0x00, G: 0x4D, B: 0x64, A: 255}, // Deep Steel Cyan (#004D64)
-		Accent:      color.RGBA{R: 0xFF, G: 0x9E, B: 0x64, A: 255}, // Sunset Tangerine (#FF9E64)
-		TextMain:    color.RGBA{R: 0xF1, G: 0xF3, B: 0xF5, A: 255}, // --md-sys-color-on-surface
-		TextVariant: color.RGBA{R: 0xC1, G: 0xC7, B: 0xCE, A: 255}, // --md-sys-color-on-surface-variant
-		TextOutline: color.RGBA{R: 0x8B, G: 0x91, B: 0x98, A: 255}, // --md-sys-color-outline
+		BgDeep:      color.RGBA{R: 0x0E, G: 0x09, B: 0x15, A: 255}, // Not Tonight (#0E0915)
+		BgSurface:   color.RGBA{R: 0x22, G: 0x1C, B: 0x2B, A: 255}, // To Hell and Black (#221C2B)
+		Primary:     color.RGBA{R: 0xBE, G: 0xCF, B: 0xE4, A: 255}, // Misty Mountains (#BECFE4)
+		PrimaryDim:  color.RGBA{R: 0x32, G: 0x29, B: 0x42, A: 255}, // Deep Plum Container (#322942)
+		Accent:      color.RGBA{R: 0xF6, G: 0x84, B: 0x7E, A: 255}, // Shell Pink (#F6847E)
+		TextMain:    color.RGBA{R: 0xF5, G: 0xF5, B: 0xF7, A: 255}, // Crisp white
+		TextVariant: color.RGBA{R: 0xC3, G: 0xBF, B: 0xC9, A: 255}, // Neutral variant gray
+		TextOutline: color.RGBA{R: 0x51, G: 0x4C, B: 0x53, A: 255}, // Blackened Pearl (#514C53)
 	}
 
-	switch strings.ToLower(c.themeSeed) {
-	case "violet":
-		pal.Primary = color.RGBA{R: 0xD0, G: 0xBC, B: 0xFF, A: 255}
-		pal.PrimaryDim = color.RGBA{R: 0x4F, G: 0x37, B: 0x8B, A: 255}
-		pal.Accent = color.RGBA{R: 0xFC, G: 0xD3, B: 0x4D, A: 255}
-	case "blue":
-		pal.Primary = color.RGBA{R: 0xA8, G: 0xC7, B: 0xFA, A: 255}
-		pal.PrimaryDim = color.RGBA{R: 0x08, G: 0x42, B: 0xA0, A: 255}
-		pal.Accent = color.RGBA{R: 0xFF, G: 0x9E, B: 0x64, A: 255}
-	case "emerald":
-		pal.Primary = color.RGBA{R: 0x8C, G: 0xD6, B: 0x9D, A: 255}
-		pal.PrimaryDim = color.RGBA{R: 0x00, G: 0x52, B: 0x29, A: 255}
-		pal.Accent = color.RGBA{R: 0xFF, G: 0x9E, B: 0x64, A: 255}
-	case "rose":
-		pal.Primary = color.RGBA{R: 0xFF, G: 0xB2, B: 0xBC, A: 255}
-		pal.PrimaryDim = color.RGBA{R: 0x7D, G: 0x29, B: 0x3A, A: 255}
-		pal.Accent = color.RGBA{R: 0xFF, G: 0x9E, B: 0x64, A: 255}
-	}
-
-	if parsed, ok := parseHexColor(c.accentHex); ok {
-		pal.Accent = parsed
-	}
 	if c.hasCoverAcc {
 		pal.CoverDom = c.coverAccent
 		pal.HasCoverDom = true
