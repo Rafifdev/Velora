@@ -146,7 +146,7 @@
   let rightCollapsed = $state(false);
   let rightPanelMode = $state<'now-playing' | 'queue'>('now-playing');
   let focusRightSignal = $state<{ card: 'album' | 'lyrics' | 'queue'; seq: number } | null>(null);
-  let activePrefTab = $state<string>('appearance');
+  let activePrefTab = $state<string>('general');
   let prefSearch = $state('');
   let prefSavedToast = $state('');
   let seekDeltaSec = $state(0);
@@ -706,6 +706,13 @@
     if (preferences['layout.rightCollapsed'] !== undefined) {
       rightCollapsed = preferences['layout.rightCollapsed'] === 'true';
     }
+    if (preferences['dynamicIsland.enabled'] !== undefined) {
+      api.setDynamicIslandEnabled(preferences['dynamicIsland.enabled'] !== 'false');
+    }
+    if (preferences['general.zoomLevel']) {
+      const z = Number(preferences['general.zoomLevel']);
+      if (Number.isFinite(z)) applyZoom(z, false);
+    }
 
     if (preferences['volume']) {
       const v = Number(preferences['volume']);
@@ -717,6 +724,19 @@
   async function patchPrefs(patch: Record<string, string>) {
     preferences = { ...preferences, ...patch };
     await api.savePreferences(patch);
+    if (patch['layout.leftCollapsed'] !== undefined) {
+      leftCollapsed = patch['layout.leftCollapsed'] === 'true';
+    }
+    if (patch['layout.rightCollapsed'] !== undefined) {
+      rightCollapsed = patch['layout.rightCollapsed'] === 'true';
+    }
+    if (patch['dynamicIsland.enabled'] !== undefined) {
+      api.setDynamicIslandEnabled(patch['dynamicIsland.enabled'] !== 'false');
+    }
+    if (patch['general.zoomLevel'] !== undefined) {
+      const z = Number(patch['general.zoomLevel']);
+      if (Number.isFinite(z)) applyZoom(z, true);
+    }
     if (patch['integrations.jam.enabled'] !== undefined) {
       if (patch['integrations.jam.enabled'] === 'true') {
         jamStatus = await api.startJam();
@@ -2054,7 +2074,7 @@
   let activeTooltipEl: HTMLElement | null = null;
 
   function applyZoom(next: number, showBadge = true) {
-    const clamped = Math.round(Math.min(1.5, Math.max(0.5, next)) * 100) / 100;
+    const clamped = Math.round(Math.min(1.3, Math.max(0.7, next)) * 100) / 100;
     zoomLevel = clamped;
     try {
       localStorage.setItem('velora.zoom', String(clamped));
