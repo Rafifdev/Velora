@@ -1,6 +1,6 @@
 import { normalizeLang, tr, type LangCode, SUPPORTED_LANGUAGES } from './i18n';
 
-export type WidgetType = 'toggle' | 'select' | 'segmented' | 'stepper' | 'slider' | 'number-input' | 'text' | 'info' | 'action';
+export type WidgetType = 'toggle' | 'select' | 'multi-select' | 'combobox' | 'segmented' | 'stepper' | 'slider' | 'number-input' | 'text' | 'info' | 'action';
 
 export interface PreferenceOption {
   value: string;
@@ -34,8 +34,10 @@ export interface PreferenceItemDef {
   unit?: string;
   startLabel?: string;
   endLabel?: string;
+  snapPoints?: number[];
   actionLabel?: string;
   visibleWhen?: { id: string; equals: string };
+  disabledWhen?: { id: string; equals: string };
 }
 
 export interface LocalizedPair {
@@ -180,8 +182,8 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
 
   // 4. Content
   'content.country': {
-    en: ['Content region', 'Country catalog for Home and Explore recommendations.'],
-    id: ['Negara konten', 'Wilayah katalog untuk rekomendasi Beranda dan Jelajahi.']
+    en: ['Content region', 'Catalog regions for Home and Search recommendations.'],
+    id: ['Negara konten', 'Wilayah katalog untuk rekomendasi Beranda dan Search.']
   },
   'content.language': {
     en: ['App & Dynamic Island language', 'Applies across the entire Velora interface and Windows Dynamic Island. Defaults to your Windows locale (or English).'],
@@ -243,13 +245,9 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
     en: ['Media keys', 'Play, pause, next, and previous keys on keyboard or headset work from any window.'],
     id: ['Tombol media', 'Putar, jeda, berikutnya, dan sebelumnya di keyboard atau headset bekerja dari jendela mana pun.']
   },
-  'system.globalHotkeys': {
-    en: ['Global shortcuts', 'Ctrl+Alt+Space play/pause, Ctrl+Alt+Right next, Ctrl+Alt+Left previous, Ctrl+Alt+Up/Down volume.'],
-    id: ['Pintasan global', 'Ctrl+Alt+Spasi putar/jeda, Ctrl+Alt+Kanan berikutnya, Ctrl+Alt+Kiri sebelumnya, Ctrl+Alt+Atas/Bawah volume.']
-  },
   'system.closeToTray': {
-    en: ['Close window to tray', 'Closing the window keeps music playing in the background.'],
-    id: ['Tutup jendela ke baki sistem', 'Tombol tutup hanya menyembunyikan jendela dan musik tetap berjalan.']
+    en: ['Hide to System Tray on close', 'Keep music playing in the background when the window is closed.'],
+    id: ['Sembunyikan ke System Tray saat ditutup', 'Tetap putar musik di latar belakang saat jendela ditutup.']
   },
   'system.keepAwake': {
     en: ['Keep PC awake while playing', 'Display may still turn off.'],
@@ -258,10 +256,6 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
   'system.hideTitle': {
     en: ['Hide song title in window bar', 'Window title stays Velora while playing.'],
     id: ['Sembunyikan judul lagu di jendela', 'Judul jendela tetap Velora saat lagu diputar.']
-  },
-  'system.alwaysOnTop': {
-    en: ['Always on top', 'Keep Velora above other windows.'],
-    id: ['Selalu di atas jendela lain', 'Pertahankan jendela Velora di atas jendela lainnya.']
   },
 
   // 9. Dynamic Island
@@ -349,41 +343,17 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
     en: ['Show only while playing', 'Dynamic Island hides when music is paused until playback resumes.'],
     id: ['Tampil hanya saat memutar', 'Saat musik dijeda, Dynamic Island hilang sampai lagu diputar lagi.']
   },
-  'dynamicIsland.toastSong': {
-    en: ['Track changed', 'Briefly expand/notify when a new song starts.'],
-    id: ['Lagu berganti', 'Tampilkan pemberitahuan singkat saat lagu berganti.']
+  'about.shortcuts': {
+    en: ['Keyboard shortcuts', 'View all available keyboard shortcuts in Velora.'],
+    id: ['Pintasan keyboard', 'Lihat semua pintasan keyboard yang tersedia di Velora.']
   },
-  'dynamicIsland.toastVolume': {
-    en: ['Volume changed', 'Show volume HUD when adjusting volume.'],
-    id: ['Volume berubah', 'Tampilkan indikator saat volume diubah.']
-  },
-  'dynamicIsland.toastSync': {
-    en: ['Phone sync', 'Notify when Velora Jam connects or syncs.'],
-    id: ['Sinkronisasi dengan ponsel', 'Beri tahu saat Velora Jam tersinkronisasi.']
-  },
-  'dynamicIsland.toastDownload': {
-    en: ['Download complete', 'Notify when an offline track finishes downloading.'],
-    id: ['Unduhan selesai', 'Beri tahu saat unduhan lagu selesai.']
-  },
-  'dynamicIsland.toastSleep': {
-    en: ['Sleep timer', 'Notify when sleep timer activates or expires.'],
-    id: ['Timer tidur', 'Beri tahu terkait status timer tidur.']
-  },
-  'dynamicIsland.clickLeft': {
-    en: ['Left click', 'Click on an empty area of Dynamic Island.'],
-    id: ['Klik kiri', 'Klik di bagian kosong Dynamic Island.']
-  },
-  'dynamicIsland.clickMid': {
-    en: ['Middle click', 'Action when middle-clicking Dynamic Island.'],
-    id: ['Klik tengah', 'Aksi saat klik tengah pada Dynamic Island.']
-  },
-  'dynamicIsland.wheel': {
-    en: ['Mouse wheel', 'Scroll down for next track, up for previous track (or volume).'],
-    id: ['Roda tetikus', 'Ke bawah untuk lagu berikutnya, ke atas untuk sebelumnya (atau volume).']
+  'about.dataFolder': {
+    en: ['Data folder', 'Open the local folder where Velora stores database, cache, and downloads.'],
+    id: ['Folder data', 'Buka folder lokal tempat Velora menyimpan database, cache, dan unduhan.']
   },
   'dynamicIsland.screen': {
     en: ['Display', 'Choose which monitor hosts Dynamic Island.'],
-    id: ['Layar', 'Pilih monitor tempat Dynamic Island tampil.']
+    id: ['Layar aktif', 'Pilih monitor tempat Dynamic Island tampil.']
   },
   'dynamicIsland.hideApp': {
     en: ['Hide when Velora window is active', 'Hide Dynamic Island while the main Velora window is focused.'],
@@ -392,6 +362,10 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
   'dynamicIsland.hideFull': {
     en: ['Hide in fullscreen apps', 'Automatically hide Dynamic Island during fullscreen games or videos.'],
     id: ['Sembunyikan saat aplikasi layar penuh', 'Otomatis sembunyikan saat ada game atau video layar penuh.']
+  },
+  'dynamicIsland.idleHideSec': {
+    en: ['Auto-hide when idle', 'Shrink into a top edge line after being idle for a chosen duration.'],
+    id: ['Sembunyikan otomatis saat diam', 'Mengecil menjadi garis di tepi atas setelah diam selama waktu tertentu.']
   },
   'dynamicIsland.reset': {
     en: ['Reset Dynamic Island', 'Restore all Dynamic Island options to defaults. Enabled state stays unchanged.'],
@@ -713,8 +687,8 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     category: 'content',
     group: 'grp.regionLanguage',
     title: 'Content region',
-    description: 'Catalog country for recommendations.',
-    widget: 'select',
+    description: 'Catalog regions for Home and Search recommendations.',
+    widget: 'multi-select',
     defaultValue: 'ID',
     options: [
       { value: 'ID', label: 'Indonesia' },
@@ -877,19 +851,10 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     defaultValue: 'true'
   },
   {
-    id: 'system.globalHotkeys',
-    category: 'system',
-    group: 'grp.keysShortcuts',
-    title: 'Global shortcuts',
-    description: 'Ctrl+Alt+Space/Arrows.',
-    widget: 'toggle',
-    defaultValue: 'true'
-  },
-  {
     id: 'system.closeToTray',
     category: 'system',
     group: 'grp.trayWindow',
-    title: 'Close window to tray',
+    title: 'Hide to System Tray on close',
     description: 'Keep music playing in background.',
     widget: 'toggle',
     defaultValue: 'false'
@@ -909,15 +874,6 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     group: 'grp.trayWindow',
     title: 'Hide song title in window bar',
     description: 'Window title stays Velora.',
-    widget: 'toggle',
-    defaultValue: 'false'
-  },
-  {
-    id: 'system.alwaysOnTop',
-    category: 'system',
-    group: 'grp.trayWindow',
-    title: 'Always on top',
-    description: 'Keep Velora above other windows.',
     widget: 'toggle',
     defaultValue: 'false'
   },
@@ -971,7 +927,7 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     defaultValue: 'medium',
     options: [
       { value: 'small', label: 'opt.small' },
-      { value: 'medium', label: 'opt.medium' },
+      { value: 'medium', label: 'opt.normal' },
       { value: 'large', label: 'opt.large' }
     ],
     visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
@@ -982,13 +938,15 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     group: 'grp.islandShapeSize',
     title: 'Opacity',
     description: 'Background opacity.',
-    widget: 'segmented',
+    widget: 'slider',
     defaultValue: '100',
-    options: [
-      { value: '100', label: '100%' },
-      { value: '90', label: '90%' },
-      { value: '80', label: '80%' }
-    ],
+    min: 0,
+    max: 100,
+    step: 5,
+    unit: '%',
+    startLabel: '0%',
+    endLabel: '100%',
+    snapPoints: [0, 25, 50, 75, 100],
     visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
   },
   {
@@ -1166,6 +1124,16 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
   },
   {
+    id: 'dynamicIsland.onlyPlaying',
+    category: 'dynamic-island',
+    group: 'grp.islandBehavior',
+    title: 'Show only while playing',
+    description: 'Hide whenever playback is paused.',
+    widget: 'toggle',
+    defaultValue: 'false',
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
     id: 'dynamicIsland.pauseHide',
     category: 'dynamic-island',
     group: 'grp.islandBehavior',
@@ -1179,111 +1147,8 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
       { value: '30', label: '30s' },
       { value: '60', label: '60s' }
     ],
-    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
-  },
-  {
-    id: 'dynamicIsland.onlyPlaying',
-    category: 'dynamic-island',
-    group: 'grp.islandBehavior',
-    title: 'Show only while playing',
-    description: 'Hide whenever playback is paused.',
-    widget: 'toggle',
-    defaultValue: 'false',
-    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
-  },
-  {
-    id: 'dynamicIsland.toastSong',
-    category: 'dynamic-island',
-    group: 'grp.islandNotifications',
-    title: 'Track changed',
-    description: 'Notify when song changes.',
-    widget: 'toggle',
-    defaultValue: 'true',
-    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
-  },
-  {
-    id: 'dynamicIsland.toastVolume',
-    category: 'dynamic-island',
-    group: 'grp.islandNotifications',
-    title: 'Volume changed',
-    description: 'Show volume HUD.',
-    widget: 'toggle',
-    defaultValue: 'true',
-    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
-  },
-  {
-    id: 'dynamicIsland.toastSync',
-    category: 'dynamic-island',
-    group: 'grp.islandNotifications',
-    title: 'Phone sync',
-    description: 'Notify on Velora Jam sync.',
-    widget: 'toggle',
-    defaultValue: 'true',
-    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
-  },
-  {
-    id: 'dynamicIsland.toastDownload',
-    category: 'dynamic-island',
-    group: 'grp.islandNotifications',
-    title: 'Download complete',
-    description: 'Notify when download finishes.',
-    widget: 'toggle',
-    defaultValue: 'true',
-    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
-  },
-  {
-    id: 'dynamicIsland.toastSleep',
-    category: 'dynamic-island',
-    group: 'grp.islandNotifications',
-    title: 'Sleep timer',
-    description: 'Notify on sleep timer.',
-    widget: 'toggle',
-    defaultValue: 'true',
-    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
-  },
-  {
-    id: 'dynamicIsland.clickLeft',
-    category: 'dynamic-island',
-    group: 'grp.islandClickWheel',
-    title: 'Left click',
-    description: 'Click on empty area.',
-    widget: 'segmented',
-    defaultValue: 'pin',
-    options: [
-      { value: 'pin', label: 'opt.pin' },
-      { value: 'play', label: 'opt.playPause' },
-      { value: 'open', label: 'opt.openVelora' }
-    ],
-    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
-  },
-  {
-    id: 'dynamicIsland.clickMid',
-    category: 'dynamic-island',
-    group: 'grp.islandClickWheel',
-    title: 'Middle click',
-    description: 'Middle-click action.',
-    widget: 'segmented',
-    defaultValue: 'next',
-    options: [
-      { value: 'next', label: 'opt.nextTrack' },
-      { value: 'play', label: 'opt.playPause' },
-      { value: 'none', label: 'opt.none' }
-    ],
-    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
-  },
-  {
-    id: 'dynamicIsland.wheel',
-    category: 'dynamic-island',
-    group: 'grp.islandClickWheel',
-    title: 'Mouse wheel',
-    description: 'Scroll action on Dynamic Island.',
-    widget: 'segmented',
-    defaultValue: 'volume',
-    options: [
-      { value: 'volume', label: 'opt.volume' },
-      { value: 'track', label: 'opt.switchTrack' }
-    ],
-    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' },
+    disabledWhen: { id: 'dynamicIsland.onlyPlaying', equals: 'true' }
   },
   {
     id: 'dynamicIsland.screen',
@@ -1306,7 +1171,7 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     title: 'Hide when Velora window is active',
     description: 'Hide while Velora is focused.',
     widget: 'toggle',
-    defaultValue: 'false',
+    defaultValue: 'true',
     visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
   },
   {
@@ -1320,6 +1185,26 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
   },
   {
+    id: 'dynamicIsland.idleHideSec',
+    category: 'dynamic-island',
+    group: 'grp.islandScreen',
+    title: 'Auto-hide when idle',
+    description: 'Hide to top line after idle seconds.',
+    widget: 'combobox',
+    defaultValue: '0',
+    min: 0,
+    max: 3600,
+    unit: 's',
+    options: [
+      { value: '0', label: 'Off' },
+      { value: '5', label: '5s' },
+      { value: '15', label: '15s' },
+      { value: '30', label: '30s' }
+    ],
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' },
+    disabledWhen: { id: 'dynamicIsland.hideFull', equals: 'true' }
+  },
+  {
     id: 'dynamicIsland.reset',
     category: 'dynamic-island',
     group: 'grp.islandReset',
@@ -1329,6 +1214,26 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     defaultValue: '',
     actionLabel: 'nav.reset',
     visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'about.shortcuts',
+    category: 'about',
+    group: 'nav.aboutTitle',
+    title: 'Keyboard shortcuts',
+    description: 'View all available keyboard shortcuts in Velora.',
+    widget: 'action',
+    defaultValue: '',
+    actionLabel: 'nav.view'
+  },
+  {
+    id: 'about.dataFolder',
+    category: 'about',
+    group: 'nav.aboutTitle',
+    title: 'Data folder',
+    description: 'Open local data folder.',
+    widget: 'action',
+    defaultValue: '',
+    actionLabel: 'nav.open'
   }
 ];
 

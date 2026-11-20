@@ -71,12 +71,6 @@
 
     <!-- Section 1: Settings Categories -->
     <div class="space-y-1">
-      <div
-        class="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider"
-        style="color: var(--md-sys-color-on-surface-variant); opacity: 0.78;"
-      >
-        {tr(lang, 'nav.categories')}
-      </div>
       {#each PREFERENCE_CATEGORIES as cat (cat.id)}
         {@const active = !search.trim() && activeTab === cat.id}
         <button
@@ -98,14 +92,10 @@
       {/each}
     </div>
 
+    <div class="border-t mx-2" style="border-color: var(--md-sys-color-outline-variant);"></div>
+
     <!-- Section 2: App Info -->
     <div class="space-y-1">
-      <div
-        class="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider"
-        style="color: var(--md-sys-color-on-surface-variant); opacity: 0.78;"
-      >
-        Velora
-      </div>
       {#each PREFERENCE_APP_TABS as tab (tab.id)}
         {@const active = !search.trim() && activeTab === tab.id}
         <button
