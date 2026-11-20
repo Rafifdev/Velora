@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -208,8 +209,13 @@ func (a *App) startup(ctx context.Context) {
 			}
 		},
 	)
-	if prefs, pErr := a.store.GetPreferences(); pErr == nil && prefs["integrations.jam.enabled"] == "true" {
-		_, _ = a.StartJam()
+	if prefs, pErr := a.store.GetPreferences(); pErr == nil {
+		if prefs["integrations.jam.enabled"] != "false" {
+			_, _ = a.StartJam()
+		}
+		if d, err := strconv.Atoi(prefs["privacy.historyDays"]); err == nil && d > 0 {
+			_ = a.store.PrunePlayHistory(d)
+		}
 	}
 }
 
@@ -1186,6 +1192,11 @@ func (a *App) SavePreferences(prefs map[string]string) error {
 	if lang, ok := prefs["content.language"]; ok && lang != "" {
 		a.SetDynamicIslandLanguage(lang)
 	}
+	if daysStr, ok := prefs["privacy.historyDays"]; ok {
+		if d, err := strconv.Atoi(daysStr); err == nil && d > 0 {
+			_ = a.store.PrunePlayHistory(d)
+		}
+	}
 	_, hasID := prefs["integrations.spotify.clientId"]
 	_, hasSecret := prefs["integrations.spotify.clientSecret"]
 	_, hasEnabled := prefs["integrations.spotify.enabled"]
@@ -1199,20 +1210,41 @@ func (a *App) SavePreferences(prefs map[string]string) error {
 	return nil
 }
 
-func (a *App) ClearCache() (int, error) {
-	entries, err := os.ReadDir(a.artworkDir)
-	if err != nil {
-		return 0, err
-	}
-	removed := 0
-	for _, e := range entries {
-		if !e.IsDir() {
-			if os.Remove(filepath.Join(a.artworkDir, e.Name())) == nil {
-				removed++
+func (a *App) ClearCache() (int64, error) {
+	var freedBytes int64
+	if entries, err := os.ReadDir(a.artworkDir); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				p := filepath.Join(a.artworkDir, e.Name())
+				var sz int64
+				if info, iErr := e.Info(); iErr == nil {
+					sz = info.Size()
+				}
+				if os.Remove(p) == nil {
+					freedBytes += sz
+				}
 			}
 		}
 	}
-	return removed, nil
+	if tmpEntries, err := os.ReadDir(os.TempDir()); err == nil {
+		for _, e := range tmpEntries {
+			if !e.IsDir() && strings.HasPrefix(e.Name(), "velora-transcode-") {
+				p := filepath.Join(os.TempDir(), e.Name())
+				var sz int64
+				if info, iErr := e.Info(); iErr == nil {
+					sz = info.Size()
+				}
+				if os.Remove(p) == nil {
+					freedBytes += sz
+				}
+			}
+		}
+	}
+	if a.ytClient != nil {
+		a.ytClient.ClearAllStreamCache()
+	}
+	a.invalidateHomeCache()
+	return freedBytes, nil
 }
 
 func (a *App) WindowMinimize() {

@@ -54,7 +54,7 @@
     </div>
 
     <!-- M3 Search Field -->
-    <div class="relative px-0.5">
+    <div class="relative px-0.5 transition-transform duration-200 ease-[cubic-bezier(0.34,1.56,0.64,1)] focus-within:scale-[1.025] active:scale-[0.985]">
       <span
         class="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
         style="color: var(--md-sys-color-on-surface-variant);"
@@ -92,7 +92,7 @@
             ? 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'
             : 'color: var(--md-sys-color-on-surface-variant);'}
         >
-          <Icon name={cat.icon} weight={active ? 'fill' : 'regular'} size={18} class="shrink-0" />
+          <Icon name={cat.icon} weight={active ? 'fill' : 'regular'} size={14} class="shrink-0" />
           <span class="truncate">{tr(lang, cat.titleKey, cat.title)}</span>
         </button>
       {/each}
@@ -121,7 +121,7 @@
             ? 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'
             : 'color: var(--md-sys-color-on-surface-variant);'}
         >
-          <Icon name={tab.icon} weight={active ? 'fill' : 'regular'} size={18} class="shrink-0" />
+          <Icon name={tab.icon} weight={active ? 'fill' : 'regular'} size={14} class="shrink-0" />
           <span class="truncate">{tr(lang, tab.titleKey, tab.title)}</span>
         </button>
       {/each}
