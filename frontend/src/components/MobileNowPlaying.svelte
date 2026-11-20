@@ -16,6 +16,8 @@
     shuffle: boolean;
     repeatMode: 'off' | 'all' | 'one';
     mediaBaseUrl: string;
+    showMiniLyrics?: boolean;
+    plainFallback?: boolean;
     onClose: () => void;
     onTogglePlay: () => void;
     onPrev: () => void;
@@ -40,6 +42,8 @@
     shuffle,
     repeatMode,
     mediaBaseUrl,
+    showMiniLyrics = true,
+    plainFallback = true,
     onClose,
     onTogglePlay,
     onPrev,
@@ -73,7 +77,7 @@
         active: start + i === activeIdx
       }));
     }
-    if (lyrics.plainLyrics) {
+    if (plainFallback && lyrics.plainLyrics) {
       return lyrics.plainLyrics
         .split('\n')
         .map((s) => s.trim())
@@ -283,6 +287,7 @@
         class="rounded-2xl p-4 space-y-3"
         style="background: linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-tertiary-container) 82%, #6d4c1d), color-mix(in srgb, var(--md-sys-color-tertiary-container) 55%, #3d2a0d));"
       >
+      {#if showMiniLyrics}
         <div class="flex items-center justify-between">
           <h3 class="text-sm font-bold text-white">Lyrics preview</h3>
         </div>
@@ -297,6 +302,7 @@
         {:else}
           <p class="text-sm text-white/75">Lirik belum tersedia untuk lagu ini.</p>
         {/if}
+      {/if}
         <button
           type="button"
           onclick={() => {

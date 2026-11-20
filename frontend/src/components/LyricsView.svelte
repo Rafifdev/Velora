@@ -2,6 +2,7 @@
   import { fade } from 'svelte/transition';
   import type { Track, TrackLyrics } from '../lib/types';
   import { resolveCoverUrl } from '../lib/api';
+  import { getPrefBool, getPrefValue } from '../lib/preferences';
   import Icon from './Icon.svelte';
 
   let {
@@ -10,6 +11,7 @@
     lyricsLoading = false,
     positionSec = 0,
     mediaBaseUrl = '',
+    preferences = {},
     onSeek,
     onResync,
     onClose
@@ -19,6 +21,7 @@
     lyricsLoading?: boolean;
     positionSec?: number;
     mediaBaseUrl?: string;
+    preferences?: Record<string, string>;
     onSeek: (sec: number) => void;
     onResync?: () => void;
     onClose: () => void;
@@ -27,27 +30,65 @@
   let scrollEl: HTMLDivElement | undefined = $state();
   let lineEls: Array<HTMLElement | null> = $state([]);
   let autoSync = $state(true);
+  let offsetSec = $state(0);
+
+  const lyricsTextSize = $derived(Number(getPrefValue(preferences, 'lyrics.textSize') || '1'));
+  const lyricsAutoScroll = $derived(getPrefBool(preferences, 'lyrics.autoScroll'));
+  const lyricsSweep = $derived(getPrefBool(preferences, 'lyrics.sweep'));
+  const lyricsBlurOthers = $derived(
+    getPrefBool(preferences, 'lyrics.blurOthers') && getPrefValue(preferences, 'appearance.performance') !== 'lite'
+  );
+  const lyricsNudgeStepSec = $derived(Math.max(0.25, Number(getPrefValue(preferences, 'lyrics.nudgeMs') || '500') / 1000));
+  const lyricsPlainFallback = $derived(getPrefBool(preferences, 'lyrics.plainFallback'));
+
+  const syncedSizeClass = $derived(
+    lyricsTextSize <= 0
+      ? 'text-xl sm:text-2xl md:text-3xl'
+      : lyricsTextSize >= 2
+        ? 'text-3xl sm:text-4xl md:text-5xl'
+        : 'text-2xl sm:text-3xl md:text-4xl'
+  );
+  const plainSizeClass = $derived(
+    lyricsTextSize <= 0
+      ? 'text-lg sm:text-xl md:text-2xl'
+      : lyricsTextSize >= 2
+        ? 'text-2xl sm:text-3xl md:text-4xl'
+        : 'text-xl sm:text-2xl md:text-3xl'
+  );
 
   let cover = $derived(track ? resolveCoverUrl(track.coverUrl, mediaBaseUrl) : '');
 
   let syncedLines = $derived(lyrics?.syncedLyrics ?? []);
   let hasSynced = $derived(syncedLines.length > 0);
   let plainLines = $derived(
-    (lyrics?.plainLyrics ?? '')
-      .split(/\r?\n/)
-      .map((l) => l.trimEnd())
+    lyricsPlainFallback
+      ? (lyrics?.plainLyrics ?? '')
+          .split(/\r?\n/)
+          .map((l) => l.trimEnd())
+      : []
   );
+
+  let effectiveTime = $derived(positionSec + 0.25 + offsetSec);
 
   let activeSyncedIndex = $derived.by(() => {
     if (!hasSynced) return -1;
-    const t = positionSec + 0.25;
     let idx = -1;
     for (let i = 0; i < syncedLines.length; i++) {
-      if (syncedLines[i].timeSec <= t) idx = i;
+      if (syncedLines[i].timeSec <= effectiveTime) idx = i;
       else break;
     }
     return idx;
   });
+
+  function getLineSweepPct(idx: number): number {
+    if (!lyricsSweep || idx !== activeSyncedIndex || !hasSynced) return 100;
+    const cur = syncedLines[idx];
+    const next = syncedLines[idx + 1];
+    const start = cur.timeSec;
+    const end = next ? Math.max(start + 0.6, next.timeSec) : start + 4.0;
+    const pct = ((effectiveTime - start) / (end - start)) * 100;
+    return Math.max(8, Math.min(100, pct));
+  }
 
   function scrollToActiveLine(behavior: ScrollBehavior = 'smooth') {
     const idx = activeSyncedIndex;
@@ -64,12 +105,17 @@
 
   $effect(() => {
     const _trackId = track?.id;
-    autoSync = true;
+    autoSync = lyricsAutoScroll;
+    offsetSec = 0;
+  });
+
+  $effect(() => {
+    autoSync = lyricsAutoScroll;
   });
 
   $effect(() => {
     const idx = activeSyncedIndex;
-    if (!autoSync || idx < 0) return;
+    if (!lyricsAutoScroll || !autoSync || idx < 0) return;
     scrollToActiveLine('smooth');
   });
 
@@ -132,6 +178,38 @@
     </div>
 
     <div class="flex items-center gap-2 shrink-0">
+      {#if hasSynced}
+        <div class="flex items-center gap-1 bg-white/10 rounded-full px-1.5 py-1">
+          <button
+            type="button"
+            onclick={() => (offsetSec = Number((offsetSec - lyricsNudgeStepSec).toFixed(2)))}
+            class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white/80 hover:text-white hover:bg-white/15 cursor-pointer"
+            title="Mundurkan lirik {lyricsNudgeStepSec}s"
+            aria-label="Mundurkan lirik"
+          >
+            -
+          </button>
+          {#if offsetSec !== 0}
+            <button
+              type="button"
+              onclick={() => (offsetSec = 0)}
+              class="px-1.5 text-[11px] font-semibold tabular-nums text-white/85 hover:text-white cursor-pointer"
+              title="Reset geser waktu lirik"
+            >
+              {offsetSec > 0 ? `+${offsetSec}s` : `${offsetSec}s`}
+            </button>
+          {/if}
+          <button
+            type="button"
+            onclick={() => (offsetSec = Number((offsetSec + lyricsNudgeStepSec).toFixed(2)))}
+            class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white/80 hover:text-white hover:bg-white/15 cursor-pointer"
+            title="Majukan lirik {lyricsNudgeStepSec}s"
+            aria-label="Majukan lirik"
+          >
+            +
+          </button>
+        </div>
+      {/if}
       <button
         type="button"
         onclick={handleSyncClick}
@@ -195,13 +273,19 @@
       <div class="max-w-4xl mx-auto flex flex-col gap-5 py-12">
         {#each syncedLines as line, idx (idx + '-' + line.timeSec)}
           {@const active = idx === activeSyncedIndex}
+          {@const sweepPct = getLineSweepPct(idx)}
           <button
             bind:this={lineEls[idx]}
             type="button"
             onclick={() => onSeek(line.timeSec)}
-            class="text-left text-2xl sm:text-3xl md:text-4xl font-bold leading-snug tracking-tight origin-left transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer text-white {active
+            class="text-left {syncedSizeClass} font-bold leading-snug tracking-tight origin-left transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer text-white {active
               ? 'opacity-100 scale-[1.03]'
-              : 'opacity-35 scale-[0.92] hover:opacity-90'}"
+              : lyricsBlurOthers
+                ? 'opacity-35 scale-[0.92] blur-[1.5px] hover:opacity-90 hover:blur-none'
+                : 'opacity-35 scale-[0.92] hover:opacity-90'}"
+            style={active && lyricsSweep
+              ? `background-image: linear-gradient(90deg, #ffffff ${sweepPct}%, rgba(255,255,255,0.42) ${sweepPct}%); -webkit-background-clip: text; background-clip: text; color: transparent;`
+              : ''}
           >
             {line.text || '♪'}
           </button>
@@ -214,7 +298,7 @@
             <div class="h-4"></div>
           {:else}
             <p
-              class="text-xl sm:text-2xl md:text-3xl font-bold leading-relaxed text-white opacity-70 hover:opacity-100 transition-opacity duration-300"
+              class="{plainSizeClass} font-bold leading-relaxed text-white opacity-70 hover:opacity-100 transition-opacity duration-300"
             >
               {line}
             </p>
