@@ -283,11 +283,16 @@
               : lyricsBlurOthers
                 ? 'opacity-35 scale-[0.92] blur-[1.5px] hover:opacity-90 hover:blur-none'
                 : 'opacity-35 scale-[0.92] hover:opacity-90'}"
-            style={active && lyricsSweep
-              ? `background-image: linear-gradient(90deg, #ffffff ${sweepPct}%, rgba(255,255,255,0.42) ${sweepPct}%); -webkit-background-clip: text; background-clip: text; color: transparent;`
-              : ''}
           >
-            {line.text || '♪'}
+            {#if active && lyricsSweep}
+              {@const words = (line.text || '♪').split(' ')}
+              {#each words as word, wIdx (wIdx)}
+                {@const wordLit = sweepPct >= (wIdx / Math.max(1, words.length)) * 100}
+                <span class="transition-opacity duration-150 {wordLit ? 'opacity-100' : 'opacity-40'}">{word}{wIdx < words.length - 1 ? ' ' : ''}</span>
+              {/each}
+            {:else}
+              {line.text || '♪'}
+            {/if}
           </button>
         {/each}
       </div>

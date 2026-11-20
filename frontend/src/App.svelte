@@ -231,6 +231,69 @@
     audioEngine.setPreset(getPrefValue(preferences, 'playback.eqPreset'));
     audioEngine.setNormalize(getPrefBool(preferences, 'playback.audioNormalize'));
   });
+
+  $effect(() => {
+    const hideTitle = getPrefBool(preferences, 'system.hideTitle');
+    const nextTitle = hideTitle || !currentTrack
+      ? 'Velora'
+      : currentTrack.artistName
+        ? `${currentTrack.title} - ${currentTrack.artistName}`
+        : currentTrack.title;
+    document.title = nextTitle;
+    void api.setWindowTitle(nextTitle);
+  });
+
+  $effect(() => {
+    const keepAwake = isPlaying && getPrefBool(preferences, 'system.keepAwake');
+    void api.setKeepAwake(keepAwake);
+  });
+
+  $effect(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return;
+    const ms = navigator.mediaSession;
+    const mediaKeysEnabled = getPrefBool(preferences, 'system.mediaKeys');
+    if (!mediaKeysEnabled) {
+      try {
+        ms.setActionHandler('play', null);
+        ms.setActionHandler('pause', null);
+        ms.setActionHandler('previoustrack', null);
+        ms.setActionHandler('nexttrack', null);
+        ms.setActionHandler('seekto', null);
+      } catch {
+        // Ignore unsupported actions
+      }
+      return;
+    }
+
+    if (currentTrack && typeof MediaMetadata !== 'undefined') {
+      const artworkUrl = resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl);
+      ms.metadata = new MediaMetadata({
+        title: currentTrack.title,
+        artist: currentTrack.artistName || 'Velora',
+        album: currentTrack.albumTitle || '',
+        artwork: artworkUrl ? [{ src: artworkUrl, sizes: '512x512', type: 'image/jpeg' }] : []
+      });
+    }
+    ms.playbackState = isPlaying ? 'playing' : currentTrack ? 'paused' : 'none';
+
+    try {
+      ms.setActionHandler('play', () => {
+        if (!isPlaying) void togglePlay();
+      });
+      ms.setActionHandler('pause', () => {
+        if (isPlaying) void togglePlay();
+      });
+      ms.setActionHandler('previoustrack', () => void playPrev());
+      ms.setActionHandler('nexttrack', () => void playNext());
+      ms.setActionHandler('seekto', (details) => {
+        if (typeof details.seekTime === 'number') {
+          handleSeek(details.seekTime);
+        }
+      });
+    } catch {
+      // Ignore unsupported actions
+    }
+  });
   let queue = $state<Track[]>([]);
   let queueSourceTitle = $state('');
   let playedAlgoKeys = new Set<string>();
@@ -730,6 +793,19 @@
     if (preferences['dynamicIsland.style'] !== undefined) {
       api.setDynamicIslandStyle(preferences['dynamicIsland.style']);
     }
+    api.setDynamicIslandShapeSize(
+      getPrefValue(preferences, 'dynamicIsland.compactStyle') || 'RINGKAS',
+      getPrefValue(preferences, 'dynamicIsland.size') || 'medium',
+      Number(getPrefValue(preferences, 'dynamicIsland.opacity') || '100')
+    );
+    api.setDynamicIslandHideWhenAppActive(getPrefValue(preferences, 'dynamicIsland.hideApp') !== 'false');
+    api.setDynamicIslandHideInFullscreen(getPrefValue(preferences, 'dynamicIsland.hideFull') !== 'false');
+    api.setDynamicIslandIdleHideSeconds(Number(getPrefValue(preferences, 'dynamicIsland.idleHideSec') || '0') || 0);
+    api.setDynamicIslandScreen(getPrefValue(preferences, 'dynamicIsland.screen') || 'primary');
+    api.setDynamicIslandAnimSpeed(getPrefValue(preferences, 'dynamicIsland.animSpeed') || 'normal');
+    api.setDynamicIslandOpenTrigger(getPrefValue(preferences, 'dynamicIsland.openTrigger') || 'hover');
+    api.setDynamicIslandOnlyPlaying(getPrefValue(preferences, 'dynamicIsland.onlyPlaying') === 'true');
+    api.setDynamicIslandPauseHideSeconds(Number(getPrefValue(preferences, 'dynamicIsland.pauseHide') || '0') || 0);
     if (preferences['general.zoomLevel']) {
       const z = Number(preferences['general.zoomLevel']);
       if (Number.isFinite(z)) applyZoom(z, false);
@@ -791,6 +867,9 @@
   async function patchPrefs(patch: Record<string, string>) {
     preferences = { ...preferences, ...patch };
     await api.savePreferences(patch);
+    if (patch['content.country'] !== undefined) {
+      void loadYTMusicHome();
+    }
     if (patch['layout.leftCollapsed'] !== undefined) {
       leftCollapsed = patch['layout.leftCollapsed'] === 'true';
     }
@@ -833,6 +912,41 @@
     }
     if (patch['dynamicIsland.style'] !== undefined) {
       api.setDynamicIslandStyle(patch['dynamicIsland.style']);
+    }
+    if (
+      patch['dynamicIsland.compactStyle'] !== undefined ||
+      patch['dynamicIsland.size'] !== undefined ||
+      patch['dynamicIsland.opacity'] !== undefined
+    ) {
+      api.setDynamicIslandShapeSize(
+        getPrefValue(preferences, 'dynamicIsland.compactStyle') || 'RINGKAS',
+        getPrefValue(preferences, 'dynamicIsland.size') || 'medium',
+        Number(getPrefValue(preferences, 'dynamicIsland.opacity') || '100')
+      );
+    }
+    if (patch['dynamicIsland.hideApp'] !== undefined) {
+      api.setDynamicIslandHideWhenAppActive(patch['dynamicIsland.hideApp'] !== 'false');
+    }
+    if (patch['dynamicIsland.hideFull'] !== undefined) {
+      api.setDynamicIslandHideInFullscreen(patch['dynamicIsland.hideFull'] !== 'false');
+    }
+    if (patch['dynamicIsland.idleHideSec'] !== undefined) {
+      api.setDynamicIslandIdleHideSeconds(Number(patch['dynamicIsland.idleHideSec']) || 0);
+    }
+    if (patch['dynamicIsland.screen'] !== undefined) {
+      api.setDynamicIslandScreen(patch['dynamicIsland.screen']);
+    }
+    if (patch['dynamicIsland.animSpeed'] !== undefined) {
+      api.setDynamicIslandAnimSpeed(patch['dynamicIsland.animSpeed']);
+    }
+    if (patch['dynamicIsland.openTrigger'] !== undefined) {
+      api.setDynamicIslandOpenTrigger(patch['dynamicIsland.openTrigger']);
+    }
+    if (patch['dynamicIsland.onlyPlaying'] !== undefined) {
+      api.setDynamicIslandOnlyPlaying(patch['dynamicIsland.onlyPlaying'] === 'true');
+    }
+    if (patch['dynamicIsland.pauseHide'] !== undefined) {
+      api.setDynamicIslandPauseHideSeconds(Number(patch['dynamicIsland.pauseHide']) || 0);
     }
     if (patch['general.zoomLevel'] !== undefined) {
       const z = Number(patch['general.zoomLevel']);
@@ -1119,6 +1233,16 @@
         }
       }
     }
+  }
+
+  async function openTrackArtistDetail(tr: Track) {
+    const primaryArtist = (tr.artistName || '').split(',')[0].trim();
+    if (!primaryArtist && !tr.artistId) return;
+    await navigate({
+      name: 'artist-detail',
+      artistId: tr.artistId > 0 ? tr.artistId : undefined,
+      artistName: primaryArtist
+    });
   }
 
   async function openTrackAlbumDetail(tr: Track) {
@@ -2926,6 +3050,7 @@
         onToggleFavorite={handleToggleFavoriteTrack}
         onSeek={handleSeek}
         onOpenTrackDetail={(tr) => void openTrackAlbumDetail(tr)}
+        onOpenArtistDetail={(tr) => void openTrackArtistDetail(tr)}
         onOpenLyrics={() => navigate({ name: 'lyrics' })}
       />
     {/if}
@@ -2969,6 +3094,7 @@
       }}
       onToggleFavorite={handleToggleFavoriteTrack}
       onOpenTrackDetail={(tr) => void openTrackAlbumDetail(tr)}
+      onOpenArtistDetail={(tr) => void openTrackArtistDetail(tr)}
       onOpenMobileNowPlaying={() => (mobileNowPlayingOpen = true)}
       onToggleLyrics={() => {
         if (currentRoute.name === 'lyrics') {
@@ -3073,7 +3199,7 @@
                   mobileShowQueue = false;
                   void navigate(entry.route);
                 }}
-                class="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold cursor-pointer text-left"
+                class="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold cursor-pointer text-left transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
                 style="background-color: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface);"
               >
                 <Icon name={entry.icon} size={17} />
@@ -3097,7 +3223,7 @@
           mobileShowQueue = false;
           void navigate({ name: 'home' });
         }}
-        class="flex flex-col items-center justify-center gap-0.5 py-1 rounded-lg cursor-pointer transition-transform duration-150 active:scale-95"
+        class="flex flex-col items-center justify-center gap-0.5 py-1 rounded-lg cursor-pointer transition-all duration-150 hover:bg-[var(--md-sys-color-state-hover)] active:scale-95"
         style="color: {!mobileShowQueue && !mobileMenuOpen && currentRoute.name === 'home'
           ? 'var(--md-sys-color-on-surface)'
           : 'var(--md-sys-color-on-surface-variant)'};"
@@ -3119,7 +3245,7 @@
             requestAnimationFrame(() => (document.getElementById('mobile-search-input') as HTMLInputElement | null)?.focus())
           );
         }}
-        class="flex flex-col items-center justify-center gap-0.5 py-1 rounded-lg cursor-pointer transition-transform duration-150 active:scale-95"
+        class="flex flex-col items-center justify-center gap-0.5 py-1 rounded-lg cursor-pointer transition-all duration-150 hover:bg-[var(--md-sys-color-state-hover)] active:scale-95"
         style="color: {!mobileShowQueue && !mobileMenuOpen && currentRoute.name === 'search'
           ? 'var(--md-sys-color-on-surface)'
           : 'var(--md-sys-color-on-surface-variant)'};"
@@ -3135,7 +3261,7 @@
       <button
         type="button"
         onclick={() => (mobileMenuOpen = !mobileMenuOpen)}
-        class="flex flex-col items-center justify-center gap-0.5 py-1 rounded-lg cursor-pointer transition-transform duration-150 active:scale-95"
+        class="flex flex-col items-center justify-center gap-0.5 py-1 rounded-lg cursor-pointer transition-all duration-150 hover:bg-[var(--md-sys-color-state-hover)] active:scale-95"
         style="color: {mobileMenuOpen
           ? 'var(--md-sys-color-on-surface)'
           : 'var(--md-sys-color-on-surface-variant)'};"
@@ -3150,7 +3276,7 @@
           mobileMenuOpen = false;
           mobileShowQueue = !mobileShowQueue;
         }}
-        class="flex flex-col items-center justify-center gap-0.5 py-1 rounded-lg cursor-pointer transition-transform duration-150 active:scale-95"
+        class="flex flex-col items-center justify-center gap-0.5 py-1 rounded-lg cursor-pointer transition-all duration-150 hover:bg-[var(--md-sys-color-state-hover)] active:scale-95"
         style="color: {mobileShowQueue
           ? 'var(--md-sys-color-on-surface)'
           : 'var(--md-sys-color-on-surface-variant)'};"

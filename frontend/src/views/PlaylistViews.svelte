@@ -366,7 +366,7 @@
             type="button"
             onclick={startEdit}
             aria-label="Edit detail playlist"
-            class="w-28 h-28 rounded-lg overflow-hidden shrink-0 shadow-[0_12px_36px_rgba(0,0,0,0.42)] flex items-center justify-center cursor-pointer"
+            class="w-28 h-28 rounded-lg overflow-hidden shrink-0 shadow-[0_12px_36px_rgba(0,0,0,0.42)] flex items-center justify-center cursor-pointer transition-transform hover:scale-[1.02]"
             style="background: linear-gradient(135deg, color-mix(in srgb, {heroTint} 55%, var(--md-sys-color-primary-container)) 0%, color-mix(in srgb, {heroTint} 85%, var(--md-sys-color-surface-container-highest)) 100%);"
           >
             {#if plCover}
@@ -833,18 +833,10 @@
     class="m-auto w-full max-w-lg rounded-xl shadow-2xl p-6"
     style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
   >
-    <div class="flex items-center justify-between mb-5">
+    <div class="mb-5">
       <h2 id="edit-playlist-title" class="text-xl font-bold tracking-tight">
         Edit detail
       </h2>
-      <button
-        type="button"
-        onclick={() => (editing = false)}
-        aria-label="Tutup"
-        class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer"
-      >
-        <Icon name="x" size={18} />
-      </button>
     </div>
 
     <form onsubmit={saveEdit} class="space-y-4">
@@ -965,7 +957,7 @@
           <button
             type="button"
             onclick={() => (tabFilter = tab.id as 'all' | 'local' | 'ytmusic')}
-            class="px-4 py-1.5 rounded-full text-xs font-semibold cursor-pointer transition-colors"
+            class="px-4 py-1.5 rounded-full text-xs font-semibold cursor-pointer transition-all hover:brightness-110"
             style={tabFilter === tab.id
               ? 'background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);'
               : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);'}
@@ -1068,18 +1060,10 @@
   class="m-auto w-full max-w-md rounded-xl shadow-2xl p-6"
   style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
 >
-  <div class="flex items-center justify-between mb-5">
+  <div class="mb-5">
     <h2 id="import-playlist-title" class="text-lg font-bold tracking-tight">
       Import Playlist
     </h2>
-    <button
-      type="button"
-      onclick={() => (importModalOpen = false)}
-      aria-label="Tutup"
-      class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer"
-    >
-      <Icon name="x" size={18} />
-    </button>
   </div>
 
   <div class="space-y-5">

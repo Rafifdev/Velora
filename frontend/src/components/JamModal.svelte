@@ -51,7 +51,7 @@
         title={status.running ? 'Matikan Velora Jam' : 'Aktifkan Velora Jam'}
         disabled={loading}
         onclick={onToggleJam}
-        class="w-[46px] h-7 rounded-full relative transition-colors duration-200 cursor-pointer shrink-0 flex items-center disabled:opacity-50"
+        class="w-[46px] h-7 rounded-full relative transition-all duration-200 cursor-pointer shrink-0 flex items-center hover:brightness-110 disabled:opacity-50"
         style={status.running
           ? 'background-color: var(--md-sys-color-primary);'
           : 'background-color: var(--md-sys-color-surface-container-highest);'}
