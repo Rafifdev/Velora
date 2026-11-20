@@ -243,13 +243,34 @@ type SpotifyClient struct {
 	accessToken   string
 	tokenExpiry   time.Time
 	resolvedCache map[string]string
+	region        string
 }
 
 func NewSpotifyClient() *SpotifyClient {
 	return &SpotifyClient{
 		httpClient:    &http.Client{Timeout: 12 * time.Second},
 		resolvedCache: map[string]string{},
+		region:        "ID",
 	}
+}
+
+func (c *SpotifyClient) SetRegion(gl string) {
+	code := strings.ToUpper(strings.TrimSpace(gl))
+	if len(code) != 2 {
+		code = "ID"
+	}
+	c.mu.Lock()
+	c.region = code
+	c.mu.Unlock()
+}
+
+func (c *SpotifyClient) getRegion() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.region) != 2 {
+		return "ID"
+	}
+	return c.region
 }
 
 func (c *SpotifyClient) SetCredentials(clientID, clientSecret string) {
@@ -633,7 +654,7 @@ func (c *SpotifyClient) GetHomeFeed(ctx context.Context) (YTMusicHomeFeed, error
 				Items []spAlbumSimple `json:"items"`
 			} `json:"albums"`
 		}
-		if err := c.apiGet(ctx, "/browse/new-releases?limit=14&country=ID", &res); err != nil {
+		if err := c.apiGet(ctx, "/browse/new-releases?limit=14&country="+c.getRegion(), &res); err != nil {
 			setErr(err)
 			return
 		}
