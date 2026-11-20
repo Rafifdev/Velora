@@ -44,6 +44,9 @@
     jamLoading?: boolean;
     jamRunning?: boolean;
     jamConnected?: boolean;
+    jamPrefEnabled?: boolean;
+    saveSearches?: boolean;
+    onOpenJamSettings?: () => void;
     onResetZoom?: () => void;
   }
 
@@ -80,6 +83,9 @@
     jamLoading = false,
     jamRunning = false,
     jamConnected = false,
+    jamPrefEnabled = true,
+    saveSearches = true,
+    onOpenJamSettings,
     onResetZoom
   }: Props = $props();
 
@@ -368,12 +374,32 @@
     }
   }
 
+  let jamDisabledAlert = $state(false);
+
   function submitSearch(q: string) {
     if (debounceTimer) clearTimeout(debounceTimer);
     localQuery = q;
     debouncedQuery = q;
     suggestionsOpen = false;
     activeSuggestionIdx = -1;
+    const trimmed = q.trim();
+    if (trimmed) {
+      if (saveSearches) {
+        try {
+          const prev = JSON.parse(localStorage.getItem('velora.recentSearches') || '[]') as string[];
+          const next = [trimmed, ...prev.filter((item) => item.toLowerCase() !== trimmed.toLowerCase())].slice(0, 8);
+          localStorage.setItem('velora.recentSearches', JSON.stringify(next));
+        } catch {
+          // Ignore storage error
+        }
+      } else {
+        try {
+          localStorage.removeItem('velora.recentSearches');
+        } catch {
+          // Ignore storage error
+        }
+      }
+    }
     onSearch(q);
   }
 
@@ -765,16 +791,90 @@
       <div class="relative" bind:this={jamAnchorEl}>
         <button
           type="button"
-          onclick={() => (jamOpen ? onCloseJam?.() : onOpenJam ? onOpenJam() : onNavigate({ name: 'preferences' }))}
-          title={jamRunning ? 'Velora Jam Remote (Aktif)' : 'Velora Jam Remote'}
+          onclick={() => {
+            if (!jamPrefEnabled) {
+              jamDisabledAlert = true;
+              return;
+            }
+            if (jamOpen) onCloseJam?.();
+            else if (onOpenJam) onOpenJam();
+            else onNavigate({ name: 'preferences' });
+          }}
+          title={!jamPrefEnabled ? 'Velora Jam (Nonaktif)' : jamRunning ? 'Velora Jam Remote (Aktif)' : 'Velora Jam Remote'}
           aria-label="Remote QR & Integrations"
-          class="relative w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:brightness-125"
-          style={jamRunning
-            ? 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'
-            : `background-color: var(--md-sys-color-surface-container-high); color: ${jamOpen ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-on-surface-variant)'};`}
+          class="relative w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:brightness-125 {!jamPrefEnabled ? 'opacity-45' : ''}"
+          style={!jamPrefEnabled
+            ? 'background-color: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface-variant);'
+            : jamRunning
+              ? 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'
+              : `background-color: var(--md-sys-color-surface-container-high); color: ${jamOpen ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-on-surface-variant)'};`}
         >
           <Icon name="qr-code" size={17} />
         </button>
+
+        {#if jamDisabledAlert}
+          <div
+            transition:fade={{ duration: 150 }}
+            class="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
+            onclick={() => (jamDisabledAlert = false)}
+            role="presentation"
+          >
+            <div
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="jam-disabled-title"
+              aria-describedby="jam-disabled-desc"
+              transition:scale={{ duration: 170, start: 0.94 }}
+              onclick={(e) => e.stopPropagation()}
+              onkeydown={(e) => {
+                if (e.key === 'Escape') jamDisabledAlert = false;
+              }}
+              tabindex="-1"
+              class="w-full max-w-sm rounded-2xl p-6 space-y-4 shadow-2xl border outline-none"
+              style="background-color: var(--md-sys-color-surface-container-high); border-color: var(--md-sys-color-outline-variant);"
+            >
+              <div class="flex items-start gap-3">
+                <div
+                  class="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+                  style="background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant);"
+                >
+                  <Icon name="qr-code" size={19} />
+                </div>
+                <div class="space-y-1">
+                  <h3 id="jam-disabled-title" class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
+                    {lang === 'id' ? 'Velora Jam belum aktif' : 'Velora Jam is turned off'}
+                  </h3>
+                  <p id="jam-disabled-desc" class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
+                    {lang === 'id'
+                      ? 'Aktifkan kontrol Wi-Fi di Pengaturan Velora Jam terlebih dahulu untuk menghubungkan perangkat lain.'
+                      : 'Enable Wi-Fi remote control in Settings → Velora Jam first to connect another device.'}
+                  </p>
+                </div>
+              </div>
+              <div class="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onclick={() => (jamDisabledAlert = false)}
+                  class="h-9 px-4 rounded-full text-xs font-semibold cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+                  style="color: var(--md-sys-color-on-surface-variant);"
+                >
+                  {lang === 'id' ? 'Tutup' : 'Close'}
+                </button>
+                <button
+                  type="button"
+                  onclick={() => {
+                    jamDisabledAlert = false;
+                    if (onOpenJamSettings) onOpenJamSettings();
+                    else onNavigate({ name: 'preferences' });
+                  }}
+                  class="m3-btn-filled h-9 px-4 text-xs font-bold cursor-pointer"
+                >
+                  {lang === 'id' ? 'Buka Pengaturan' : 'Open Settings'}
+                </button>
+              </div>
+            </div>
+          </div>
+        {/if}
 
         {#if jamStatus}
           <JamModal

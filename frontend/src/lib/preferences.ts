@@ -46,32 +46,32 @@ export interface LocalizedPair {
 const ITEM_TEXT: Record<string, LocalizedPair> = {
   // 1. Appearance
   'general.zoomLevel': {
-    en: ['Display scale', 'Adjust interface zoom from 70% to 130% (Ctrl +, -, or 0).'],
-    id: ['Ukuran tampilan', 'Sesuaikan ukuran antarmuka dari 70% hingga 130% (Ctrl +, -, atau 0).']
+    en: ['Display scale', 'Adjust interface zoom level between 70% and 130%.'],
+    id: ['Skala tampilan', 'Atur tingkat pembesaran antarmuka dari 70% hingga 130%.']
   },
   'appearance.performance': {
     en: ['Animation effects', 'Control interface transitions and motion intensity.'],
-    id: ['Efek animasi', 'Atur transisi dan intensitas animasi antarmuka aplikasi.']
+    id: ['Efek animasi', 'Atur transisi dan intensitas animasi antarmuka.']
   },
   'appearance.shade': {
-    en: ['Shadow effects', 'Adjust card and surface shadow intensity.'],
+    en: ['Shadow effects', 'Adjust shadow depth on cards and floating panels.'],
     id: ['Efek bayangan', 'Atur intensitas bayangan pada kartu dan panel.']
   },
   'appearance.showStreak': {
     en: ['Streak on Home', 'Show listening streak badge on the Home screen.'],
-    id: ['Streak di Beranda', 'Tampilkan lencana streak mendengarkan di halaman Beranda.']
+    id: ['Streak di Beranda', 'Tampilkan lencana streak mendengarkan di Beranda.']
   },
   'layout.hideLeft': {
-    en: ['Hide left sidebar', 'Permanently hide/collapse the left navigation bar until turned off here.'],
-    id: ['Sembunyikan menu kiri', 'Sembunyikan bilah navigasi kiri secara permanen hingga dimatikan kembali di sini.']
+    en: ['Hide left sidebar', 'Keep the left navigation bar hidden until re-enabled here.'],
+    id: ['Sembunyikan bilah kiri', 'Sembunyikan bilah navigasi kiri secara permanen hingga diaktifkan kembali.']
   },
   'layout.hideRight': {
-    en: ['Hide right panel', 'Permanently hide the right studio panel until turned off here.'],
-    id: ['Sembunyikan panel kanan', 'Hilangkan panel studio kanan secara permanen hingga dimatikan kembali di sini.']
+    en: ['Hide right panel', 'Keep the right studio panel hidden until re-enabled here.'],
+    id: ['Sembunyikan panel kanan', 'Sembunyikan panel kanan secara permanen hingga diaktifkan kembali.']
   },
   'appearance.meltCards': {
-    en: ['Melt cards with cover', 'Blend card backgrounds into their cover art colors (Full performance only).'],
-    id: ['Kartu menyatu dengan sampul', 'Sampul menyatu ke panel berwarna sampulnya. Hanya di Kinerja Penuh.']
+    en: ['Adaptive card tint', 'Blend card surfaces with colors sampled from album artwork.'],
+    id: ['Warna kartu adaptif', 'Padukan latar kartu dengan warna dominan dari sampul album.']
   },
   'appearance.listDensity': {
     en: ['List density', 'Choose comfortable or compact row spacing in track lists.'],
@@ -96,56 +96,56 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
 
   // 2. Player
   'playback.autoplay': {
-    en: ['Autoplay', 'When the queue ends, continue with similar songs.'],
-    id: ['Putar otomatis', 'Saat antrean habis, lanjutkan dengan lagu yang mirip.']
+    en: ['Autoplay', 'Automatically continue with similar tracks when the queue ends.'],
+    id: ['Putar otomatis', 'Lanjutkan pemutaran dengan lagu serupa saat antrean berakhir.']
   },
   'playback.audioNormalize': {
-    en: ['Normalize loudness', 'Keep a consistent volume level across songs.'],
-    id: ['Samakan volume lagu', 'Setel tingkat volume yang konsisten antar lagu untuk mencegah lonjakan suara.']
+    en: ['Normalize volume', 'Maintain a consistent loudness level across different tracks.'],
+    id: ['Normalisasi volume', 'Jaga tingkat kenyaringan suara tetap seimbang antar lagu.']
   },
   'playback.waveBar': {
-    en: ['Wavy progress bar', 'Use an animated wavy style for the playback progress bar.'],
-    id: ['Bilah progres bergelombang', 'Gunakan tampilan garis bergelombang pada bilah progres pemutaran.']
+    en: ['Wavy progress bar', 'Display an animated wave along the playback progress bar.'],
+    id: ['Bilah progres bergelombang', 'Tampilkan garis bergelombang bergerak pada bilah progres pemutaran.']
   },
   'stream_quality': {
-    en: ['Audio streaming quality', 'Choose streaming audio bitrate. Very High gives the clearest detail.'],
-    id: ['Kualitas streaming audio', 'Pilih kualitas audio saat memutar musik secara daring.']
+    en: ['Audio streaming quality', 'Select the preferred audio bitrate for online playback.'],
+    id: ['Kualitas streaming audio', 'Pilih tingkat kualitas bitrate audio saat memutar musik daring.']
   },
   'playback.eqPreset': {
-    en: ['Equalizer sound profile', 'Choose a live 5-band equalizer sound character.'],
-    id: ['Gaya suara Equalizer', 'Pilih karakter suara dari mesin audio lima band secara langsung.']
+    en: ['Equalizer preset', 'Select a real-time 5-band equalizer sound profile.'],
+    id: ['Preset Equalizer', 'Pilih karakter suara equalizer lima pita secara langsung.']
   },
   'playback.crossfadeSec': {
-    en: ['Song transition (Crossfade)', 'Overlap the end of the current song with the start of the next.'],
-    id: ['Peralihan lagu (Crossfade)', 'Akhir lagu dan awal lagu berikutnya saling menumpuk.']
+    en: ['Crossfade', 'Smoothly blend the end of one track into the start of the next.'],
+    id: ['Crossfade antar lagu', 'Padukan akhir lagu secara halus ke awal lagu berikutnya.']
   },
   'playback.skipSilence': {
-    en: ['Skip silence', 'Skip silent gaps at the beginning and end of tracks.'],
-    id: ['Lewati hening di awal dan akhir lagu', 'Lewati bagian senyap di awal dan akhir lagu.']
+    en: ['Skip silence', 'Automatically bypass silent sections at track boundaries.'],
+    id: ['Lewati bagian hening', 'Lewati bagian senyap di penghujung lagu secara otomatis.']
   },
   'playback.radioOnPick': {
-    en: ['Start radio when picking a song', 'Automatically queue similar tracks when playing a song from search or shelves.'],
-    id: ['Mulai radio saat memilih lagu', 'Putar lagu-lagu serupa secara otomatis saat memilih lagu dari pencarian atau rak.']
+    en: ['Queue similar tracks', 'Automatically add similar songs to the queue when playing a single track.'],
+    id: ['Tambahkan lagu serupa', 'Buat antrean lagu serupa secara otomatis saat memutar satu lagu.']
   },
   'playback.radioSize': {
-    en: ['Radio track count', 'How many similar tracks to add at once.'],
-    id: ['Jumlah lagu radio', 'Berapa lagu serupa yang ditambahkan sekali ambil.']
+    en: ['Similar tracks count', 'Set how many similar songs are added automatically to the queue.'],
+    id: ['Jumlah lagu serupa', 'Tentukan jumlah lagu serupa yang ditambahkan otomatis ke antrean.']
   },
   'playback.resumeQueue': {
-    en: ['Resume last queue', 'Restore the previous queue and track position paused on startup.'],
-    id: ['Lanjutkan antrean terakhir', 'Saat Velora dibuka, antrean dan posisi lagu terakhir kembali dalam keadaan jeda.']
+    en: ['Restore queue on launch', 'Restore the previous queue and playback position in a paused state.'],
+    id: ['Pulihkan antrean terakhir', 'Kembalikan antrean dan posisi lagu terakhir dalam kondisi jeda saat dibuka.']
   },
   'playback.shuffleOnStart': {
-    en: ['Shuffle on startup', 'Enable shuffle automatically when Velora launches.'],
-    id: ['Acak menyala saat dibuka', 'Aktifkan mode acak secara otomatis saat aplikasi dibuka.']
+    en: ['Shuffle on launch', 'Enable shuffle mode automatically when Velora starts.'],
+    id: ['Acak saat dibuka', 'Aktifkan mode acak secara otomatis setiap kali Velora dibuka.']
   },
   'playback.startVolume': {
-    en: ['Volume on startup', 'Set the initial volume when Velora opens.'],
-    id: ['Volume saat dibuka', 'Atur volume awal saat Velora dibuka.']
+    en: ['Startup volume', 'Set the initial playback volume when Velora launches.'],
+    id: ['Volume awal', 'Atur tingkat volume awal saat Velora dibuka.']
   },
   'playback.prevRestartSec': {
-    en: ['Previous restarts song after', 'After playing this many seconds, Previous restarts the current track instead of going back.'],
-    id: ['Sebelumnya mengulang lagu', 'Setelah lagu berjalan sekian detik, Sebelumnya kembali ke awal lagu itu, bukan ke lagu sebelumnya.']
+    en: ['Previous track behavior', 'Restart the current song if playback has passed the selected duration.'],
+    id: ['Perilaku tombol Sebelumnya', 'Ulangi lagu dari awal jika pemutaran telah melewati batas detik tertentu.']
   },
 
   // 3. Lyrics
@@ -177,14 +177,6 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
     en: ['Show plain lyrics', 'Show unsynced lyrics when synced lyrics are unavailable.'],
     id: ['Tampilkan lirik biasa', 'Lirik tanpa waktu, jika lirik berjalan tidak ada.']
   },
-  'lyrics.showSource': {
-    en: ['Show lyrics source', 'Display which provider supplied the lyrics.'],
-    id: ['Tampilkan sumber lirik', 'Tampilkan penyedia sumber lirik yang digunakan.']
-  },
-  'lyrics.sourceInfo': {
-    en: ['Synced lyrics providers', 'Queried in parallel from BetterLyrics, LyricsPlus, LrcLib, Unison, and KuGou, with YouTube Music plain lyrics fallback.'],
-    id: ['Lirik berjalan', 'Dicari ke BetterLyrics, LyricsPlus, LrcLib, Unison, dan KuGou sekaligus, lalu cadangan lirik biasa dari YouTube Music.']
-  },
 
   // 4. Content
   'content.country': {
@@ -200,8 +192,8 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
     id: ['Filter pencarian awal', 'Tab awal yang dipilih saat menampilkan hasil pencarian.']
   },
   'content.hideExplicit': {
-    en: ['Hide explicit songs', 'Filter explicit tracks from search results and radio.'],
-    id: ['Sembunyikan lagu eksplisit', 'Di hasil pencarian dan di radio.']
+    en: ['Hide explicit songs', 'Filter explicit tracks from search results and auto-queued recommendations.'],
+    id: ['Sembunyikan lagu eksplisit', 'Sembunyikan lagu eksplisit dari hasil pencarian dan antrean otomatis.']
   },
 
   // 5. Storage
@@ -236,18 +228,14 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
     id: ['Hapus riwayat dengar otomatis', 'Catatan yang lebih lama dihapus. Hari-hari streak tetap ada.']
   },
 
-  // 7. Backup & Sync
+  // 7. Velora Jam
   'integrations.jam.enabled': {
-    en: ['Phone / Wi-Fi remote sync (Velora Jam)', 'Allow controlling playback from your phone or another device on the same Wi-Fi network.'],
-    id: ['Sinkron dengan HP / Kontrol Wi-Fi (Velora Jam)', 'Izinkan kendali pemutaran musik dari ponsel atau perangkat lain di jaringan Wi-Fi yang sama.']
+    en: ['Wi-Fi remote control', 'Allow controlling playback from a phone or another device on the same Wi-Fi network.'],
+    id: ['Aktifkan kontrol Wi-Fi', 'Izinkan kendali pemutaran musik dari ponsel atau perangkat lain di jaringan Wi-Fi yang sama.']
   },
   'integrations.jam.remoteUrl': {
-    en: ['Remote URL', 'Open this address in another device browser to control playback.'],
-    id: ['Alamat Remote', 'Buka alamat ini di browser perangkat lain untuk mengendalikan pemutaran.']
-  },
-  'integrations.jam.apiUrl': {
-    en: ['Local API URL', 'Base HTTP API address for local network devices.'],
-    id: ['Alamat API Lokal', 'Alamat dasar HTTP API untuk akses perangkat di jaringan lokal.']
+    en: ['Remote address', 'Open this address in another device browser to control playback.'],
+    id: ['Alamat remote', 'Buka alamat ini di browser perangkat lain untuk mengendalikan pemutaran.']
   },
 
   // 8. System
@@ -418,7 +406,7 @@ export const PREFERENCE_CATEGORIES = [
   { id: 'content', titleKey: 'cat.content', title: 'Content', icon: 'ph-globe' },
   { id: 'storage', titleKey: 'cat.storage', title: 'Storage', icon: 'ph-hard-drive' },
   { id: 'privacy', titleKey: 'cat.privacy', title: 'Privacy', icon: 'ph-shield-check' },
-  { id: 'backup', titleKey: 'cat.backup', title: 'Backup', icon: 'ph-cloud-arrow-up' },
+  { id: 'backup', titleKey: 'cat.backup', title: 'Velora Jam', icon: 'ph-broadcast' },
   { id: 'system', titleKey: 'cat.system', title: 'System', icon: 'ph-desktop' },
   { id: 'dynamic-island', titleKey: 'cat.dynamic-island', title: 'Dynamic Island', icon: 'ph-sparkle' }
 ] as const;
@@ -446,7 +434,7 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     category: 'appearance',
     group: 'grp.displayEffects',
     title: 'Animation effects',
-    description: 'Full: all animations enabled. Lite: no animations for faster performance.',
+    description: 'Control interface transitions and motion intensity.',
     widget: 'segmented',
     defaultValue: 'full',
     options: [
@@ -511,7 +499,7 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     category: 'player',
     group: 'grp.playback',
     title: 'Wavy progress bar',
-    description: 'Off: straight progress line.',
+    description: 'Display an animated wave along the playback progress bar.',
     widget: 'toggle',
     defaultValue: 'true'
   },
@@ -575,8 +563,8 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     id: 'playback.radioOnPick',
     category: 'player',
     group: 'grp.queue',
-    title: 'Start radio when picking a song',
-    description: 'Play similar tracks automatically.',
+    title: 'Queue similar tracks',
+    description: 'Automatically add similar songs to the queue when playing a single track.',
     widget: 'toggle',
     defaultValue: 'true'
   },
@@ -584,8 +572,8 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     id: 'playback.radioSize',
     category: 'player',
     group: 'grp.queue',
-    title: 'Radio track count',
-    description: 'Number of similar tracks fetched.',
+    title: 'Similar tracks count',
+    description: 'Set how many similar songs are added automatically to the queue.',
     widget: 'segmented',
     defaultValue: '25',
     options: [
@@ -718,24 +706,6 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     widget: 'toggle',
     defaultValue: 'true'
   },
-  {
-    id: 'lyrics.showSource',
-    category: 'lyrics',
-    group: 'grp.lyricsBehavior',
-    title: 'Show lyrics source',
-    description: 'Show provider badge.',
-    widget: 'toggle',
-    defaultValue: 'true'
-  },
-  {
-    id: 'lyrics.sourceInfo',
-    category: 'lyrics',
-    group: 'grp.lyricsSource',
-    title: 'Synced lyrics providers',
-    description: 'BetterLyrics, LyricsPlus, LrcLib, Unison, KuGou + YouTube Music fallback.',
-    widget: 'info',
-    defaultValue: 'BetterLyrics · LyricsPlus · LrcLib · KuGou'
-  },
 
   // 4. Content
   {
@@ -792,7 +762,7 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     category: 'content',
     group: 'grp.search',
     title: 'Hide explicit songs',
-    description: 'Filter explicit songs in search & radio.',
+    description: 'Filter explicit tracks from search results and auto-queued recommendations.',
     widget: 'toggle',
     defaultValue: 'false'
   },
@@ -876,35 +846,24 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     ]
   },
 
-  // 7. Backup & Sync
+  // 7. Velora Jam
   {
     id: 'integrations.jam.enabled',
     category: 'backup',
     group: 'grp.syncPhone',
-    title: 'Phone / Wi-Fi remote sync (Velora Jam)',
+    title: 'Wi-Fi remote control',
     description: 'Control playback from another device on Wi-Fi.',
     widget: 'toggle',
-    defaultValue: 'false'
+    defaultValue: 'true'
   },
   {
     id: 'integrations.jam.remoteUrl',
     category: 'backup',
     group: 'grp.syncPhone',
-    title: 'Remote URL',
+    title: 'Remote address',
     description: 'Open in browser on another device.',
     widget: 'info',
-    defaultValue: 'http://127.0.0.1:8899/jam',
-    visibleWhen: { id: 'integrations.jam.enabled', equals: 'true' }
-  },
-  {
-    id: 'integrations.jam.apiUrl',
-    category: 'backup',
-    group: 'grp.syncPhone',
-    title: 'Local API URL',
-    description: 'Base HTTP API for local network.',
-    widget: 'info',
-    defaultValue: 'http://127.0.0.1:8899/api',
-    visibleWhen: { id: 'integrations.jam.enabled', equals: 'true' }
+    defaultValue: ''
   },
 
   // 8. System

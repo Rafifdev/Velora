@@ -974,14 +974,23 @@ func (s *Store) ClearPlayHistory() error {
 	return err
 }
 
+func (s *Store) PrunePlayHistory(days int) error {
+	if days <= 0 {
+		return nil
+	}
+	_, err := s.db.Exec(`DELETE FROM play_history WHERE played_at < datetime('now', '-' || ? || ' days')`, days)
+	return err
+}
+
 func (s *Store) SeedDefaults() error {
 	defaults := map[string]string{
 		"stream_quality":      "high",
 		"streak_goal_minutes": "10",
 		"streak_goal_tracks":  "3",
 		"accent_color":        "#FF9E64",
-		"gapless_playback":    "true",
-		"volume":              "80",
+		"gapless_playback":         "true",
+		"volume":                   "80",
+		"integrations.jam.enabled": "true",
 	}
 	for k, v := range defaults {
 		var exists int

@@ -86,6 +86,12 @@
   const lang = $derived(getPrefLang(preferences));
   const lyricsAutoScroll = $derived(getPrefBool(preferences, 'lyrics.autoScroll'));
   const lyricsTextSize = $derived(Number(getPrefValue(preferences, 'lyrics.textSize') || '1'));
+  const lyricsSweep = $derived(getPrefBool(preferences, 'lyrics.sweep'));
+  const lyricsBlurOthers = $derived(
+    getPrefBool(preferences, 'lyrics.blurOthers') && getPrefValue(preferences, 'appearance.performance') !== 'lite'
+  );
+  const lyricsMiniLyrics = $derived(getPrefBool(preferences, 'lyrics.miniLyrics'));
+  const lyricsPlainFallback = $derived(getPrefBool(preferences, 'lyrics.plainFallback'));
 
   const lyricsExpandedSizeClass = $derived(
     lyricsTextSize <= 0
@@ -109,7 +115,7 @@
         isSynced: true
       }));
     }
-    if (lyrics?.plainLyrics) {
+    if (lyricsPlainFallback && lyrics?.plainLyrics) {
       return lyrics.plainLyrics
         .split(/\r?\n/)
         .map((line) => line.trim())
@@ -131,6 +137,17 @@
     }
     return active;
   });
+
+  function getRightLineSweepPct(idx: number): number {
+    if (!lyricsSweep || idx !== activeSyncedIndex || !lyrics?.syncedLyrics) return 100;
+    const cur = lyrics.syncedLyrics[idx];
+    const next = lyrics.syncedLyrics[idx + 1];
+    if (!cur) return 100;
+    const start = cur.timeSec;
+    const end = next ? Math.max(start + 0.6, next.timeSec) : start + 4.0;
+    const pct = (((positionSec + 0.25) - start) / (end - start)) * 100;
+    return Math.max(8, Math.min(100, pct));
+  }
 
   const previewLines = $derived.by(() => {
     if (lyricLines.length === 0) return [];
@@ -531,16 +548,26 @@
                   <span class="velora-eq-bar"></span>
                 </span>
               </div>
+            {:else if !lyricsExpanded && !lyricsMiniLyrics}
+              <p class="text-[13px] font-medium opacity-75 py-2">
+                Klik tombol perluas untuk melihat lirik.
+              </p>
             {:else if lyricLines.length > 0}
               {#each lyricLines as line, idx (idx + '-' + line.text)}
                 {@const active = idx === activeSyncedIndex}
+                {@const sweepPct = getRightLineSweepPct(idx)}
                 <button
                   type="button"
                   data-lyric-idx={idx}
                   onclick={() => line.isSynced && line.timeSec !== null && onSeek(line.timeSec)}
                   class="w-full text-left font-bold {lyricsExpandedSizeClass} origin-left transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer {active
                     ? 'opacity-100 scale-[1.02]'
-                    : 'opacity-35 scale-[0.93] hover:opacity-100'}"
+                    : lyricsBlurOthers && line.isSynced
+                      ? 'opacity-35 scale-[0.93] blur-[1.2px] hover:opacity-100 hover:blur-none'
+                      : 'opacity-35 scale-[0.93] hover:opacity-100'}"
+                  style={active && line.isSynced && lyricsSweep
+                    ? `background-image: linear-gradient(90deg, var(--md-sys-color-on-primary-container) ${sweepPct}%, color-mix(in srgb, var(--md-sys-color-on-primary-container) 40%, transparent) ${sweepPct}%); -webkit-background-clip: text; background-clip: text; color: transparent;`
+                    : ''}
                 >
                   {line.text}
                 </button>

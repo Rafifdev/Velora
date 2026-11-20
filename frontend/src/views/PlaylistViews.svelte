@@ -98,6 +98,29 @@
   let spotifyError = $state('');
   let dynamicCoverColor = $state<string | null>(null);
 
+  function isColorTooDark(color: string | null | undefined): boolean {
+    if (!color) return false;
+    const c = color.trim();
+    let r = -1;
+    let g = -1;
+    let b = -1;
+    const rgbMatch = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i.exec(c);
+    if (rgbMatch) {
+      r = Number(rgbMatch[1]);
+      g = Number(rgbMatch[2]);
+      b = Number(rgbMatch[3]);
+    } else {
+      const hex = c.replace(/^#/, '');
+      if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+        r = parseInt(hex.slice(0, 2), 16);
+        g = parseInt(hex.slice(2, 4), 16);
+        b = parseInt(hex.slice(4, 6), 16);
+      }
+    }
+    if (r < 0 || g < 0 || b < 0) return false;
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b < 110;
+  }
+
   $effect(() => {
     if (mode !== 'playlist-detail' || !detail) {
       dynamicCoverColor = null;
@@ -319,7 +342,9 @@
   {@const pl = detail.playlist}
   {@const firstTrackCover = detail.tracks[0] ? resolveCoverUrl(detail.tracks[0].coverUrl, mediaBaseUrl) : ''}
   {@const plCover = resolveCoverUrl(pl.coverUrl, mediaBaseUrl) || firstTrackCover}
-  {@const heroTint = dynamicCoverColor || pl.coverColor || 'var(--md-sys-color-primary)'}
+  {@const rawTint = dynamicCoverColor || pl.coverColor}
+  {@const heroTint = rawTint || 'var(--md-sys-color-primary)'}
+  {@const heroAccent = isColorTooDark(rawTint) ? 'var(--md-sys-color-primary)' : heroTint}
   <div
     class="relative h-full w-full overflow-y-auto rounded-xl select-none flex flex-col"
     style="background-color: var(--md-sys-color-surface-container-low);"
@@ -380,7 +405,7 @@
             title="Putar Playlist"
             aria-label="Putar Playlist"
             class="w-11 h-11 rounded-full border-0 outline-none shadow-none inline-flex items-center justify-center cursor-pointer transition-transform duration-150 hover:scale-[1.04] active:scale-95 disabled:opacity-40"
-            style="background-color: {heroTint}; color: var(--md-sys-color-on-primary);"
+            style="background-color: {heroAccent}; color: var(--md-sys-color-on-primary);"
           >
             <Icon name="play" weight="fill" size={18} />
           </button>
@@ -455,7 +480,7 @@
                 <!-- Nomor / Play Indicator (sama seperti tabel Album) -->
                 <div class="flex items-center justify-center">
                   {#if active && isPlaying}
-                    <span class="velora-playing-eq group-hover:hidden" style="color: {heroTint};" aria-hidden="true">
+                    <span class="velora-playing-eq group-hover:hidden" style="color: {heroAccent};" aria-hidden="true">
                       <span></span>
                       <span></span>
                       <span></span>
@@ -466,7 +491,7 @@
                       onclick={() => (onTogglePlay ? onTogglePlay() : onPlayTrack(tr, detail.tracks))}
                       aria-label="Jeda {tr.title}"
                       class="hidden group-hover:flex items-center justify-center cursor-pointer"
-                      style="color: {heroTint};"
+                      style="color: {heroAccent};"
                     >
                       <Icon name="pause" weight="fill" size={14} />
                     </button>
@@ -476,7 +501,7 @@
                       onclick={() => (onTogglePlay ? onTogglePlay() : onPlayTrack(tr, detail.tracks))}
                       aria-label="Putar {tr.title}"
                       class="flex items-center justify-center cursor-pointer"
-                      style="color: {heroTint};"
+                      style="color: {heroAccent};"
                     >
                       <Icon name="play" weight="fill" size={14} />
                     </button>
@@ -489,7 +514,7 @@
                       onclick={() => onPlayTrack(tr, detail.tracks)}
                       aria-label="Putar {tr.title}"
                       class="hidden group-hover:flex items-center justify-center cursor-pointer"
-                      style="color: {heroTint};"
+                      style="color: {heroAccent};"
                     >
                       <Icon name="play" weight="fill" size={14} />
                     </button>
@@ -514,7 +539,7 @@
                   <div class="min-w-0 pr-4">
                     <div
                       class="text-xs font-bold line-clamp-2 whitespace-normal leading-snug"
-                      style={active ? `color: color-mix(in srgb, ${heroTint} 82%, #ffffff);` : ''}
+                      style={active ? `color: color-mix(in srgb, ${heroAccent} 82%, #ffffff);` : ''}
                     >{tr.title}</div>
                     <div class="text-[11px] truncate opacity-75 mt-0.5">
                       {tr.artistName}

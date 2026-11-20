@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fly } from 'svelte/transition';
+  import { fade, fly, scale } from 'svelte/transition';
   import { formatDuration, resolveCoverUrl } from '../lib/api';
   import { svelteMotionEnter } from '../lib/motion';
   import {
@@ -29,7 +29,7 @@
     onPlayTrack: (track: Track, list: Track[]) => void;
     onClearHistory: () => void;
     onSavePreferences: (prefs: Record<string, string>) => void;
-    onClearCache: () => void;
+    onClearCache: () => Promise<number>;
     onNavigate?: (route: ViewRoute) => void;
   }
 
@@ -51,14 +51,15 @@
     onNavigate
   }: Props = $props();
 
-  let savedToast = $state('');
-  let draftChanges = $state<Record<string, string>>({});
   let copiedKey = $state('');
+  let cacheToast = $state('');
   let openSelectId = $state<string | null>(null);
   let openSelectFlipUp = $state(false);
   let clearingCache = $state(false);
+  let confirmClearCache = $state(false);
   let historyTab = $state<'recent' | 'stats'>('recent');
   let historyFilter = $state('');
+  let confirmClearHistory = $state(false);
 
   const filteredHistory = $derived.by(() => {
     const q = historyFilter.trim().toLowerCase();
@@ -71,8 +72,7 @@
     );
   });
 
-  const effectivePrefs = $derived({ ...preferences, ...draftChanges });
-  const hasUnsavedChanges = $derived(Object.keys(draftChanges).length > 0);
+  const effectivePrefs = $derived(preferences);
   const lang = $derived(getPrefLang(effectivePrefs));
 
   const visibleSettingsForCategory = $derived.by(() => {
@@ -122,35 +122,33 @@
     Math.max(1, ...listeningStats.dayOfWeek.map((d) => d.minutes))
   );
 
-  function showSavedToast(msg: string) {
-    savedToast = msg;
-    setTimeout(() => {
-      if (savedToast === msg) savedToast = '';
-    }, 2000);
-  }
-
   function updateSetting(key: string, value: string) {
-    const savedVal = getPrefValue(preferences, key);
-    if (value === savedVal) {
-      if (key in draftChanges) {
-        const next = { ...draftChanges };
-        delete next[key];
-        draftChanges = next;
-      }
-    } else {
-      draftChanges = { ...draftChanges, [key]: value };
+    if (getPrefValue(preferences, key) === value) return;
+    onSavePreferences({ [key]: value });
+  }
+
+  function formatClearedBytes(bytes: number): string {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
+  async function executeClearCache() {
+    if (clearingCache) return;
+    clearingCache = true;
+    try {
+      const freed = Number(await onClearCache()) || 0;
+      const msg = freed > 0
+        ? `Cache dibersihkan (${formatClearedBytes(freed)} dihapus)`
+        : 'Cache sudah bersih (0 B)';
+      cacheToast = msg;
+      setTimeout(() => {
+        if (cacheToast === msg) cacheToast = '';
+      }, 3000);
+    } finally {
+      clearingCache = false;
     }
-  }
-
-  function resetDraftChanges() {
-    draftChanges = {};
-  }
-
-  function commitDraftChanges() {
-    if (!hasUnsavedChanges) return;
-    const toSave = { ...draftChanges };
-    draftChanges = {};
-    onSavePreferences(toSave);
   }
 
   async function handleActionClick(itemId: string) {
@@ -162,16 +160,10 @@
         }
       }
       onSavePreferences(resetPatch);
-      showSavedToast(tr(lang, 'nav.islandResetToast'));
       return;
     }
-    if (clearingCache) return;
-    clearingCache = true;
-    try {
-      await onClearCache();
-      showSavedToast(tr(lang, 'nav.cacheCleared'));
-    } finally {
-      clearingCache = false;
+    if (itemId === 'storage.clearCache') {
+      confirmClearCache = true;
     }
   }
 
@@ -339,9 +331,19 @@
           type="button"
           disabled={item.id === 'storage.clearCache' && clearingCache}
           onclick={() => handleActionClick(item.id)}
-          class="m3-btn-tonal px-4 h-9 text-xs font-semibold cursor-pointer disabled:opacity-50"
+          class="m3-btn-tonal px-4 min-w-[104px] h-9 text-xs font-semibold inline-flex items-center justify-center cursor-pointer disabled:opacity-75 disabled:cursor-wait"
         >
-          {item.id === 'storage.clearCache' && clearingCache ? tr(lang, 'nav.clearing') : item.actionLabel || tr(lang, 'nav.run')}
+          {#if item.id === 'storage.clearCache' && clearingCache}
+            <span class="velora-eq-loader" aria-hidden="true">
+              <span class="velora-eq-bar"></span>
+              <span class="velora-eq-bar"></span>
+              <span class="velora-eq-bar"></span>
+              <span class="velora-eq-bar"></span>
+              <span class="velora-eq-bar"></span>
+            </span>
+          {:else}
+            {item.actionLabel || tr(lang, 'nav.run')}
+          {/if}
         </button>
       {:else if item.widget === 'select'}
         {@const activeOpt = (item.options || []).find((o) => o.value === val) ?? item.options?.[0]}
@@ -436,18 +438,21 @@
           {/if}
         </div>
       {:else if item.widget === 'info'}
+        {@const jamDisabled = item.id === 'integrations.jam.remoteUrl' && getPrefValue(effectivePrefs, 'integrations.jam.enabled') !== 'true'}
+        {@const infoVal = jamDisabled ? 'http://xxx.xxx.xxx.xxx:8899/jam' : val}
         <div class="flex items-center gap-1.5">
           <code
-            class="px-3 py-1.5 rounded-md text-[11px] font-mono select-all"
+            class="px-3 py-1.5 rounded-md text-[11px] font-mono min-w-[160px] min-h-[28px] inline-flex items-center {jamDisabled ? 'opacity-45 select-none' : 'select-all'}"
             style="background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface);"
           >
-            {val}
+            {infoVal}
           </code>
           <button
             type="button"
-            onclick={() => copyInfoValue(item.id, val)}
+            disabled={jamDisabled || !infoVal}
+            onclick={() => !jamDisabled && copyInfoValue(item.id, infoVal)}
             title="Salin alamat"
-            class="m3-icon-btn-tonal w-8 h-8 flex items-center justify-center cursor-pointer"
+            class="m3-icon-btn-tonal w-8 h-8 flex items-center justify-center {jamDisabled || !infoVal ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}"
           >
             <Icon name={copiedKey === item.id ? 'check' : 'copy'} weight="bold" size={14} />
           </button>
@@ -500,7 +505,7 @@
             type="button"
             onclick={playAllHistory}
             disabled={history.length === 0}
-            class="h-9 px-4 rounded-full text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-transform active:scale-95 disabled:opacity-40"
+            class="h-9 min-w-[116px] px-4 rounded-full text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-transform active:scale-95 disabled:opacity-40"
             style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
           >
             <Icon name="play" weight="fill" size={14} /> {tr(lang, 'nav.playAll')}
@@ -508,8 +513,8 @@
           {#if history.length > 0}
             <button
               type="button"
-              onclick={onClearHistory}
-              class="h-9 px-3.5 rounded-full text-xs font-medium text-rose-300 flex items-center gap-1.5 cursor-pointer transition-colors hover:bg-rose-500/20"
+              onclick={() => (confirmClearHistory = true)}
+              class="h-9 min-w-[116px] px-4 rounded-full text-xs font-bold text-rose-300 flex items-center justify-center gap-1.5 cursor-pointer transition-colors hover:bg-rose-500/20"
               style="background-color: rgba(244, 63, 94, 0.14);"
             >
               <Icon name="trash" size={14} /> {tr(lang, 'nav.clear')}
@@ -745,19 +750,81 @@
         {/each}
       </div>
     </div>
+    {#if confirmClearHistory}
+      <div
+        transition:fade={{ duration: 150 }}
+        class="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
+        onclick={() => (confirmClearHistory = false)}
+        role="presentation"
+      >
+        <div
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="clear-history-title"
+          aria-describedby="clear-history-desc"
+          transition:scale={{ duration: 170, start: 0.94 }}
+          onclick={(e) => e.stopPropagation()}
+          onkeydown={(e) => {
+            if (e.key === 'Escape') confirmClearHistory = false;
+          }}
+          tabindex="-1"
+          class="w-full max-w-sm rounded-2xl p-6 space-y-4 shadow-2xl border outline-none"
+          style="background-color: var(--md-sys-color-surface-container-high); border-color: var(--md-sys-color-outline-variant);"
+        >
+          <div class="flex items-start gap-3">
+            <div
+              class="w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-rose-300"
+              style="background-color: rgba(244, 63, 94, 0.16);"
+            >
+              <Icon name="trash" size={19} />
+            </div>
+            <div class="space-y-1">
+              <h3 id="clear-history-title" class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
+                {lang === 'id' ? 'Bersihkan semua riwayat?' : 'Clear all listening history?'}
+              </h3>
+              <p id="clear-history-desc" class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
+                {lang === 'id'
+                  ? 'Seluruh daftar lagu yang pernah diputar akan dihapus secara permanen.'
+                  : 'All recently played tracks will be permanently removed.'}
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onclick={() => (confirmClearHistory = false)}
+              class="h-9 px-4 rounded-full text-xs font-semibold cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+              style="color: var(--md-sys-color-on-surface-variant);"
+            >
+              {lang === 'id' ? 'Batal' : 'Cancel'}
+            </button>
+            <button
+              type="button"
+              onclick={() => {
+                confirmClearHistory = false;
+                onClearHistory();
+              }}
+              class="h-9 px-4 rounded-full text-xs font-bold text-rose-200 cursor-pointer transition-colors hover:bg-rose-500/30"
+              style="background-color: rgba(244, 63, 94, 0.22);"
+            >
+              {tr(lang, 'nav.clear')}
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
   </div>
 {:else}
   <!-- VELORA PREFERENCES MAIN PAGE (Matched with Home & M3 Design Tokens) -->
   <div class="h-full min-h-0 flex flex-col overflow-hidden relative" use:svelteMotionEnter={{ y: 8 }}>
     <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-6 pb-20">
       {#key prefSearch.trim() ? '__search__' : activePrefTab}
-        <div in:fly={{ y: 10, duration: 200 }} class="space-y-5">
+        <div in:fly={{ y: 10, duration: 200 }} class="space-y-6">
       {#if !prefSearch.trim() && isAppTab(activePrefTab)}
         <div class="w-full">
           <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
             {tr(lang, 'nav.aboutTitle')}
           </h2>
-          <p class="text-xs mt-1" style="color: var(--md-sys-color-on-surface-variant);">{tr(lang, 'nav.aboutSubtitle')}</p>
         </div>
         <div class="w-full m3-card p-5 rounded-lg space-y-2.5 text-xs leading-relaxed">
           <div class="text-sm font-semibold" style="color: var(--md-sys-color-on-surface);">
@@ -772,20 +839,25 @@
         </div>
       {:else}
         <div class="w-full flex items-center justify-between">
-          <div>
-            <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-              {prefSearch.trim() ? `${tr(lang, 'nav.searchResults')} "${prefSearch}"` : activeCategoryTitle}
-            </h2>
-            <p class="text-xs mt-1" style="color: var(--md-sys-color-on-surface-variant);">
-              {tr(lang, 'nav.autoSaveHint')}
-            </p>
-          </div>
+          <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+            {prefSearch.trim() ? `${tr(lang, 'nav.searchResults')} "${prefSearch}"` : activeCategoryTitle}
+          </h2>
         </div>
 
         <div class="w-full space-y-4">
           {#if groupedVisibleSettings.length === 0}
-            <div class="m3-card p-6 rounded-lg text-xs text-center" style="color: var(--md-sys-color-on-surface-variant);">
-              {tr(lang, 'nav.noMatchingSettings')}
+            <div class="min-h-[45vh] flex flex-col items-center justify-center text-center gap-3 px-4">
+              <Icon name="magnifying-glass" size={40} class="opacity-55" />
+              <div class="space-y-1 max-w-sm">
+                <h3 class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
+                  {tr(lang, 'nav.noMatchingSettings')}
+                </h3>
+                <p class="text-xs" style="color: var(--md-sys-color-on-surface-variant);">
+                  {lang === 'id'
+                    ? 'Coba kata kunci lain untuk menemukan pengaturan yang kamu cari.'
+                    : 'Try a different keyword to find the setting you are looking for.'}
+                </p>
+              </div>
             </div>
           {:else}
             {#each groupedVisibleSettings as grp (grp.name)}
@@ -809,42 +881,77 @@
         </div>
       {/key}
     </div>
-    {#if hasUnsavedChanges}
+    {#if confirmClearCache}
       <div
-        in:fly={{ y: 16, duration: 180 }}
-        out:fly={{ y: 16, duration: 140 }}
-        class="absolute bottom-5 left-1/2 -translate-x-1/2 w-max max-w-[calc(100%-2rem)] pl-4 pr-2 py-2 rounded-full shadow-2xl flex items-center gap-3 z-40"
-        style="background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface);"
+        transition:fade={{ duration: 150 }}
+        class="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
+        onclick={() => (confirmClearCache = false)}
+        role="presentation"
       >
-        <span class="text-xs font-medium whitespace-nowrap">
-          {tr(lang, 'nav.unsavedChanges')}
-        </span>
-        <div class="flex items-center gap-1.5 shrink-0">
-          <button
-            type="button"
-            onclick={resetDraftChanges}
-            class="px-3.5 py-1.5 rounded-full text-xs font-semibold cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
-            style="color: var(--md-sys-color-on-surface-variant);"
-          >
-            {tr(lang, 'nav.reset')}
-          </button>
-          <button
-            type="button"
-            onclick={commitDraftChanges}
-            class="m3-btn-filled px-4 h-8 text-xs font-semibold cursor-pointer"
-          >
-            {tr(lang, 'nav.saveChanges')}
-          </button>
+        <div
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="clear-cache-title"
+          aria-describedby="clear-cache-desc"
+          transition:scale={{ duration: 170, start: 0.94 }}
+          onclick={(e) => e.stopPropagation()}
+          onkeydown={(e) => {
+            if (e.key === 'Escape') confirmClearCache = false;
+          }}
+          tabindex="-1"
+          class="w-full max-w-sm rounded-2xl p-6 space-y-4 shadow-2xl border outline-none"
+          style="background-color: var(--md-sys-color-surface-container-high); border-color: var(--md-sys-color-outline-variant);"
+        >
+          <div class="flex items-start gap-3">
+            <div
+              class="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
+              style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
+            >
+              <Icon name="broom" size={19} />
+            </div>
+            <div class="space-y-1">
+              <h3 id="clear-cache-title" class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
+                {lang === 'id' ? 'Bersihkan semua cache?' : 'Clear all cache?'}
+              </h3>
+              <p id="clear-cache-desc" class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
+                {lang === 'id'
+                  ? 'Sampul album sementara, cache stream, dan file transkode sementara akan dihapus.'
+                  : 'Temporary artwork, stream cache, and temporary transcode files will be removed.'}
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onclick={() => (confirmClearCache = false)}
+              class="h-9 px-4 rounded-full text-xs font-semibold cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+              style="color: var(--md-sys-color-on-surface-variant);"
+            >
+              {lang === 'id' ? 'Batal' : 'Cancel'}
+            </button>
+            <button
+              type="button"
+              onclick={() => {
+                confirmClearCache = false;
+                void executeClearCache();
+              }}
+              class="m3-btn-filled h-9 px-4 text-xs font-bold cursor-pointer"
+            >
+              {tr(lang, 'nav.clear')}
+            </button>
+          </div>
         </div>
       </div>
-    {:else if savedToast}
+    {/if}
+    {#if cacheToast}
       <div
-        in:fly={{ y: 12, duration: 160 }}
-        class="absolute bottom-5 right-6 px-4 py-2 rounded-full text-xs font-semibold shadow-lg pointer-events-none flex items-center gap-2"
+        in:fly={{ y: 12, duration: 180 }}
+        out:fly={{ y: 12, duration: 150 }}
+        class="absolute bottom-5 right-6 px-4 py-2 rounded-full text-xs font-semibold shadow-lg pointer-events-none flex items-center gap-2 z-40"
         style="background-color: var(--md-sys-color-inverse-surface); color: var(--md-sys-color-inverse-on-surface);"
       >
         <Icon name="check-circle" weight="fill" size={15} />
-        <span>{savedToast}</span>
+        <span>{cacheToast}</span>
       </div>
     {/if}
   </div>

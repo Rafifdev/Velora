@@ -206,6 +206,7 @@ var (
 	diProcIsIconic                     = user32.NewProc("IsIconic")
 	diProcIsWindowVisible              = user32.NewProc("IsWindowVisible")
 	diProcGetForegroundWindow          = user32.NewProc("GetForegroundWindow")
+	diProcGetClassNameW                = user32.NewProc("GetClassNameW")
 	diProcSetThreadDpiAwarenessContext = user32.NewProc("SetThreadDpiAwarenessContext")
 	diProcGetDpiForSystem              = user32.NewProc("GetDpiForSystem")
 	diProcMonitorFromPoint             = user32.NewProc("MonitorFromPoint")
@@ -880,7 +881,7 @@ func (a *App) SetDynamicIslandStyle(style string) {
 		if u <= 0 {
 			u = 1.0
 		}
-		ctrl.winY = int(math.Round(10.0 * u))
+		ctrl.winY = maxInt(0, int(math.Round(6.0*u))-3)
 	} else {
 		ctrl.winY = 0
 	}
@@ -1416,7 +1417,17 @@ func shouldDynamicIslandShow(islandHwnd uintptr) bool {
 	fg, _, _ := diProcGetForegroundWindow.Call()
 	// Show whenever Velora is not the active foreground window (e.g. user switched apps/tabs)
 	// Keep visible if the Dynamic Island overlay itself received focus/click.
+	// Do not pop up when the user only clicked the Windows Taskbar/Tray while Velora is still open.
 	if fg != 0 && fg != tb.hwnd && fg != islandHwnd {
+		var clsBuf [128]uint16
+		n, _, _ := diProcGetClassNameW.Call(fg, uintptr(unsafe.Pointer(&clsBuf[0])), uintptr(len(clsBuf)))
+		if n > 0 {
+			cls := windows.UTF16ToString(clsBuf[:n])
+			switch cls {
+			case "Shell_TrayWnd", "Shell_SecondaryTrayWnd", "NotifyIconOverflowWindow", "TopLevelWindowForOverflowXamlIsland":
+				return false
+			}
+		}
 		return true
 	}
 	return false
@@ -3088,9 +3099,9 @@ func (c *dynamicIslandController) tickAndRender() {
 	}
 
 	if shouldAppear {
-		c.appearProg = math.Min(1.0, c.appearProg+dt/0.28)
+		c.appearProg = math.Min(1.0, c.appearProg+dt/0.24)
 	} else {
-		c.appearProg = math.Max(0.0, c.appearProg-dt/0.34)
+		c.appearProg = math.Max(0.0, c.appearProg-dt/0.20)
 	}
 
 	if c.activeMode == diModeLyrics {

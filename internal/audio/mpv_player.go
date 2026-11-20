@@ -125,7 +125,15 @@ func (p *PlayerController) GetStreamURL(track db.Track) string {
 		return fmt.Sprintf("%s/media/local?id=%d", p.baseURL, track.ID)
 	}
 	if track.ExternalID != "" {
-		return fmt.Sprintf("%s/media/yt?v=%s", p.baseURL, track.ExternalID)
+		quality := "high"
+		if p.store != nil {
+			if prefs, err := p.store.GetPreferences(); err == nil {
+				if q, ok := prefs["stream_quality"]; ok && q != "" {
+					quality = q
+				}
+			}
+		}
+		return fmt.Sprintf("%s/media/yt?v=%s&q=%s", p.baseURL, track.ExternalID, quality)
 	}
 	return fmt.Sprintf("%s/media/yt?v=dX3k_QDnzHE", p.baseURL)
 }
@@ -284,11 +292,14 @@ func (p *PlayerController) handleYTMedia(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	quality := "high"
-	if p.store != nil {
-		if prefs, err := p.store.GetPreferences(); err == nil {
-			if q, ok := prefs["stream_quality"]; ok && q != "" {
-				quality = q
+	quality := strings.TrimSpace(r.URL.Query().Get("q"))
+	if quality == "" {
+		quality = "high"
+		if p.store != nil {
+			if prefs, err := p.store.GetPreferences(); err == nil {
+				if q, ok := prefs["stream_quality"]; ok && q != "" {
+					quality = q
+				}
 			}
 		}
 	}
