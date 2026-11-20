@@ -696,6 +696,9 @@
     if (preferences['dynamicIsland.enabled'] !== undefined) {
       api.setDynamicIslandEnabled(preferences['dynamicIsland.enabled'] !== 'false');
     }
+    if (preferences['dynamicIsland.style'] !== undefined) {
+      api.setDynamicIslandStyle(preferences['dynamicIsland.style']);
+    }
     if (preferences['general.zoomLevel']) {
       const z = Number(preferences['general.zoomLevel']);
       if (Number.isFinite(z)) applyZoom(z, false);
@@ -719,6 +722,9 @@
     }
     if (patch['dynamicIsland.enabled'] !== undefined) {
       api.setDynamicIslandEnabled(patch['dynamicIsland.enabled'] !== 'false');
+    }
+    if (patch['dynamicIsland.style'] !== undefined) {
+      api.setDynamicIslandStyle(patch['dynamicIsland.style']);
     }
     if (patch['general.zoomLevel'] !== undefined) {
       const z = Number(patch['general.zoomLevel']);

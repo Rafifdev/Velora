@@ -218,6 +218,10 @@ export function SetDynamicIslandEnabled(arg1) {
   return window['go']['main']['App']['SetDynamicIslandEnabled'](arg1);
 }
 
+export function SetDynamicIslandStyle(arg1) {
+  return window['go']['main']['App']['SetDynamicIslandStyle'](arg1);
+}
+
 export function SetFrontendFS(arg1) {
   return window['go']['main']['App']['SetFrontendFS'](arg1);
 }

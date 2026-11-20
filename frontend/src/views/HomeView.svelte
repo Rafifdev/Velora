@@ -686,7 +686,7 @@
               <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
                 <Icon name="users" weight="bold" size={38} />
               </div>
-              <h2 class="text-2xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+              <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
                 Belum ada artis
               </h2>
               <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
@@ -794,7 +794,7 @@
               <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
                 <Icon name="vinyl-record" weight="bold" size={38} />
               </div>
-              <h2 class="text-2xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+              <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
                 Belum ada album
               </h2>
               <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
@@ -890,7 +890,7 @@
               <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
                 <Icon name="playlist" weight="bold" size={38} />
               </div>
-              <h2 class="text-2xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+              <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
                 Belum ada playlist
               </h2>
               <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
@@ -969,7 +969,7 @@
             <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
               <Icon name="music-note" weight="bold" size={38} />
             </div>
-            <h2 class="text-2xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+            <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
               Belum ada lagu
             </h2>
             <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">

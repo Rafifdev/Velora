@@ -45,5 +45,6 @@ func (a *App) updateDynamicIslandState(_, _, _ string, _ bool)           {}
 func (a *App) UpdateDynamicIslandProgress(_ float64, _ float64)          {}
 func (a *App) updateDynamicIslandLyrics(_ []sources.LyricLine, _ string) {}
 func (a *App) SetDynamicIslandEnabled(_ bool)                            {}
+func (a *App) SetDynamicIslandStyle(_ string)                            {}
 func (a *App) SyncDynamicIsland(_ DynamicIslandSyncPayload)              {}
 func (a *App) NotifyDynamicIslandAudioDevice(_ string)                   {}

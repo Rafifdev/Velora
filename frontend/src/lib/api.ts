@@ -381,6 +381,11 @@ export const api = {
     if (isJamRemote) return;
     appBridge()?.SetDynamicIslandEnabled?.(enabled);
   },
+
+  setDynamicIslandStyle(style: string): void {
+    if (isJamRemote) return;
+    appBridge()?.SetDynamicIslandStyle?.(style);
+  },
   syncDynamicIsland(payload: {
     title: string;
     artist: string;

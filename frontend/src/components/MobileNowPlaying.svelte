@@ -155,7 +155,7 @@
       <div class="space-y-4">
         <div class="flex items-center justify-between gap-3">
           <div class="min-w-0 flex-1">
-            <div class="text-xl font-extrabold tracking-tight truncate">
+            <div class="text-xl font-bold tracking-tight truncate">
               {currentTrack?.title || 'Belum ada lagu diputar'}
             </div>
             <div class="text-sm truncate mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">

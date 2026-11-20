@@ -258,7 +258,7 @@
             <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--md-sys-color-tertiary)]">
               Favorites • Music
             </div>
-            <h1 class="text-3xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+            <h1 class="text-3xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
               Favorite music
             </h1>
             <p class="text-xs tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
@@ -304,7 +304,7 @@
           <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
             <Icon name="music-note" weight="fill" size={38} />
           </div>
-          <h2 class="text-2xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+          <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
             Belum ada lagu favorit
           </h2>
           <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
@@ -364,7 +364,7 @@
             <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--md-sys-color-primary)]">
               Offline • Library
             </div>
-            <h1 class="text-3xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+            <h1 class="text-3xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
               Downloaded
             </h1>
             <p class="text-xs tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
@@ -451,7 +451,7 @@
           <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
             <Icon name="download" weight="fill" size={38} />
           </div>
-          <h2 class="text-2xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+          <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
             Belum ada lagu yang diunduh
           </h2>
           <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
@@ -520,7 +520,7 @@
             <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--md-sys-color-tertiary)]">
               Favorites • Albums
             </div>
-            <h1 class="text-3xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+            <h1 class="text-3xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
               Favorite albums
             </h1>
             <p class="text-xs tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
@@ -540,7 +540,7 @@
           <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
             <Icon name="vinyl-record" weight="fill" size={38} />
           </div>
-          <h2 class="text-2xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+          <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
             Belum ada album favorit
           </h2>
           <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
@@ -648,7 +648,7 @@
             <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--md-sys-color-tertiary)]">
               Favorites • Artists
             </div>
-            <h1 class="text-3xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+            <h1 class="text-3xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
               Favorite artists
             </h1>
             <p class="text-xs tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
@@ -668,7 +668,7 @@
           <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
             <Icon name="user" weight="fill" size={38} />
           </div>
-          <h2 class="text-2xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+          <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
             Belum ada artis favorit
           </h2>
           <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
@@ -845,7 +845,7 @@
               <Icon name="seal-check" weight="fill" size={18} style="color: #3d91f4;" />
               <span>Artis Terverifikasi</span>
             </div>
-            <h1 class="text-3xl sm:text-5xl lg:text-6xl font-black tracking-tight leading-none truncate" style="color: var(--md-sys-color-on-surface);">
+            <h1 class="text-3xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-none truncate" style="color: var(--md-sys-color-on-surface);">
               {artistName}
             </h1>
             {#if fansText}
