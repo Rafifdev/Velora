@@ -433,6 +433,22 @@
   <div class="relative z-10 px-4 sm:px-6 pt-2 pb-6 space-y-6 sm:space-y-7">
 
     {#if activeFilterPill === 'semua'}
+      {#if ytHomeLoading}
+        {#each [0, 1, 2] as shelfIdx (shelfIdx)}
+          <section class="min-w-0 space-y-3">
+            <div class="h-6 w-48 rounded-md bg-[var(--md-sys-color-surface-container-highest)] animate-pulse"></div>
+            <div class="flex items-start justify-start gap-2.5 sm:gap-3 overflow-hidden pb-1">
+              {#each [0, 1, 2, 3, 4, 5] as cardIdx (cardIdx)}
+                <div class="w-[132px] sm:w-[172px] shrink-0 p-2 sm:p-2.5 rounded-lg space-y-2.5">
+                  <div class="w-full aspect-square rounded-md bg-[var(--md-sys-color-surface-container-high)] animate-pulse"></div>
+                  <div class="h-3.5 w-3/4 rounded bg-[var(--md-sys-color-surface-container-highest)] animate-pulse"></div>
+                  <div class="h-3 w-1/2 rounded bg-[var(--md-sys-color-surface-container)] animate-pulse"></div>
+                </div>
+              {/each}
+            </div>
+          </section>
+        {/each}
+      {:else}
       <!-- Saved Library Playlists Shelf (Only shown when real playlists exist) -->
       {#if playlists.length > 0}
         {@const plExpanded = !!expandedShelves['saved-playlists']}
@@ -522,30 +538,15 @@
       {/if}
 
       <!-- Live YouTube Music Shelves (Square Cards Only) -->
-      {#if ytHomeLoading && ytShelves.length === 0}
-        {#each [0, 1] as shelfIdx (shelfIdx)}
-          <section class="min-w-0 space-y-3">
-            <div class="h-6 w-48 rounded-md bg-[var(--md-sys-color-surface-container-highest)] animate-pulse"></div>
-            <div class="flex items-start justify-start gap-2.5 sm:gap-3 overflow-hidden pb-1">
-              {#each [0, 1, 2, 3, 4, 5] as cardIdx (cardIdx)}
-                <div class="w-[132px] sm:w-[172px] shrink-0 p-2 sm:p-2.5 rounded-lg space-y-2.5">
-                  <div class="w-full aspect-square rounded-md bg-[var(--md-sys-color-surface-container-high)] animate-pulse"></div>
-                  <div class="h-3.5 w-3/4 rounded bg-[var(--md-sys-color-surface-container-highest)] animate-pulse"></div>
-                  <div class="h-3 w-1/2 rounded bg-[var(--md-sys-color-surface-container)] animate-pulse"></div>
-                </div>
-              {/each}
-            </div>
-          </section>
-        {/each}
-      {:else if ytShelves.length === 0}
-        <section class="p-8 rounded-lg text-center space-y-3" style="background-color: var(--md-sys-color-surface-container-low);">
-          <Icon name="youtube-logo" weight="fill" size={40} class="mx-auto opacity-60" />
-          <div class="space-y-1">
+      {#if ytShelves.length === 0}
+        <div class="min-h-[55vh] flex flex-col items-center justify-center text-center gap-3 px-4">
+          <Icon name="wifi-slash" size={40} class="opacity-60" />
+          <div class="space-y-1 max-w-md">
             <h2 class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
-              Gagal memuat feed YouTube Music
+              Gagal memuat beranda musik
             </h2>
             <p class="text-xs" style="color: var(--md-sys-color-on-surface-variant);">
-              Periksa koneksi internet kamu lalu muat ulang untuk mengambil playlist dan musik terbaru langsung dari YouTube Music.
+              Periksa koneksi internet kamu lalu muat ulang untuk mengambil playlist dan musik terbaru.
             </p>
           </div>
           <button
@@ -553,9 +554,9 @@
             onclick={onRefreshYTMusicHome}
             class="h-9 px-5 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] text-xs font-bold cursor-pointer hover:brightness-105 transition"
           >
-            Muat Ulang YouTube Music
+            Muat Ulang
           </button>
-        </section>
+        </div>
       {:else}
         {#each ytShelves as shelf, sIdx (shelf.title)}
           {@const shelfKey = `yt-${shelf.title}`}
@@ -671,6 +672,7 @@
             {/if}
           </section>
         {/each}
+      {/if}
       {/if}
     {:else}
       <!-- Filtered Pill View: Square Cards Grid Directly from YouTube Music -->
@@ -886,7 +888,7 @@
                       {item.title}
                     </div>
                     <div class="text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-                      {item.subtitle || 'Album • YouTube Music'}
+                      {item.subtitle || 'Album'}
                     </div>
                   </button>
                 </div>
@@ -967,7 +969,7 @@
                     {item.title}
                   </div>
                   <div class="text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-                    {item.subtitle || 'Playlist • YouTube Music'}
+                    {item.subtitle || 'Playlist'}
                   </div>
                 </button>
               {/each}
@@ -1062,7 +1064,7 @@
       </section>
     {/if}
 
-    {#if !(activeFilterPill === 'semua' && ytHomeLoading && ytShelves.length === 0) && !(activeFilterPill !== 'semua' && ytLoading && (activeFilterPill === 'playlist' ? ytPlaylistResults.length === 0 : activeFilterPill === 'album' ? ytAlbumResults.length === 0 : activeFilterPill === 'artis' ? displayedHomeArtists.length === 0 : ytResults.length === 0))}
+    {#if !(activeFilterPill === 'semua' && (ytHomeLoading || ytShelves.length === 0)) && !(activeFilterPill !== 'semua' && (activeFilterPill === 'playlist' ? ytPlaylistResults.length === 0 : activeFilterPill === 'album' ? ytAlbumResults.length === 0 : activeFilterPill === 'artis' ? displayedHomeArtists.length === 0 : ytResults.length === 0))}
       <div class="pt-2 pb-6 flex justify-center">
         <button
           type="button"

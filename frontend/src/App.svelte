@@ -130,7 +130,7 @@
   let ytAlbumResults = $state<YTMusicCard[]>([]);
   let ytArtistResults = $state<YTMusicCard[]>([]);
   let ytLoading = $state(false);
-  let ytHomeLoading = $state(false);
+  let ytHomeLoading = $state(true);
   let ytLoadingMore = $state(false);
   let ytMorePage = $state(0);
   let ytMoreAllBuffer: YTMusicCard[] = [];
@@ -800,6 +800,37 @@
     if (patch['dynamicIsland.enabled'] !== undefined) {
       api.setDynamicIslandEnabled(patch['dynamicIsland.enabled'] !== 'false');
     }
+    if (patch['playback.eqPreset'] !== undefined) {
+      audioEngine.setPreset(patch['playback.eqPreset']);
+    }
+    if (patch['playback.audioNormalize'] !== undefined) {
+      audioEngine.setNormalize(patch['playback.audioNormalize'] !== 'false');
+    }
+    if (patch['stream_quality'] !== undefined && audioEl && currentTrack && currentTrack.sourceType !== 'local') {
+      const nextUrl = resolveDirectStreamUrl(currentTrack);
+      if (nextUrl) {
+        const resumeAt = audioEl.currentTime || 0;
+        const wasPlaying = !audioEl.paused;
+        switchingTrack = true;
+        audioEl.pause();
+        audioEl.src = nextUrl;
+        audioEl.load();
+        try {
+          if (resumeAt > 0 && Number.isFinite(resumeAt)) {
+            audioEl.currentTime = resumeAt;
+          }
+          if (wasPlaying) {
+            await audioEngine.resume();
+            await audioEl.play();
+            isPlaying = true;
+          }
+        } catch {
+          // Ignore reload abort
+        } finally {
+          switchingTrack = false;
+        }
+      }
+    }
     if (patch['dynamicIsland.style'] !== undefined) {
       api.setDynamicIslandStyle(patch['dynamicIsland.style']);
     }
@@ -812,11 +843,14 @@
         jamStatus = await api.startJam();
         preferences = {
           ...preferences,
-          'integrations.jam.remoteUrl': jamStatus.remoteUrl,
-          'integrations.jam.apiUrl': jamStatus.apiUrl
+          'integrations.jam.remoteUrl': jamStatus.remoteUrl
         };
       } else {
         jamStatus = await api.stopJam();
+        preferences = {
+          ...preferences,
+          'integrations.jam.remoteUrl': ''
+        };
       }
     }
   }
@@ -832,8 +866,7 @@
         preferences = {
           ...preferences,
           'integrations.jam.enabled': 'true',
-          'integrations.jam.remoteUrl': jamStatus.remoteUrl,
-          'integrations.jam.apiUrl': jamStatus.apiUrl
+          'integrations.jam.remoteUrl': jamStatus.remoteUrl
         };
       }
     } finally {
@@ -1537,7 +1570,8 @@
       return `${mediaBaseUrl}/media/local?id=${tr.id}`;
     }
     if (tr.externalId && !tr.externalId.startsWith('dz:') && !tr.externalId.startsWith('sp:')) {
-      return `${mediaBaseUrl}/media/yt?v=${encodeURIComponent(tr.externalId)}`;
+      const q = encodeURIComponent(getPrefValue(preferences, 'stream_quality') || 'high');
+      return `${mediaBaseUrl}/media/yt?v=${encodeURIComponent(tr.externalId)}&q=${q}`;
     }
     return '';
   }
@@ -2424,6 +2458,12 @@
     jamOpen={jamModalOpen}
     {jamLoading}
     {jamConnected}
+    jamPrefEnabled={getPrefValue(preferences, 'integrations.jam.enabled') !== 'false'}
+    saveSearches={getPrefBool(preferences, 'privacy.saveSearches')}
+    onOpenJamSettings={() => {
+      activePrefTab = 'backup';
+      void navigate({ name: 'preferences' });
+    }}
     onOpenJam={() => (jamModalOpen = true)}
     onCloseJam={() => (jamModalOpen = false)}
     onToggleJam={() => void toggleJamServer()}
@@ -2814,6 +2854,7 @@
           {lyricsLoading}
           {positionSec}
           {mediaBaseUrl}
+          {preferences}
           onSeek={handleSeek}
           onResync={() => currentTrack && loadLyricsForTrack(currentTrack)}
           onClose={() => {
@@ -2844,7 +2885,7 @@
             fireStreak = await api.getFireStreak();
           }}
           onClearCache={async () => {
-            await api.clearCache();
+            return await api.clearCache();
           }}
           onNavigate={navigate}
         />
@@ -3130,6 +3171,8 @@
       {shuffle}
       {repeatMode}
       {mediaBaseUrl}
+      showMiniLyrics={getPrefBool(preferences, 'lyrics.miniLyrics')}
+      plainFallback={getPrefBool(preferences, 'lyrics.plainFallback')}
       onClose={() => (mobileNowPlayingOpen = false)}
       onTogglePlay={togglePlay}
       onPrev={playPrev}

@@ -202,19 +202,25 @@
             onclick={() => onNavigate({ name: item.id } as ViewRoute)}
             title={collapsed ? item.label : undefined}
             aria-label={item.label}
-            class="group relative w-full h-10 flex items-center justify-start px-3 rounded-md text-[13px] transition-colors duration-200 cursor-pointer text-left {active
+            class="group relative w-full h-10 flex items-center justify-start rounded-md text-[13px] transition-[padding,background-color,color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] cursor-pointer text-left {collapsed
+              ? 'pl-[15px] pr-0'
+              : 'px-3'} {active
               ? 'font-semibold'
               : 'font-medium hover:bg-[var(--md-sys-color-state-hover)]'}"
             style={active
               ? 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'
               : 'color: var(--md-sys-color-on-surface-variant);'}
           >
-            <Icon
-              name={item.icon}
-              weight={active ? 'fill' : 'regular'}
-              size={19}
-              class="shrink-0"
-            />
+            <span
+              class="inline-flex items-center justify-center shrink-0 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
+              style="transform: scale({collapsed ? 1.285 : 1}); transform-origin: center;"
+            >
+              <Icon
+                name={item.icon}
+                weight={active ? 'fill' : 'regular'}
+                size={14}
+              />
+            </span>
             <span
               class="truncate overflow-hidden whitespace-nowrap transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] {collapsed
                 ? 'max-w-0 opacity-0 -translate-x-2 ml-0'
@@ -233,19 +239,25 @@
           onclick={() => onNavigate({ name: 'preferences' })}
           title={collapsed ? tr(lang, 'nav.settings') : undefined}
           aria-label={tr(lang, 'nav.settings')}
-          class="group relative w-full h-10 flex items-center justify-start px-3 rounded-md text-[13px] transition-colors duration-200 cursor-pointer text-left {prefActive
+          class="group relative w-full h-10 flex items-center justify-start rounded-md text-[13px] transition-[padding,background-color,color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] cursor-pointer text-left {collapsed
+            ? 'pl-[15px] pr-0'
+            : 'px-3'} {prefActive
             ? 'font-semibold'
             : 'font-medium hover:bg-[var(--md-sys-color-state-hover)]'}"
           style={prefActive
             ? 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'
             : 'color: var(--md-sys-color-on-surface-variant);'}
         >
-          <Icon
-            name="gear"
-            weight={prefActive ? 'fill' : 'regular'}
-            size={19}
-            class="shrink-0"
-          />
+          <span
+            class="inline-flex items-center justify-center shrink-0 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
+            style="transform: scale({collapsed ? 1.285 : 1}); transform-origin: center;"
+          >
+            <Icon
+              name="gear"
+              weight={prefActive ? 'fill' : 'regular'}
+              size={14}
+            />
+          </span>
           <span
             class="truncate overflow-hidden whitespace-nowrap transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] {collapsed
               ? 'max-w-0 opacity-0 -translate-x-2 ml-0'
