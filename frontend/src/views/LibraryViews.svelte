@@ -609,7 +609,7 @@
                 type="button"
                 onclick={() => onToggleFavoriteAlbum(al.id)}
                 aria-label="Hapus {al.title} dari favorit"
-                class="border-0 shadow-none absolute top-4 right-4 w-8 h-8 rounded-full backdrop-blur-xs flex items-center justify-center cursor-pointer transition-all duration-200 opacity-100"
+                class="border-0 shadow-none absolute top-4 right-4 w-8 h-8 rounded-full backdrop-blur-xs flex items-center justify-center cursor-pointer transition-all duration-200 opacity-100 hover:scale-110"
                 style="background-color: color-mix(in srgb, var(--md-sys-color-surface-container-highest) 78%, transparent); color: var(--md-sys-color-tertiary);"
               >
                 <Icon name="heart" weight="fill" size={15} />
@@ -737,7 +737,7 @@
                 type="button"
                 onclick={() => onToggleFavoriteArtist(ar.id)}
                 aria-label="Hapus {ar.name} dari favorit"
-                class="border-0 shadow-none absolute top-4 right-4 w-8 h-8 rounded-full backdrop-blur-xs flex items-center justify-center cursor-pointer transition-all duration-200 opacity-100"
+                class="border-0 shadow-none absolute top-4 right-4 w-8 h-8 rounded-full backdrop-blur-xs flex items-center justify-center cursor-pointer transition-all duration-200 opacity-100 hover:scale-110"
                 style="background-color: color-mix(in srgb, var(--md-sys-color-surface-container-highest) 78%, transparent); color: var(--md-sys-color-tertiary);"
               >
                 <Icon name="heart" weight="fill" size={15} />
@@ -765,7 +765,7 @@
   {@const isArtistPlaying = isPlaying && artistTracks.some((t) => isTrackActive(t))}
 
   <div class="relative min-h-full flex flex-col" use:svelteMotionEnter={{ y: 8 }}>
-    {#if ytArtistLoading && !ytArtistDetail && artistTracks.length === 0}
+    {#if ytArtistLoading}
       <!-- Artist Detail Skeleton -->
       <div class="relative overflow-hidden px-4 sm:px-6 pt-8 pb-6 sm:pt-12 sm:pb-8 animate-pulse">
         <div class="flex flex-col sm:flex-row sm:items-end gap-4 sm:gap-6">
@@ -902,10 +902,12 @@
                 });
               }
             }}
-            class="h-9 px-5 rounded-full text-xs font-bold border cursor-pointer transition-all hover:scale-[1.03] active:scale-95"
+            class="h-9 px-5 rounded-full text-xs font-bold cursor-pointer transition-all hover:scale-[1.03] active:scale-95 {isArtistFav
+              ? 'hover:brightness-110'
+              : 'bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface)]'}"
             style={isArtistFav
-              ? 'border-color: var(--md-sys-color-primary); background-color: color-mix(in srgb, var(--md-sys-color-primary) 14%, transparent); color: var(--md-sys-color-primary);'
-              : 'border-color: var(--md-sys-color-outline); background-color: transparent; color: var(--md-sys-color-on-surface);'}
+              ? 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'
+              : undefined}
           >
             {isArtistFav ? 'Mengikuti' : 'Ikuti'}
           </button>
@@ -1073,7 +1075,7 @@
               onSearchYTMusic('');
             }}
             aria-label="Hapus pencarian"
-            class="w-6 h-6 rounded-full flex items-center justify-center shrink-0 cursor-pointer border-0"
+            class="w-6 h-6 rounded-full flex items-center justify-center shrink-0 cursor-pointer border-0 transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
             style="color: var(--md-sys-color-on-surface-variant);"
           >
             <Icon name="x-circle" weight="fill" size={17} />
@@ -1153,7 +1155,7 @@
             type="button"
             onclick={() => onSaveYTMusic(yt)}
             aria-label="Simpan ke Library"
-            class="w-9 h-9 rounded-full flex items-center justify-center shrink-0 cursor-pointer"
+            class="w-9 h-9 rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
             style="color: var(--md-sys-color-on-surface-variant);"
           >
             <Icon name="plus-circle" size={20} />

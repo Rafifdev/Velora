@@ -34,6 +34,7 @@
     onToggleFavorite: (trackId: number) => void;
     onFocusRightCard: (card: 'album' | 'lyrics' | 'queue') => void;
     onOpenTrackDetail?: (track: Track) => void;
+    onOpenArtistDetail?: (track: Track) => void;
     onToggleLyrics?: () => void;
     onOpenMobileNowPlaying?: () => void;
   }
@@ -66,6 +67,7 @@
     onToggleFavorite,
     onFocusRightCard,
     onOpenTrackDetail,
+    onOpenArtistDetail,
     onToggleLyrics,
     onOpenMobileNowPlaying
   }: Props = $props();
@@ -113,7 +115,7 @@
       <button
         type="button"
         onclick={() => onOpenMobileNowPlaying?.()}
-        class="flex-1 min-w-0 flex items-center gap-2.5 text-left cursor-pointer"
+        class="flex-1 min-w-0 flex items-center gap-2.5 text-left cursor-pointer rounded-lg px-1 -mx-1 transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
       >
         <div class="w-10 h-10 rounded-md overflow-hidden shrink-0 bg-[var(--md-sys-color-surface-container-highest)] flex items-center justify-center">
           {#if currentTrack && resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl)}
@@ -144,7 +146,7 @@
           disabled={!currentTrack}
           onclick={() => currentTrack && onToggleFavorite(currentTrack.id)}
           aria-label={tr(lang, 'nav.likeSong')}
-          class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer disabled:opacity-40"
+          class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)] disabled:opacity-40"
         >
           <Icon
             name="heart"
@@ -157,7 +159,7 @@
           type="button"
           onclick={onTogglePlay}
           aria-label={isPlaying ? 'Jeda' : 'Putar'}
-          class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer"
+          class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
           style="color: var(--md-sys-color-on-surface);"
         >
           <Icon name={isPlaying ? 'pause' : 'play'} weight="fill" size={20} />
@@ -271,7 +273,7 @@
         <button
           type="button"
           onclick={() => onFocusRightCard('album')}
-          class="relative w-14 h-14 p-0 rounded-md overflow-clip shrink-0 cursor-pointer"
+          class="relative w-14 h-14 p-0 rounded-md overflow-clip shrink-0 cursor-pointer transition-transform hover:scale-[1.03]"
           title="Buka Panel Kanan"
         >
           {#if cover}
@@ -301,12 +303,15 @@
           >
             {currentTrack.title}
           </button>
-          <div
-            class="text-[12px] font-normal leading-snug truncate mt-0.5"
+          <button
+            type="button"
+            onclick={() => onOpenArtistDetail?.(currentTrack)}
+            class="text-left text-[12px] font-normal leading-snug truncate mt-0.5 hover:underline cursor-pointer"
             style="color: var(--md-sys-color-on-surface-variant);"
+            title="Lihat Halaman Artis"
           >
             {currentTrack.artistName}
-          </div>
+          </button>
         </div>
       {:else}
         <div

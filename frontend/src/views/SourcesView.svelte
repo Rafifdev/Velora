@@ -167,7 +167,7 @@
         <button
           type="button"
           onclick={onUploadFiles}
-          class="h-9 px-4 rounded-full text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-transform active:scale-95"
+          class="h-9 px-4 rounded-full text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-transform hover:scale-[1.03] active:scale-95"
           style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
         >
           <Icon name="upload-simple" weight="bold" size={14} /> Pilih File Audio
@@ -251,13 +251,13 @@
           <input
             type="search"
             bind:value={ytQuery}
-            placeholder="Cari lagu di YouTube Music..."
+            placeholder="Cari lagu di YouTube Music"
             class="w-full h-9 pl-9 pr-4 rounded-full text-xs text-[var(--md-sys-color-on-surface)] placeholder:text-[var(--md-sys-color-on-surface-variant)] placeholder:opacity-65 bg-[var(--md-sys-color-surface-container-high)] focus:bg-[var(--md-sys-color-surface-container-highest)] outline-none transition-colors"
           />
         </div>
         <button
           type="submit"
-          class="px-4 h-9 rounded-full text-xs font-bold cursor-pointer transition-transform active:scale-95"
+          class="px-4 h-9 rounded-full text-xs font-bold cursor-pointer transition-transform hover:scale-[1.03] active:scale-95"
           style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
         >
           {ytLoading ? 'Mencari...' : 'Cari'}

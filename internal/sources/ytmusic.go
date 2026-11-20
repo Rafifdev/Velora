@@ -1,4 +1,4 @@
-﻿package sources
+package sources
 
 import (
 	"bytes"
@@ -96,13 +96,61 @@ type YTMusicClient struct {
 	cache         map[string]cachedStream
 	top100Cache   []YTMusicTrack
 	top100Expires time.Time
+	regions       []string
 }
 
 func NewYTMusicClient() *YTMusicClient {
 	return &YTMusicClient{
 		httpClient: &http.Client{Timeout: 12 * time.Second},
 		cache:      map[string]cachedStream{},
+		regions:    []string{"ID"},
 	}
+}
+
+func (c *YTMusicClient) SetRegions(regions []string) {
+	cleaned := make([]string, 0, len(regions))
+	seen := map[string]struct{}{}
+	for _, r := range regions {
+		code := strings.ToUpper(strings.TrimSpace(r))
+		if len(code) != 2 {
+			continue
+		}
+		if _, dup := seen[code]; dup {
+			continue
+		}
+		seen[code] = struct{}{}
+		cleaned = append(cleaned, code)
+	}
+	if len(cleaned) == 0 {
+		cleaned = []string{"ID"}
+	}
+	c.mu.Lock()
+	c.regions = cleaned
+	c.mu.Unlock()
+}
+
+func (c *YTMusicClient) getRegions() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.regions) == 0 {
+		return []string{"ID"}
+	}
+	out := make([]string, len(c.regions))
+	copy(out, c.regions)
+	return out
+}
+
+func (c *YTMusicClient) primaryRegion() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.regions) == 0 || strings.TrimSpace(c.regions[0]) == "" {
+		return "ID"
+	}
+	return c.regions[0]
+}
+
+func (c *YTMusicClient) ytContext() map[string]any {
+	return ytWebRemixContextFor(c.primaryRegion())
 }
 
 func (c *YTMusicClient) postInnerTube(ctx context.Context, endpoint string, payload map[string]any) (any, error) {
@@ -145,15 +193,23 @@ func (c *YTMusicClient) postInnerTube(ctx context.Context, endpoint string, payl
 	return tree, nil
 }
 
-func ytWebRemixContext() map[string]any {
+func ytWebRemixContextFor(gl string) map[string]any {
+	gl = strings.ToUpper(strings.TrimSpace(gl))
+	if len(gl) != 2 {
+		gl = "ID"
+	}
 	return map[string]any{
 		"client": map[string]any{
 			"clientName":    "WEB_REMIX",
 			"clientVersion": "1.20241113.01.00",
 			"hl":            "id",
-			"gl":            "ID",
+			"gl":            gl,
 		},
 	}
+}
+
+func ytWebRemixContext() map[string]any {
+	return ytWebRemixContextFor("ID")
 }
 
 func (c *YTMusicClient) Search(ctx context.Context, query string) ([]YTMusicTrack, error) {
@@ -164,7 +220,7 @@ func (c *YTMusicClient) Search(ctx context.Context, query string) ([]YTMusicTrac
 	}
 
 	payload := map[string]any{
-		"context": ytWebRemixContext(),
+		"context": c.ytContext(),
 		"query":   query,
 		"params":  "EgWKAQIIAWoMEAMQBBAJEAoQBRAV",
 	}
@@ -209,7 +265,7 @@ func (c *YTMusicClient) SearchPlaylists(ctx context.Context, query string) ([]YT
 		"EgeKAQQoAEABagoQAxAEEAkQChAF",                 // Community playlists
 	} {
 		payload := map[string]any{
-			"context": ytWebRemixContext(),
+			"context": c.ytContext(),
 			"query":   query,
 			"params":  params,
 		}
@@ -240,7 +296,7 @@ func (c *YTMusicClient) SearchAlbums(ctx context.Context, query string) ([]YTMus
 
 	if query == "" {
 		if tree, err := c.postInnerTube(ctx, "browse", map[string]any{
-			"context":  ytWebRemixContext(),
+			"context":  c.ytContext(),
 			"browseId": "FEmusic_new_releases_albums",
 		}); err == nil {
 			extractAlbumSearchItems(tree, &results, seen)
@@ -250,7 +306,7 @@ func (c *YTMusicClient) SearchAlbums(ctx context.Context, query string) ([]YTMus
 
 	if len(results) < 28 {
 		payload := map[string]any{
-			"context": ytWebRemixContext(),
+			"context": c.ytContext(),
 			"query":   query,
 			"params":  "EgWKAQIYAWoMEAMQBBAJEAoQBRAV",
 		}
@@ -281,7 +337,7 @@ func (c *YTMusicClient) SearchArtists(ctx context.Context, query string) ([]YTMu
 
 	for _, q := range queries {
 		payload := map[string]any{
-			"context": ytWebRemixContext(),
+			"context": c.ytContext(),
 			"query":   q,
 			"params":  "EgWKAQIgAWoMEAMQBBAJEAoQBRAV",
 		}
@@ -567,42 +623,66 @@ func (c *YTMusicClient) GetHomeFeed(ctx context.Context) (YTMusicHomeFeed, error
 		Tracks:  []YTMusicTrack{},
 	}
 
+	regions := c.getRegions()
 	browseIDs := []string{"FEmusic_home", "FEmusic_explore"}
-	results := make([][]YTMusicShelf, len(browseIDs))
+	type regionResult struct {
+		shelves []YTMusicShelf
+	}
+	totalJobs := len(regions) * len(browseIDs)
+	results := make([]regionResult, totalJobs)
 	var wg sync.WaitGroup
-	for i, bid := range browseIDs {
-		wg.Add(1)
-		go func(idx int, browseID string) {
-			defer wg.Done()
-			tree, err := c.postInnerTube(ctx, "browse", map[string]any{
-				"context":  ytWebRemixContext(),
-				"browseId": browseID,
-			})
-			if err != nil {
-				return
-			}
-			var shelves []YTMusicShelf
-			extractCarouselShelves(tree, &shelves)
-			results[idx] = shelves
-		}(i, bid)
+	for rIdx, gl := range regions {
+		for bIdx, bid := range browseIDs {
+			jobIdx := rIdx*len(browseIDs) + bIdx
+			wg.Add(1)
+			go func(idx int, regionCode, browseID string) {
+				defer wg.Done()
+				tree, err := c.postInnerTube(ctx, "browse", map[string]any{
+					"context":  ytWebRemixContextFor(regionCode),
+					"browseId": browseID,
+				})
+				if err != nil {
+					return
+				}
+				var shelves []YTMusicShelf
+				extractCarouselShelves(tree, &shelves)
+				results[idx] = regionResult{shelves: shelves}
+			}(jobIdx, gl, bid)
+		}
 	}
 	wg.Wait()
 
-	seenShelf := map[string]struct{}{}
+	shelfIdxByKey := map[string]int{}
+	seenShelfItem := map[string]map[string]struct{}{}
 	seenTrack := map[string]struct{}{}
-	for _, list := range results {
-		for _, sh := range list {
+	for _, res := range results {
+		for _, sh := range res.shelves {
 			key := strings.ToLower(strings.TrimSpace(sh.Title))
 			if key == "" || len(sh.Items) == 0 {
 				continue
 			}
-			if _, dup := seenShelf[key]; dup {
-				continue
+			targetIdx, exists := shelfIdxByKey[key]
+			if !exists {
+				targetIdx = len(feed.Shelves)
+				shelfIdxByKey[key] = targetIdx
+				seenShelfItem[key] = map[string]struct{}{}
+				feed.Shelves = append(feed.Shelves, YTMusicShelf{
+					Title: sh.Title,
+					Items: make([]YTMusicCard, 0, len(sh.Items)),
+				})
 			}
-			seenShelf[key] = struct{}{}
-			feed.Shelves = append(feed.Shelves, sh)
 
 			for _, item := range sh.Items {
+				itemKey := item.ID
+				if itemKey == "" {
+					itemKey = item.VideoID + "|" + strings.ToLower(item.Title)
+				}
+				if _, dup := seenShelfItem[key][itemKey]; dup {
+					continue
+				}
+				seenShelfItem[key][itemKey] = struct{}{}
+				feed.Shelves[targetIdx].Items = append(feed.Shelves[targetIdx].Items, item)
+
 				if item.VideoID != "" {
 					if _, dup := seenTrack[item.VideoID]; !dup {
 						seenTrack[item.VideoID] = struct{}{}
@@ -657,7 +737,7 @@ func (c *YTMusicClient) GetTop100Tracks(ctx context.Context) ([]YTMusicTrack, er
 	)
 	if err != nil || len(results) < 10 {
 		if tree, chartErr := c.postInnerTube(ctx, "browse", map[string]any{
-			"context":  ytWebRemixContext(),
+			"context":  c.ytContext(),
 			"browseId": "FEmusic_charts",
 		}); chartErr == nil {
 			seen := map[string]struct{}{}
@@ -799,7 +879,7 @@ func (c *YTMusicClient) GetHistoryBasedRecommended(ctx context.Context, seeds []
 			relSeen := map[string]struct{}{}
 			if vid != "" {
 				if tree, err := c.postInnerTube(subCtx, "next", map[string]any{
-					"context":     ytWebRemixContext(),
+					"context":     c.ytContext(),
 					"videoId":     vid,
 					"playlistId":  "RDAMVM" + vid,
 					"isAudioOnly": true,
@@ -885,7 +965,7 @@ func (c *YTMusicClient) enrichTracksAlbum(ctx context.Context, pool []YTMusicTra
 			}
 			if tr.Album == "" || tr.Album == "YouTube Music" {
 				if tree, nErr := c.postInnerTube(subCtx, "next", map[string]any{
-					"context": ytWebRemixContext(),
+					"context": c.ytContext(),
 					"videoId": tr.VideoID,
 				}); nErr == nil {
 					_, albTitle, _, _, _ := extractAlbumArtistFromNext(tree)
@@ -924,7 +1004,7 @@ func (c *YTMusicClient) GetCollectionTracks(ctx context.Context, browseID, playl
 
 	if targetID != "" {
 		if tree, err := c.postInnerTube(ctx, "browse", map[string]any{
-			"context":  ytWebRemixContext(),
+			"context":  c.ytContext(),
 			"browseId": targetID,
 		}); err == nil {
 			extractResponsiveItems(tree, &results, seen)
@@ -935,7 +1015,7 @@ func (c *YTMusicClient) GetCollectionTracks(ctx context.Context, browseID, playl
 		vlID := "VL" + pidClean
 		if vlID != targetID {
 			if tree, err := c.postInnerTube(ctx, "browse", map[string]any{
-				"context":  ytWebRemixContext(),
+				"context":  c.ytContext(),
 				"browseId": vlID,
 			}); err == nil {
 				extractResponsiveItems(tree, &results, seen)
@@ -945,7 +1025,7 @@ func (c *YTMusicClient) GetCollectionTracks(ctx context.Context, browseID, playl
 
 	if len(results) == 0 && pidClean != "" {
 		if tree, err := c.postInnerTube(ctx, "next", map[string]any{
-			"context":    ytWebRemixContext(),
+			"context":    c.ytContext(),
 			"playlistId": pidClean,
 		}); err == nil {
 			extractPlaylistPanelItems(tree, &results, seen)
@@ -991,7 +1071,7 @@ func (c *YTMusicClient) GetTrackAlbumDetail(ctx context.Context, videoID, browse
 
 	if !strings.HasPrefix(albumBrowseID, "MPREb_") && strings.TrimSpace(videoID) != "" {
 		if tree, err := c.postInnerTube(ctx, "next", map[string]any{
-			"context": ytWebRemixContext(),
+			"context": c.ytContext(),
 			"videoId": strings.TrimSpace(videoID),
 		}); err == nil {
 			abid, atitle, arid, aname, acover := extractAlbumArtistFromNext(tree)
@@ -1036,7 +1116,7 @@ func (c *YTMusicClient) GetTrackAlbumDetail(ctx context.Context, videoID, browse
 			if !strings.HasPrefix(albumBrowseID, "MPREb_") {
 				if tracks, err := c.Search(ctx, q); err == nil && len(tracks) > 0 && tracks[0].VideoID != "" && tracks[0].VideoID != videoID {
 					if tree, err := c.postInnerTube(ctx, "next", map[string]any{
-						"context": ytWebRemixContext(),
+						"context": c.ytContext(),
 						"videoId": tracks[0].VideoID,
 					}); err == nil {
 						abid, atitle, arid, aname, acover := extractAlbumArtistFromNext(tree)
@@ -1071,7 +1151,7 @@ func (c *YTMusicClient) GetTrackAlbumDetail(ctx context.Context, videoID, browse
 
 	if strings.HasPrefix(albumBrowseID, "MPREb_") {
 		if tree, err := c.postInnerTube(ctx, "browse", map[string]any{
-			"context":  ytWebRemixContext(),
+			"context":  c.ytContext(),
 			"browseId": albumBrowseID,
 		}); err == nil {
 			extractAlbumHeaderMeta(tree, &detail)
@@ -1107,7 +1187,7 @@ func (c *YTMusicClient) GetTrackAlbumDetail(ctx context.Context, videoID, browse
 	}
 	if detail.ArtistBrowseID != "" {
 		if tree, err := c.postInnerTube(ctx, "browse", map[string]any{
-			"context":  ytWebRemixContext(),
+			"context":  c.ytContext(),
 			"browseId": detail.ArtistBrowseID,
 		}); err == nil {
 			extractArtistAlbumCards(tree, &otherAlbums, seenAlbums)
@@ -1406,7 +1486,7 @@ func parsePlaylistPanelItem(r map[string]any) (YTMusicTrack, bool) {
 
 func cleanCollectionSubtitle(sub string) string {
 	s := strings.TrimSpace(sub)
-	for _, prefix := range []string{"Album â€¢ ", "Single â€¢ ", "EP â€¢ ", "Playlist â€¢ "} {
+	for _, prefix := range []string{"Album • ", "Single • ", "EP • ", "Playlist • "} {
 		if strings.HasPrefix(s, prefix) {
 			return strings.TrimSpace(strings.TrimPrefix(s, prefix))
 		}
@@ -2192,7 +2272,7 @@ func (c *YTMusicClient) GetLyricsByVideoID(ctx context.Context, videoID string) 
 		return "", false
 	}
 	nextTree, err := c.postInnerTube(ctx, "next", map[string]any{
-		"context": ytWebRemixContext(),
+		"context": c.ytContext(),
 		"videoId": vid,
 	})
 	if err != nil {
@@ -2228,7 +2308,7 @@ func (c *YTMusicClient) GetLyricsByVideoID(ctx context.Context, videoID string) 
 	}
 
 	browseTree, err := c.postInnerTube(ctx, "browse", map[string]any{
-		"context":  ytWebRemixContext(),
+		"context":  c.ytContext(),
 		"browseId": lyricsBrowseID,
 	})
 	if err != nil {

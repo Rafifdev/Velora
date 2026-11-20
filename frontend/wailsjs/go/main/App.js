@@ -154,6 +154,10 @@ export function NotifyDynamicIslandAudioDevice(arg1) {
   return window['go']['main']['App']['NotifyDynamicIslandAudioDevice'](arg1);
 }
 
+export function OpenDataFolder() {
+  return window['go']['main']['App']['OpenDataFolder']();
+}
+
 export function PlayYTMusicCollection(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['PlayYTMusicCollection'](arg1, arg2, arg3, arg4, arg5);
 }
@@ -214,12 +218,48 @@ export function SearchYouTubeMusicPlaylists(arg1) {
   return window['go']['main']['App']['SearchYouTubeMusicPlaylists'](arg1);
 }
 
+export function SetDynamicIslandAnimSpeed(arg1) {
+  return window['go']['main']['App']['SetDynamicIslandAnimSpeed'](arg1);
+}
+
 export function SetDynamicIslandEnabled(arg1) {
   return window['go']['main']['App']['SetDynamicIslandEnabled'](arg1);
 }
 
+export function SetDynamicIslandHideInFullscreen(arg1) {
+  return window['go']['main']['App']['SetDynamicIslandHideInFullscreen'](arg1);
+}
+
+export function SetDynamicIslandHideWhenAppActive(arg1) {
+  return window['go']['main']['App']['SetDynamicIslandHideWhenAppActive'](arg1);
+}
+
+export function SetDynamicIslandIdleHideSeconds(arg1) {
+  return window['go']['main']['App']['SetDynamicIslandIdleHideSeconds'](arg1);
+}
+
 export function SetDynamicIslandLanguage(arg1) {
   return window['go']['main']['App']['SetDynamicIslandLanguage'](arg1);
+}
+
+export function SetDynamicIslandOnlyPlaying(arg1) {
+  return window['go']['main']['App']['SetDynamicIslandOnlyPlaying'](arg1);
+}
+
+export function SetDynamicIslandOpenTrigger(arg1) {
+  return window['go']['main']['App']['SetDynamicIslandOpenTrigger'](arg1);
+}
+
+export function SetDynamicIslandPauseHideSeconds(arg1) {
+  return window['go']['main']['App']['SetDynamicIslandPauseHideSeconds'](arg1);
+}
+
+export function SetDynamicIslandScreen(arg1) {
+  return window['go']['main']['App']['SetDynamicIslandScreen'](arg1);
+}
+
+export function SetDynamicIslandShapeSize(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetDynamicIslandShapeSize'](arg1, arg2, arg3);
 }
 
 export function SetDynamicIslandStyle(arg1) {
@@ -230,8 +270,16 @@ export function SetFrontendFS(arg1) {
   return window['go']['main']['App']['SetFrontendFS'](arg1);
 }
 
+export function SetKeepAwake(arg1) {
+  return window['go']['main']['App']['SetKeepAwake'](arg1);
+}
+
 export function SetTrayIcon(arg1) {
   return window['go']['main']['App']['SetTrayIcon'](arg1);
+}
+
+export function SetWindowTitle(arg1) {
+  return window['go']['main']['App']['SetWindowTitle'](arg1);
 }
 
 export function StartJam() {

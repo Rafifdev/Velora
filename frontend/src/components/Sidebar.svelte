@@ -163,11 +163,11 @@
     </div>
   {:else}
   <div class="w-full h-full min-h-0 flex flex-col overflow-hidden rounded-lg p-2.5">
-    <!-- Persistent Top Row: constant justify-between + px-1 so toggle button glides smoothly without layout jump -->
-    <div class="flex items-center justify-between px-1 pb-2 w-full shrink-0">
+    <!-- Persistent Top Row -->
+    <div class="flex items-center pb-2 w-full shrink-0 {collapsed ? 'justify-center px-0' : 'justify-between px-1'}">
       <span
         class="text-[11px] font-semibold uppercase tracking-wider truncate overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] {collapsed
-          ? 'max-w-0 opacity-0 -translate-x-2 pointer-events-none pl-0'
+          ? 'hidden'
           : 'max-w-[140px] opacity-100 translate-x-0 pl-2'}"
         style="color: var(--md-sys-color-on-surface-variant);"
       >
@@ -193,8 +193,8 @@
     </div>
 
     <div class="flex-1 min-h-0 flex flex-col justify-between w-full">
-      <!-- Unified Morphing Menu List (Fixed icon X-anchor so icons never jitter) -->
-      <nav class="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-1 pt-1" aria-label="Menu Utama">
+      <!-- Unified Morphing Menu List -->
+      <nav class="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-1 pt-1 {collapsed ? '[&::-webkit-scrollbar]:hidden' : ''}" aria-label="Menu Utama">
         {#each flatMenuItems as item (item.id)}
           {@const active = isActive(item.id)}
           <button
@@ -202,9 +202,9 @@
             onclick={() => onNavigate({ name: item.id } as ViewRoute)}
             title={collapsed ? item.label : undefined}
             aria-label={item.label}
-            class="group relative w-full h-10 flex items-center justify-start rounded-md text-[13px] transition-[padding,background-color,color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] cursor-pointer text-left {collapsed
-              ? 'pl-[15px] pr-0'
-              : 'px-3'} {active
+            class="group relative w-full h-10 flex items-center rounded-md text-[13px] transition-[padding,background-color,color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] cursor-pointer {collapsed
+              ? 'justify-center px-0'
+              : 'justify-start px-3 text-left'} {active
               ? 'font-semibold'
               : 'font-medium hover:bg-[var(--md-sys-color-state-hover)]'}"
             style={active
@@ -223,7 +223,7 @@
             </span>
             <span
               class="truncate overflow-hidden whitespace-nowrap transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] {collapsed
-                ? 'max-w-0 opacity-0 -translate-x-2 ml-0'
+                ? 'hidden'
                 : 'max-w-[150px] opacity-100 translate-x-0 ml-2.5'}"
             >
               {item.label}
@@ -239,9 +239,9 @@
           onclick={() => onNavigate({ name: 'preferences' })}
           title={collapsed ? tr(lang, 'nav.settings') : undefined}
           aria-label={tr(lang, 'nav.settings')}
-          class="group relative w-full h-10 flex items-center justify-start rounded-md text-[13px] transition-[padding,background-color,color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] cursor-pointer text-left {collapsed
-            ? 'pl-[15px] pr-0'
-            : 'px-3'} {prefActive
+          class="group relative w-full h-10 flex items-center rounded-md text-[13px] transition-[padding,background-color,color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] cursor-pointer {collapsed
+            ? 'justify-center px-0'
+            : 'justify-start px-3 text-left'} {prefActive
             ? 'font-semibold'
             : 'font-medium hover:bg-[var(--md-sys-color-state-hover)]'}"
           style={prefActive
@@ -260,7 +260,7 @@
           </span>
           <span
             class="truncate overflow-hidden whitespace-nowrap transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] {collapsed
-              ? 'max-w-0 opacity-0 -translate-x-2 ml-0'
+              ? 'hidden'
               : 'max-w-[150px] opacity-100 translate-x-0 ml-2.5'}"
           >
             {tr(lang, 'nav.settings')}

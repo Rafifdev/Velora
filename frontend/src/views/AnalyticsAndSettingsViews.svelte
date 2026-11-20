@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fade, fly, scale } from 'svelte/transition';
-  import { formatDuration, resolveCoverUrl } from '../lib/api';
+  import { api, formatDuration, resolveCoverUrl } from '../lib/api';
   import { svelteMotionEnter } from '../lib/motion';
   import {
     PREFERENCE_APP_TABS,
@@ -57,9 +57,65 @@
   let openSelectFlipUp = $state(false);
   let clearingCache = $state(false);
   let confirmClearCache = $state(false);
+  let clearCacheDialogEl: HTMLDialogElement | undefined = $state();
   let historyTab = $state<'recent' | 'stats'>('recent');
   let historyFilter = $state('');
   let confirmClearHistory = $state(false);
+  let clearHistoryDialogEl: HTMLDialogElement | undefined = $state();
+  let confirmResetIsland = $state(false);
+  let resetIslandDialogEl: HTMLDialogElement | undefined = $state();
+  let showShortcutsModal = $state(false);
+  let shortcutsDialogEl: HTMLDialogElement | undefined = $state();
+  let shakingParentId = $state<string | null>(null);
+  let shakeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function triggerParentShake(parentId: string) {
+    if (shakeTimer) clearTimeout(shakeTimer);
+    shakingParentId = null;
+    document.getElementById(`pref-row-${parentId}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    requestAnimationFrame(() => {
+      shakingParentId = parentId;
+      shakeTimer = setTimeout(() => {
+        shakingParentId = null;
+      }, 420);
+    });
+  }
+
+  $effect(() => {
+    if (!clearCacheDialogEl) return;
+    if (confirmClearCache && !clearCacheDialogEl.open) {
+      clearCacheDialogEl.showModal();
+    } else if (!confirmClearCache && clearCacheDialogEl.open) {
+      clearCacheDialogEl.close();
+    }
+  });
+
+  $effect(() => {
+    if (!clearHistoryDialogEl) return;
+    if (confirmClearHistory && !clearHistoryDialogEl.open) {
+      clearHistoryDialogEl.showModal();
+    } else if (!confirmClearHistory && clearHistoryDialogEl.open) {
+      clearHistoryDialogEl.close();
+    }
+  });
+
+  $effect(() => {
+    if (!resetIslandDialogEl) return;
+    if (confirmResetIsland && !resetIslandDialogEl.open) {
+      resetIslandDialogEl.showModal();
+    } else if (!confirmResetIsland && resetIslandDialogEl.open) {
+      resetIslandDialogEl.close();
+    }
+  });
+
+  $effect(() => {
+    if (!shortcutsDialogEl) return;
+    if (showShortcutsModal && !shortcutsDialogEl.open) {
+      shortcutsDialogEl.showModal();
+    } else if (!showShortcutsModal && shortcutsDialogEl.open) {
+      shortcutsDialogEl.close();
+    }
+  });
 
   const filteredHistory = $derived.by(() => {
     const q = historyFilter.trim().toLowerCase();
@@ -77,13 +133,7 @@
 
   const visibleSettingsForCategory = $derived.by(() => {
     const q = prefSearch.trim().toLowerCase();
-    return PREFERENCE_SETTINGS.filter((s) => {
-      if (s.visibleWhen && getPrefValue(effectivePrefs, s.visibleWhen.id) !== s.visibleWhen.equals) {
-        return false;
-      }
-      return true;
-    })
-      .map((s) => localizeItem(s, lang))
+    return PREFERENCE_SETTINGS.map((s) => localizeItem(s, lang))
       .filter((s) => {
         if (q) {
           return (
@@ -134,6 +184,21 @@
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   }
 
+  function formatWatchedAt(raw: string): string {
+    if (!raw) return '-';
+    const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+    const d = new Date(normalized);
+    if (Number.isNaN(d.getTime())) return raw;
+    const datePart = new Intl.DateTimeFormat(lang === 'id' ? 'id-ID' : 'en-US', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
+    }).format(d);
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${datePart}, ${hh}:${mm}`;
+  }
+
   async function executeClearCache() {
     if (clearingCache) return;
     clearingCache = true;
@@ -153,18 +218,30 @@
 
   async function handleActionClick(itemId: string) {
     if (itemId === 'dynamicIsland.reset') {
-      const resetPatch: Record<string, string> = {};
-      for (const s of PREFERENCE_SETTINGS) {
-        if (s.category === 'dynamic-island' && s.id !== 'dynamicIsland.enabled' && s.widget !== 'action') {
-          resetPatch[s.id] = s.defaultValue;
-        }
-      }
-      onSavePreferences(resetPatch);
+      confirmResetIsland = true;
       return;
     }
     if (itemId === 'storage.clearCache') {
       confirmClearCache = true;
+      return;
     }
+    if (itemId === 'about.shortcuts') {
+      showShortcutsModal = true;
+      return;
+    }
+    if (itemId === 'about.dataFolder') {
+      await api.openDataFolder();
+    }
+  }
+
+  function executeResetIsland() {
+    const resetPatch: Record<string, string> = {};
+    for (const s of PREFERENCE_SETTINGS) {
+      if (s.category === 'dynamic-island' && s.id !== 'dynamicIsland.enabled' && s.widget !== 'action') {
+        resetPatch[s.id] = s.defaultValue;
+      }
+    }
+    onSavePreferences(resetPatch);
   }
 
   function copyInfoValue(id: string, val: string) {
@@ -229,7 +306,7 @@
     aria-checked={checked}
     aria-label={label}
     onclick={onToggle}
-    class="w-[52px] h-8 rounded-full relative transition-colors duration-200 cursor-pointer shrink-0 flex items-center"
+    class="w-[52px] h-8 rounded-full relative transition-all duration-200 cursor-pointer shrink-0 flex items-center hover:brightness-110"
     style={checked
       ? 'background-color: var(--md-sys-color-primary);'
       : 'background-color: var(--md-sys-color-surface-container-highest);'}
@@ -247,18 +324,65 @@
   {@const val = getPrefValue(effectivePrefs, item.id)}
   {@const checked = val === 'true'}
   {@const isOpen = openSelectId === item.id}
-  <div class="py-3.5 first:pt-2 px-1 flex flex-wrap items-center justify-between gap-4 relative {isOpen ? 'z-30' : ''}">
-    <div class="min-w-0 flex-1 space-y-0.5">
-      <div class="text-sm font-semibold" style="color: var(--md-sys-color-on-surface);">{item.title}</div>
-      <div class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
-        {item.description}
+  {@const disabledByParent = Boolean(item.visibleWhen && getPrefValue(effectivePrefs, item.visibleWhen.id) !== item.visibleWhen.equals)}
+  {@const disabledByConflict = Boolean(item.disabledWhen && getPrefValue(effectivePrefs, item.disabledWhen.id) === item.disabledWhen.equals)}
+  {@const parentDisabled = disabledByParent || disabledByConflict}
+  {@const shakeTargetId = disabledByParent ? item.visibleWhen!.id : disabledByConflict ? item.disabledWhen!.id : null}
+  {@const isDropdownWidget = item.widget === 'select' || item.widget === 'multi-select' || item.widget === 'combobox' || (item.widget === 'segmented' && (item.options?.length ?? 0) >= 3)}
+  {@const isShaking = shakingParentId === item.id}
+  <div
+    id="pref-row-{item.id}"
+    class="py-3.5 first:pt-2 px-1 flex flex-wrap items-center justify-between gap-4 relative {isOpen ? 'z-30' : ''}"
+  >
+    {#if isDropdownWidget}
+      <button
+        type="button"
+        onclick={(e) => {
+          e.stopPropagation();
+          if (parentDisabled && shakeTargetId) {
+            triggerParentShake(shakeTargetId);
+            return;
+          }
+          if (isOpen) {
+            openSelectId = null;
+          } else {
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            openSelectFlipUp = window.innerHeight - rect.bottom < 220;
+            openSelectId = item.id;
+          }
+        }}
+        class="min-w-0 flex-1 space-y-0.5 text-left {parentDisabled ? 'cursor-not-allowed opacity-45 select-none' : 'cursor-pointer hover:opacity-90 transition-opacity'} {isShaking ? 'velora-shake' : ''}"
+      >
+        <div class="text-sm font-semibold" style="color: var(--md-sys-color-on-surface);">{item.title}</div>
+        <div class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
+          {item.description}
+        </div>
+      </button>
+    {:else}
+      <div class="min-w-0 flex-1 space-y-0.5 {isShaking ? 'velora-shake' : ''} {parentDisabled ? 'opacity-45 select-none' : ''}">
+        <div class="text-sm font-semibold" style="color: var(--md-sys-color-on-surface);">{item.title}</div>
+        <div class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
+          {item.description}
+        </div>
       </div>
-    </div>
+    {/if}
 
-    <div class="shrink-0 flex items-center gap-2">
+    <div class="relative shrink-0 flex items-center gap-2 {isShaking ? 'velora-shake' : ''}">
+      {#if parentDisabled && shakeTargetId}
+        <button
+          type="button"
+          aria-label={item.title}
+          onclick={() => triggerParentShake(shakeTargetId)}
+          class="absolute -inset-1 z-20 rounded-xl cursor-not-allowed"
+          title={disabledByConflict
+            ? (lang === 'id' ? 'Nonaktifkan "Sembunyikan saat aplikasi layar penuh" terlebih dahulu' : 'Disable "Hide in fullscreen apps" first')
+            : (lang === 'id' ? 'Aktifkan pengaturan utama terlebih dahulu' : 'Enable the main toggle first')}
+        ></button>
+      {/if}
+      <div class="flex items-center gap-2 {parentDisabled ? 'opacity-45 pointer-events-none select-none' : ''}">
       {#if item.widget === 'toggle'}
         {@render m3Switch(checked, item.title, () => updateSetting(item.id, checked ? 'false' : 'true'))}
-      {:else if item.widget === 'segmented'}
+      {:else if item.widget === 'segmented' && (item.options?.length ?? 0) < 3}
         <div
           role="radiogroup"
           aria-label={item.title}
@@ -311,9 +435,15 @@
             >
               <Icon name="minus" size={14} weight="bold" />
             </button>
-            <span class="px-3 text-xs font-semibold tabular-nums min-w-[54px] text-center" style="color: var(--md-sys-color-on-surface);">
+            <button
+              type="button"
+              onclick={() => updateSetting(item.id, '1')}
+              title="Reset 100%"
+              class="px-3 h-full flex items-center justify-center text-xs font-semibold tabular-nums min-w-[54px] text-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+              style="color: var(--md-sys-color-on-surface);"
+            >
               {pct}%
-            </span>
+            </button>
             <button
               type="button"
               aria-label="Perbesar skala"
@@ -327,11 +457,14 @@
           </div>
         </div>
       {:else if item.widget === 'action'}
+        {@const isDangerAction = item.id === 'storage.clearCache' || item.id === 'dynamicIsland.reset'}
         <button
           type="button"
           disabled={item.id === 'storage.clearCache' && clearingCache}
           onclick={() => handleActionClick(item.id)}
-          class="m3-btn-tonal px-4 min-w-[104px] h-9 text-xs font-semibold inline-flex items-center justify-center cursor-pointer disabled:opacity-75 disabled:cursor-wait"
+          class={isDangerAction
+            ? 'px-4 min-w-[104px] h-9 rounded-full text-xs font-bold text-rose-300 bg-rose-500/15 hover:bg-rose-500/25 inline-flex items-center justify-center cursor-pointer transition-all duration-150 hover:scale-[1.03] active:scale-95 disabled:opacity-75 disabled:cursor-wait'
+            : 'm3-btn-tonal px-4 min-w-[104px] h-9 text-xs font-semibold inline-flex items-center justify-center cursor-pointer disabled:opacity-75 disabled:cursor-wait'}
         >
           {#if item.id === 'storage.clearCache' && clearingCache}
             <span class="velora-eq-loader" aria-hidden="true">
@@ -345,7 +478,7 @@
             {item.actionLabel || tr(lang, 'nav.run')}
           {/if}
         </button>
-      {:else if item.widget === 'select'}
+      {:else if item.widget === 'select' || (item.widget === 'segmented' && (item.options?.length ?? 0) >= 3)}
         {@const activeOpt = (item.options || []).find((o) => o.value === val) ?? item.options?.[0]}
         <div class="relative">
           <button
@@ -362,7 +495,7 @@
                 openSelectId = item.id;
               }
             }}
-            class="h-10 min-w-[168px] px-3.5 rounded-lg text-xs font-medium flex items-center justify-between gap-3 cursor-pointer transition-colors duration-150"
+            class="h-10 min-w-[168px] px-3.5 rounded-lg text-xs font-medium flex items-center justify-between gap-3 cursor-pointer transition-colors duration-150 hover:bg-[var(--md-sys-color-state-hover)]"
             style="background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface); border: 1px solid {isOpen ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-outline-variant)'};"
           >
             <span class="truncate">{activeOpt?.label ?? val}</span>
@@ -404,23 +537,247 @@
             </div>
           {/if}
         </div>
-      {:else if item.widget === 'slider'}
-        <div class="w-44 space-y-1.5">
-          <div class="flex items-center justify-between text-[10px] font-medium" style="color: var(--md-sys-color-on-surface-variant);">
-            <span>{item.startLabel || item.min}</span>
-            <span class="tabular-nums font-semibold" style="color: var(--md-sys-color-on-surface);">{val}</span>
-            <span>{item.endLabel || item.max}</span>
+      {:else if item.widget === 'multi-select'}
+        {@const selectedCodes = val.split(',').map((s) => s.trim()).filter(Boolean)}
+        {@const activeCodes = selectedCodes.length > 0 ? selectedCodes : [item.defaultValue]}
+        {@const selectedLabels = (item.options || []).filter((o) => activeCodes.includes(o.value)).map((o) => o.label)}
+        {@const triggerText = selectedLabels.length === 0
+          ? val
+          : selectedLabels.length <= 2
+            ? selectedLabels.join(', ')
+            : `${selectedLabels.slice(0, 2).join(', ')} +${selectedLabels.length - 2}`}
+        <div class="relative">
+          <button
+            type="button"
+            aria-haspopup="listbox"
+            aria-expanded={isOpen}
+            onclick={(e) => {
+              e.stopPropagation();
+              if (isOpen) {
+                openSelectId = null;
+              } else {
+                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                openSelectFlipUp = window.innerHeight - rect.bottom < 220;
+                openSelectId = item.id;
+              }
+            }}
+            class="h-10 min-w-[168px] max-w-[260px] px-3.5 rounded-lg text-xs font-medium flex items-center justify-between gap-3 cursor-pointer transition-colors duration-150 hover:bg-[var(--md-sys-color-state-hover)]"
+            style="background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface); border: 1px solid {isOpen ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-outline-variant)'};"
+          >
+            <span class="truncate">{triggerText}</span>
+            <span class="transition-transform duration-200 {isOpen ? 'rotate-180' : ''}" style="color: var(--md-sys-color-on-surface-variant);">
+              <Icon name="caret-down" size={14} weight="bold" />
+            </span>
+          </button>
+
+          {#if isOpen}
+            <div
+              role="listbox"
+              aria-multiselectable="true"
+              aria-label={item.title}
+              in:fly={{ y: openSelectFlipUp ? 6 : -6, duration: 150 }}
+              class="absolute right-0 {openSelectFlipUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'} min-w-[216px] max-h-64 overflow-y-auto py-1.5 rounded-xl shadow-xl z-40"
+              style="background-color: var(--md-sys-color-surface-container-high); border: 1px solid var(--md-sys-color-outline-variant);"
+            >
+              {#each item.options || [] as opt (opt.value)}
+                {@const isChecked = activeCodes.includes(opt.value)}
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={isChecked}
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    let next: string[];
+                    if (isChecked) {
+                      if (activeCodes.length <= 1) return;
+                      next = activeCodes.filter((c) => c !== opt.value);
+                    } else {
+                      next = [...activeCodes, opt.value];
+                    }
+                    updateSetting(item.id, next.join(','));
+                  }}
+                  class="w-full px-3.5 py-2.5 text-xs font-medium flex items-center gap-2.5 text-left cursor-pointer transition-colors duration-150 hover:bg-[var(--md-sys-color-state-hover)] {isChecked ? 'font-semibold' : ''}"
+                  style="color: var(--md-sys-color-on-surface);"
+                >
+                  <span
+                    class="w-4 h-4 rounded-[4px] shrink-0 flex items-center justify-center transition-colors"
+                    style={isChecked
+                      ? 'background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);'
+                      : 'border: 1.5px solid var(--md-sys-color-outline);'}
+                  >
+                    {#if isChecked}
+                      <Icon name="check" size={11} weight="bold" />
+                    {/if}
+                  </span>
+                  <span class="truncate">{opt.label}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {:else if item.widget === 'combobox'}
+        {@const minV = item.min ?? 0}
+        {@const maxV = item.max ?? 3600}
+        {@const unitLabel = lang === 'id' ? 'detik' : (item.unit || 's')}
+        <div class="relative">
+          <div
+            class="h-10 min-w-[168px] pl-3.5 pr-1.5 rounded-lg text-xs font-medium flex items-center justify-between gap-1.5 transition-colors duration-150"
+            style="background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface); border: 1px solid {isOpen ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-outline-variant)'};"
+          >
+            <input
+              type="number"
+              min={minV}
+              max={maxV}
+              value={Number(val) || 0}
+              aria-label={item.title}
+              onclick={(e) => e.stopPropagation()}
+              onchange={(e) => {
+                const raw = Number((e.target as HTMLInputElement).value);
+                const clamped = Number.isFinite(raw) ? Math.min(maxV, Math.max(minV, Math.round(raw))) : minV;
+                updateSetting(item.id, String(clamped));
+              }}
+              onkeydown={(e) => {
+                if (e.key === 'Enter') {
+                  (e.target as HTMLInputElement).blur();
+                  openSelectId = null;
+                }
+              }}
+              class="w-12 bg-transparent text-xs font-semibold tabular-nums outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+              style="color: var(--md-sys-color-on-surface);"
+            />
+            <button
+              type="button"
+              aria-haspopup="listbox"
+              aria-expanded={isOpen}
+              aria-label={item.title}
+              onclick={(e) => {
+                e.stopPropagation();
+                if (isOpen) {
+                  openSelectId = null;
+                } else {
+                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  openSelectFlipUp = window.innerHeight - rect.bottom < 220;
+                  openSelectId = item.id;
+                }
+              }}
+              class="flex-1 h-7 px-1.5 flex items-center justify-end gap-2 cursor-pointer"
+              style="color: var(--md-sys-color-on-surface-variant);"
+            >
+              <span class="text-[11px] font-medium truncate">
+                {Number(val) === 0 ? (lang === 'id' ? 'Mati' : 'Off') : unitLabel}
+              </span>
+              <span class="transition-transform duration-200 {isOpen ? 'rotate-180' : ''} shrink-0">
+                <Icon name="caret-down" size={14} weight="bold" />
+              </span>
+            </button>
           </div>
-          <input
-            type="range"
-            min={item.min}
-            max={item.max}
-            step={item.step}
-            value={Number(val)}
-            oninput={(e) => updateSetting(item.id, (e.target as HTMLInputElement).value)}
-            class="velora-range w-full"
-            style="background-color: var(--md-sys-color-surface-container-highest);"
-          />
+
+          {#if isOpen}
+            <div
+              role="listbox"
+              aria-label={item.title}
+              in:fly={{ y: openSelectFlipUp ? 6 : -6, duration: 150 }}
+              class="absolute right-0 {openSelectFlipUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'} min-w-[168px] max-h-64 overflow-y-auto py-1.5 rounded-xl shadow-xl z-40"
+              style="background-color: var(--md-sys-color-surface-container-high); border: 1px solid var(--md-sys-color-outline-variant);"
+            >
+              {#each item.options || [] as opt (opt.value)}
+                {@const isSelected = opt.value === String(Number(val) || 0)}
+                {@const optLabel = opt.value === '0' ? (lang === 'id' ? 'Mati' : 'Off') : (lang === 'id' ? `${opt.value} detik` : opt.label)}
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={isSelected}
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    updateSetting(item.id, opt.value);
+                    openSelectId = null;
+                  }}
+                  class="w-full px-3.5 py-2.5 text-xs font-medium flex items-center justify-between gap-3 text-left cursor-pointer transition-colors duration-150 {isSelected ? 'font-semibold' : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
+                  style={isSelected
+                    ? 'background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);'
+                    : 'color: var(--md-sys-color-on-surface);'}
+                >
+                  <span class="truncate">{optLabel}</span>
+                  {#if isSelected}
+                    <Icon name="check" size={14} weight="bold" />
+                  {/if}
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {:else if item.widget === 'slider'}
+        {@const minV = item.min ?? 0}
+        {@const maxV = item.max ?? 100}
+        {@const rawNum = Number(val)}
+        {@const numVal = Number.isFinite(rawNum) ? Math.min(maxV, Math.max(minV, rawNum)) : minV}
+        {@const span = Math.max(1, maxV - minV)}
+        {@const pct = ((numVal - minV) / span) * 100}
+        {@const snaps = item.snapPoints ?? []}
+        <div class="{snaps.length > 0 ? 'w-60' : 'w-44'} space-y-1.5">
+          <div class="flex items-center {snaps.length > 0 ? 'justify-center' : 'justify-between'} text-[10px] font-medium" style="color: var(--md-sys-color-on-surface-variant);">
+            {#if snaps.length > 0}
+              <span class="tabular-nums text-[11px] font-bold" style="color: var(--md-sys-color-on-surface);">
+                {numVal}{item.unit || ''}
+              </span>
+            {:else}
+              <span>{item.startLabel || minV}</span>
+              <span class="tabular-nums font-semibold" style="color: var(--md-sys-color-on-surface);">{val}</span>
+              <span>{item.endLabel || maxV}</span>
+            {/if}
+          </div>
+
+          <div class="relative flex items-center">
+            <input
+              type="range"
+              min={minV}
+              max={maxV}
+              step={item.step ?? 1}
+              value={numVal}
+              oninput={(e) => {
+                const inputEl = e.target as HTMLInputElement;
+                let next = Number(inputEl.value);
+                if (snaps.length > 0) {
+                  const snapMatch = snaps.find((sp) => Math.abs(next - sp) <= 3);
+                  if (snapMatch !== undefined) {
+                    next = snapMatch;
+                    inputEl.value = String(next);
+                  }
+                }
+                updateSetting(item.id, String(next));
+              }}
+              class="velora-range {snaps.length > 0 ? 'velora-range-blue' : ''} w-full relative z-10"
+              style="background: linear-gradient(to right, var(--md-sys-color-tertiary) 0%, var(--md-sys-color-tertiary) {pct}%, var(--md-sys-color-surface-container-highest) {pct}%, var(--md-sys-color-surface-container-highest) 100%);"
+            />
+          </div>
+
+          {#if snaps.length > 0}
+            <div class="relative h-6 select-none">
+              {#each snaps as sp (sp)}
+                {@const spPct = ((sp - minV) / span) * 100}
+                {@const isCurrent = numVal === sp}
+                {@const isPassed = numVal >= sp}
+                <button
+                  type="button"
+                  onclick={() => updateSetting(item.id, String(sp))}
+                  class="absolute top-0 -translate-x-1/2 flex flex-col items-center gap-0.5 cursor-pointer group"
+                  style="left: calc({spPct}% + {7 - spPct * 0.14}px);"
+                  title="{sp}{item.unit || ''}"
+                >
+                  <span
+                    class="w-[1.5px] h-2 rounded-full transition-colors"
+                    style="background-color: {isPassed ? 'var(--md-sys-color-tertiary)' : 'var(--md-sys-color-outline)'};"
+                  ></span>
+                  <span
+                    class="text-[9px] tabular-nums transition-colors {isCurrent ? 'font-bold' : 'font-medium opacity-70 group-hover:opacity-100'}"
+                    style="color: {isCurrent ? 'var(--md-sys-color-on-surface)' : 'var(--md-sys-color-on-surface-variant)'};"
+                  >
+                    {sp}{item.unit || ''}
+                  </span>
+                </button>
+              {/each}
+            </div>
+          {/if}
         </div>
       {:else if item.widget === 'number-input'}
         <div class="flex items-center gap-1.5">
@@ -465,6 +822,7 @@
           class="m3-input h-9 px-3.5 rounded-md text-xs outline-none"
         />
       {/if}
+      </div>
     </div>
   </div>
 {/snippet}
@@ -505,7 +863,7 @@
             type="button"
             onclick={playAllHistory}
             disabled={history.length === 0}
-            class="h-9 min-w-[116px] px-4 rounded-full text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-transform active:scale-95 disabled:opacity-40"
+            class="h-9 min-w-[116px] px-4 rounded-full text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-transform hover:scale-[1.03] active:scale-95 disabled:opacity-40"
             style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
           >
             <Icon name="play" weight="fill" size={14} /> {tr(lang, 'nav.playAll')}
@@ -514,8 +872,7 @@
             <button
               type="button"
               onclick={() => (confirmClearHistory = true)}
-              class="h-9 min-w-[116px] px-4 rounded-full text-xs font-bold text-rose-300 flex items-center justify-center gap-1.5 cursor-pointer transition-colors hover:bg-rose-500/20"
-              style="background-color: rgba(244, 63, 94, 0.14);"
+              class="h-9 min-w-[116px] px-4 rounded-full text-xs font-bold text-rose-300 bg-rose-500/15 hover:bg-rose-500/25 flex items-center justify-center gap-1.5 cursor-pointer transition-all duration-150 hover:scale-[1.03] active:scale-95"
             >
               <Icon name="trash" size={14} /> {tr(lang, 'nav.clear')}
             </button>
@@ -551,49 +908,90 @@
         </div>
       {:else}
         <div class="space-y-1">
-          {#each history as item, idx (item.id)}
-            {@const cover = resolveCoverUrl(item.coverUrl, mediaBaseUrl)}
-            <div class="group flex items-center justify-between gap-3 px-3 py-2 rounded-lg transition-colors hover:bg-[var(--md-sys-color-state-hover)]">
-              <button
-                type="button"
-                onclick={() => playHistoryTrack(item)}
-                class="flex items-center gap-3 min-w-0 flex-1 text-left cursor-pointer"
-              >
-                <span class="w-5 text-[11px] font-medium text-[var(--md-sys-color-on-surface-variant)] opacity-70 tabular-nums text-center shrink-0">
-                  {idx + 1}
-                </span>
-                {#if cover}
-                  <img src={cover} alt={item.title} class="block w-10 h-10 rounded-md object-cover object-center shrink-0" />
-                {:else}
-                  <div class="w-10 h-10 rounded-md flex items-center justify-center shrink-0 bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface-variant)]">
-                    <Icon name="music-note" size={16} />
-                  </div>
-                {/if}
-                <div class="min-w-0 flex-1">
-                  <div class="text-[13px] font-semibold truncate text-[var(--md-sys-color-on-surface)] group-hover:text-[var(--md-sys-color-primary)] transition-colors">
-                    {item.title}
-                  </div>
-                  <div class="text-[11px] truncate text-[var(--md-sys-color-on-surface-variant)] mt-0.5">
-                    {item.artistName} • {item.albumTitle}
-                  </div>
-                </div>
-              </button>
+          <!-- Column Header: #, Judul, Durasi Putar, Ditonton, Durasi, Aksi (1:1 Playlist Table) -->
+          <div
+            class="-mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(100px,0.6fr)_minmax(150px,0.75fr)_56px_32px] items-center gap-4 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider"
+            style="color: var(--md-sys-color-on-surface-variant);"
+          >
+            <span class="text-center">#</span>
+            <span>{lang === 'id' ? 'Judul' : 'Title'}</span>
+            <span class="hidden md:block">{lang === 'id' ? 'Pemutaran' : 'Listened'}</span>
+            <span class="hidden md:block">{lang === 'id' ? 'Ditonton' : 'Watched'}</span>
+            <span class="flex justify-end pr-1">
+              <Icon name="clock" size={14} />
+            </span>
+            <span></span>
+          </div>
 
-              <div class="flex items-center gap-3 shrink-0 text-xs tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
-                <span class="text-[11px]">{formatDuration(item.durationListenedSec)}</span>
-                <span class="hidden md:inline text-[11px] text-[var(--md-sys-color-on-surface-variant)] opacity-70">{item.playedAt}</span>
+          <div class="space-y-0.5" role="list">
+            {#each history as item, idx (item.id)}
+              {@const cover = resolveCoverUrl(item.coverUrl, mediaBaseUrl)}
+              <div
+                role="listitem"
+                class="group -mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(100px,0.6fr)_minmax(150px,0.75fr)_56px_32px] items-center gap-4 px-3 py-2 rounded-md transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+                style="color: var(--md-sys-color-on-surface);"
+              >
+                <div class="flex items-center justify-center">
+                  <span class="text-xs font-medium tabular-nums group-hover:hidden opacity-65">
+                    {idx + 1}
+                  </span>
+                  <button
+                    type="button"
+                    onclick={() => playHistoryTrack(item)}
+                    aria-label="Putar {item.title}"
+                    class="hidden group-hover:flex items-center justify-center cursor-pointer"
+                    style="color: var(--md-sys-color-primary);"
+                  >
+                    <Icon name="play" weight="fill" size={14} />
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onclick={() => playHistoryTrack(item)}
+                  class="flex items-center gap-3 min-w-0 text-left cursor-pointer"
+                >
+                  {#if cover}
+                    <img src={cover} alt={item.title} class="block w-10 h-10 rounded-md object-cover object-center shrink-0" />
+                  {:else}
+                    <div class="w-10 h-10 rounded-md flex items-center justify-center shrink-0 bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface-variant)]">
+                      <Icon name="music-note" size={16} />
+                    </div>
+                  {/if}
+                  <div class="min-w-0 flex-1">
+                    <div class="text-xs font-bold line-clamp-2 whitespace-normal leading-snug group-hover:text-[var(--md-sys-color-primary)] transition-colors">
+                      {item.title}
+                    </div>
+                    <div class="text-[11px] truncate opacity-75 mt-0.5">
+                      {item.artistName}{item.albumTitle ? ` • ${item.albumTitle}` : ''}
+                    </div>
+                  </div>
+                </button>
+
+                <span class="hidden md:block text-xs tabular-nums opacity-70 truncate">
+                  {formatDuration(item.durationListenedSec)}
+                </span>
+
+                <span class="hidden md:block text-xs tabular-nums opacity-70 truncate" title={item.playedAt}>
+                  {formatWatchedAt(item.playedAt)}
+                </span>
+
+                <span class="text-right text-xs tabular-nums opacity-70 pr-1">
+                  {formatDuration(item.durationSec)}
+                </span>
+
                 <button
                   type="button"
                   onclick={() => playHistoryTrack(item)}
                   aria-label="Putar ulang {item.title}"
-                  class="w-8 h-8 rounded-full flex items-center justify-center cursor-pointer transition-transform hover:scale-105 active:scale-95"
-                  style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
+                  class="w-7 h-7 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:bg-[var(--md-sys-color-state-hover)]"
+                  style="color: var(--md-sys-color-on-surface-variant);"
                 >
                   <Icon name="play" weight="fill" size={13} />
                 </button>
               </div>
-            </div>
-          {/each}
+            {/each}
+          </div>
         </div>
       {/if}
     </div>
@@ -750,69 +1148,6 @@
         {/each}
       </div>
     </div>
-    {#if confirmClearHistory}
-      <div
-        transition:fade={{ duration: 150 }}
-        class="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
-        onclick={() => (confirmClearHistory = false)}
-        role="presentation"
-      >
-        <div
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="clear-history-title"
-          aria-describedby="clear-history-desc"
-          transition:scale={{ duration: 170, start: 0.94 }}
-          onclick={(e) => e.stopPropagation()}
-          onkeydown={(e) => {
-            if (e.key === 'Escape') confirmClearHistory = false;
-          }}
-          tabindex="-1"
-          class="w-full max-w-sm rounded-2xl p-6 space-y-4 shadow-2xl border outline-none"
-          style="background-color: var(--md-sys-color-surface-container-high); border-color: var(--md-sys-color-outline-variant);"
-        >
-          <div class="flex items-start gap-3">
-            <div
-              class="w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-rose-300"
-              style="background-color: rgba(244, 63, 94, 0.16);"
-            >
-              <Icon name="trash" size={19} />
-            </div>
-            <div class="space-y-1">
-              <h3 id="clear-history-title" class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
-                {lang === 'id' ? 'Bersihkan semua riwayat?' : 'Clear all listening history?'}
-              </h3>
-              <p id="clear-history-desc" class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
-                {lang === 'id'
-                  ? 'Seluruh daftar lagu yang pernah diputar akan dihapus secara permanen.'
-                  : 'All recently played tracks will be permanently removed.'}
-              </p>
-            </div>
-          </div>
-          <div class="flex items-center justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onclick={() => (confirmClearHistory = false)}
-              class="h-9 px-4 rounded-full text-xs font-semibold cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
-              style="color: var(--md-sys-color-on-surface-variant);"
-            >
-              {lang === 'id' ? 'Batal' : 'Cancel'}
-            </button>
-            <button
-              type="button"
-              onclick={() => {
-                confirmClearHistory = false;
-                onClearHistory();
-              }}
-              class="h-9 px-4 rounded-full text-xs font-bold text-rose-200 cursor-pointer transition-colors hover:bg-rose-500/30"
-              style="background-color: rgba(244, 63, 94, 0.22);"
-            >
-              {tr(lang, 'nav.clear')}
-            </button>
-          </div>
-        </div>
-      </div>
-    {/if}
   </div>
 {:else}
   <!-- VELORA PREFERENCES MAIN PAGE (Matched with Home & M3 Design Tokens) -->
@@ -826,6 +1161,19 @@
             {tr(lang, 'nav.aboutTitle')}
           </h2>
         </div>
+
+        <div class="w-full space-y-4">
+          {#each groupedVisibleSettings as grp (grp.name)}
+            <section class="m3-card p-5 rounded-lg">
+              <div class="divide-y" style="border-color: var(--md-sys-color-outline-variant);">
+                {#each grp.items as item (item.id)}
+                  {@render settingControl(item)}
+                {/each}
+              </div>
+            </section>
+          {/each}
+        </div>
+
         <div class="w-full m3-card p-5 rounded-lg space-y-2.5 text-xs leading-relaxed">
           <div class="text-sm font-semibold" style="color: var(--md-sys-color-on-surface);">
             {tr(lang, 'nav.aboutHeadline')}
@@ -881,68 +1229,129 @@
         </div>
       {/key}
     </div>
-    {#if confirmClearCache}
-      <div
-        transition:fade={{ duration: 150 }}
-        class="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
-        onclick={() => (confirmClearCache = false)}
-        role="presentation"
-      >
-        <div
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="clear-cache-title"
-          aria-describedby="clear-cache-desc"
-          transition:scale={{ duration: 170, start: 0.94 }}
-          onclick={(e) => e.stopPropagation()}
-          onkeydown={(e) => {
-            if (e.key === 'Escape') confirmClearCache = false;
-          }}
-          tabindex="-1"
-          class="w-full max-w-sm rounded-2xl p-6 space-y-4 shadow-2xl border outline-none"
-          style="background-color: var(--md-sys-color-surface-container-high); border-color: var(--md-sys-color-outline-variant);"
-        >
-          <div class="flex items-start gap-3">
-            <div
-              class="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
-              style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
-            >
-              <Icon name="broom" size={19} />
-            </div>
-            <div class="space-y-1">
-              <h3 id="clear-cache-title" class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
-                {lang === 'id' ? 'Bersihkan semua cache?' : 'Clear all cache?'}
-              </h3>
-              <p id="clear-cache-desc" class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
-                {lang === 'id'
-                  ? 'Sampul album sementara, cache stream, dan file transkode sementara akan dihapus.'
-                  : 'Temporary artwork, stream cache, and temporary transcode files will be removed.'}
-              </p>
-            </div>
-          </div>
-          <div class="flex items-center justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onclick={() => (confirmClearCache = false)}
-              class="h-9 px-4 rounded-full text-xs font-semibold cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
-              style="color: var(--md-sys-color-on-surface-variant);"
-            >
-              {lang === 'id' ? 'Batal' : 'Cancel'}
-            </button>
-            <button
-              type="button"
-              onclick={() => {
-                confirmClearCache = false;
-                void executeClearCache();
-              }}
-              class="m3-btn-filled h-9 px-4 text-xs font-bold cursor-pointer"
-            >
-              {tr(lang, 'nav.clear')}
-            </button>
-          </div>
-        </div>
+    <dialog
+      bind:this={shortcutsDialogEl}
+      onclose={() => (showShortcutsModal = false)}
+      closedby="any"
+      aria-labelledby="shortcuts-modal-title"
+      class="m-auto w-full max-w-md rounded-xl shadow-2xl p-6"
+      style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+    >
+      <div class="mb-4">
+        <h2 id="shortcuts-modal-title" class="text-lg font-bold tracking-tight">
+          {lang === 'id' ? 'Pintasan keyboard' : 'Keyboard shortcuts'}
+        </h2>
       </div>
-    {/if}
+      <div class="divide-y text-xs" style="border-color: var(--md-sys-color-outline-variant);">
+        {#each [
+          { keys: 'Space', label: lang === 'id' ? 'Putar / Jeda lagu' : 'Play / Pause track' },
+          { keys: '← / →', label: lang === 'id' ? 'Mundur / Maju 5 detik' : 'Seek backward / forward 5s' },
+          { keys: '↑ / ↓', label: lang === 'id' ? 'Naikkan / Turunkan volume' : 'Volume up / down' },
+          { keys: 'Ctrl + + / -', label: lang === 'id' ? 'Perbesar / Perkecil tampilan' : 'Zoom in / out' },
+          { keys: 'Ctrl + 0', label: lang === 'id' ? 'Reset skala tampilan 100%' : 'Reset display scale to 100%' },
+          { keys: 'Tab', label: lang === 'id' ? 'Fokus ke kotak pencarian' : 'Focus search bar' }
+        ] as sc (sc.keys)}
+          <div class="py-2.5 flex items-center justify-between gap-4">
+            <span style="color: var(--md-sys-color-on-surface-variant);">{sc.label}</span>
+            <kbd
+              class="px-2.5 py-1 rounded-md text-[11px] font-semibold font-mono shrink-0"
+              style="background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface);"
+            >
+              {sc.keys}
+            </kbd>
+          </div>
+        {/each}
+      </div>
+      <div class="flex items-center justify-end gap-2 mt-6">
+        <button
+          type="button"
+          onclick={() => (showShortcutsModal = false)}
+          class="h-10 px-5 rounded-full bg-[var(--md-sys-color-surface-container)] hover:bg-[var(--md-sys-color-surface-container-highest)] text-xs font-semibold cursor-pointer transition-colors"
+        >
+          {lang === 'id' ? 'Tutup' : 'Close'}
+        </button>
+      </div>
+    </dialog>
+
+    <dialog
+      bind:this={resetIslandDialogEl}
+      onclose={() => (confirmResetIsland = false)}
+      closedby="any"
+      aria-labelledby="reset-island-title"
+      aria-describedby="reset-island-desc"
+      class="m-auto w-full max-w-md rounded-xl shadow-2xl p-6"
+      style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+    >
+      <div class="mb-3">
+        <h2 id="reset-island-title" class="text-lg font-bold tracking-tight">
+          {lang === 'id' ? 'Atur ulang Dynamic Island?' : 'Reset Dynamic Island?'}
+        </h2>
+      </div>
+      <p id="reset-island-desc" class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
+        {lang === 'id'
+          ? 'Seluruh pengaturan tampilan dan perilaku Dynamic Island akan dikembalikan ke bawaan.'
+          : 'All Dynamic Island appearance and behavior settings will be restored to defaults.'}
+      </p>
+      <div class="flex items-center justify-end gap-2 mt-6">
+        <button
+          type="button"
+          onclick={() => (confirmResetIsland = false)}
+          class="h-10 px-5 rounded-full bg-[var(--md-sys-color-surface-container)] hover:bg-[var(--md-sys-color-surface-container-highest)] text-xs font-semibold cursor-pointer transition-colors"
+        >
+          {lang === 'id' ? 'Batal' : 'Cancel'}
+        </button>
+        <button
+          type="button"
+          onclick={() => {
+            confirmResetIsland = false;
+            executeResetIsland();
+          }}
+          class="h-10 px-7 rounded-full text-xs font-bold text-rose-300 bg-rose-500/15 hover:bg-rose-500/25 cursor-pointer transition-all duration-150 hover:scale-[1.03] active:scale-95"
+        >
+          {tr(lang, 'nav.reset')}
+        </button>
+      </div>
+    </dialog>
+
+    <dialog
+      bind:this={clearCacheDialogEl}
+      onclose={() => (confirmClearCache = false)}
+      closedby="any"
+      aria-labelledby="clear-cache-title"
+      aria-describedby="clear-cache-desc"
+      class="m-auto w-full max-w-md rounded-xl shadow-2xl p-6"
+      style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+    >
+      <div class="mb-3">
+        <h2 id="clear-cache-title" class="text-lg font-bold tracking-tight">
+          {lang === 'id' ? 'Bersihkan semua cache?' : 'Clear all cache?'}
+        </h2>
+      </div>
+      <p id="clear-cache-desc" class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
+        {lang === 'id'
+          ? 'Sampul album sementara, cache stream, dan file transkode sementara akan dihapus.'
+          : 'Temporary artwork, stream cache, and temporary transcode files will be removed.'}
+      </p>
+      <div class="flex items-center justify-end gap-2 mt-6">
+        <button
+          type="button"
+          onclick={() => (confirmClearCache = false)}
+          class="h-10 px-5 rounded-full bg-[var(--md-sys-color-surface-container)] hover:bg-[var(--md-sys-color-surface-container-highest)] text-xs font-semibold cursor-pointer transition-colors"
+        >
+          {lang === 'id' ? 'Batal' : 'Cancel'}
+        </button>
+        <button
+          type="button"
+          onclick={() => {
+            confirmClearCache = false;
+            void executeClearCache();
+          }}
+          class="h-10 px-7 rounded-full text-xs font-bold text-rose-300 bg-rose-500/15 hover:bg-rose-500/25 cursor-pointer transition-all duration-150 hover:scale-[1.03] active:scale-95"
+        >
+          {tr(lang, 'nav.clear')}
+        </button>
+      </div>
+    </dialog>
     {#if cacheToast}
       <div
         in:fly={{ y: 12, duration: 180 }}
@@ -956,3 +1365,44 @@
     {/if}
   </div>
 {/if}
+
+<dialog
+  bind:this={clearHistoryDialogEl}
+  onclose={() => (confirmClearHistory = false)}
+  closedby="any"
+  aria-labelledby="clear-history-title"
+  aria-describedby="clear-history-desc"
+  class="m-auto w-full max-w-md rounded-xl shadow-2xl p-6"
+  style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+>
+  <div class="mb-3">
+    <h2 id="clear-history-title" class="text-lg font-bold tracking-tight">
+      {lang === 'id' ? 'Bersihkan semua riwayat?' : 'Clear all listening history?'}
+    </h2>
+  </div>
+  <p id="clear-history-desc" class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
+    {lang === 'id'
+      ? 'Seluruh daftar lagu yang pernah diputar akan dihapus secara permanen.'
+      : 'All recently played tracks will be permanently removed.'}
+  </p>
+  <div class="flex items-center justify-end gap-2 mt-6">
+    <button
+      type="button"
+      onclick={() => (confirmClearHistory = false)}
+      class="h-10 px-5 rounded-full bg-[var(--md-sys-color-surface-container)] hover:bg-[var(--md-sys-color-surface-container-highest)] text-xs font-semibold cursor-pointer transition-colors"
+    >
+      {lang === 'id' ? 'Batal' : 'Cancel'}
+    </button>
+    <button
+      type="button"
+      onclick={() => {
+        confirmClearHistory = false;
+        onClearHistory();
+      }}
+      class="h-10 px-7 rounded-full text-xs font-bold text-rose-300 cursor-pointer transition-all duration-150 hover:bg-rose-500/25 hover:scale-[1.03] active:scale-95"
+      style="background-color: rgba(244, 63, 94, 0.16);"
+    >
+      {tr(lang, 'nav.clear')}
+    </button>
+  </div>
+</dialog>

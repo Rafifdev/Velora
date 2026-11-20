@@ -172,7 +172,7 @@
             disabled={!currentTrack}
             onclick={() => currentTrack && onToggleFavorite(currentTrack.id)}
             aria-label="Sukai lagu"
-            class="w-10 h-10 rounded-full flex items-center justify-center shrink-0 cursor-pointer disabled:opacity-40"
+            class="w-10 h-10 rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)] disabled:opacity-40"
           >
             <Icon
               name={currentTrack?.isFavorite ? 'check-circle' : 'plus-circle'}
@@ -208,7 +208,7 @@
             type="button"
             onclick={onToggleShuffle}
             aria-label="Shuffle"
-            class="w-10 h-10 flex items-center justify-center cursor-pointer"
+            class="w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
             style={shuffle ? 'color: var(--md-sys-color-tertiary);' : 'color: var(--md-sys-color-on-surface-variant);'}
           >
             <Icon name="shuffle" weight={shuffle ? 'bold' : 'regular'} size={22} />
@@ -218,7 +218,7 @@
             type="button"
             onclick={onPrev}
             aria-label="Sebelumnya"
-            class="w-12 h-12 flex items-center justify-center cursor-pointer"
+            class="w-12 h-12 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
           >
             <Icon name="skip-back" weight="fill" size={28} />
           </button>
@@ -227,7 +227,7 @@
             type="button"
             onclick={onTogglePlay}
             aria-label={isPlaying ? 'Jeda' : 'Putar'}
-            class="w-16 h-16 rounded-full flex items-center justify-center shadow-xl cursor-pointer transition-transform active:scale-95"
+            class="w-16 h-16 rounded-full flex items-center justify-center shadow-xl cursor-pointer transition-transform hover:scale-[1.04] active:scale-95"
             style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
           >
             <Icon name={isPlaying ? 'pause' : 'play'} weight="fill" size={28} />
@@ -237,7 +237,7 @@
             type="button"
             onclick={onNext}
             aria-label="Berikutnya"
-            class="w-12 h-12 flex items-center justify-center cursor-pointer"
+            class="w-12 h-12 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
           >
             <Icon name="skip-forward" weight="fill" size={28} />
           </button>
@@ -246,7 +246,7 @@
             type="button"
             onclick={onCycleRepeat}
             aria-label="Repeat"
-            class="w-10 h-10 flex items-center justify-center cursor-pointer"
+            class="w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
             style={repeatMode !== 'off' ? 'color: var(--md-sys-color-tertiary);' : 'color: var(--md-sys-color-on-surface-variant);'}
           >
             <Icon name={repeatMode === 'one' ? 'repeat-once' : 'repeat'} weight={repeatMode !== 'off' ? 'bold' : 'regular'} size={22} />
@@ -262,7 +262,7 @@
               onOpenLyrics();
             }}
             aria-label="Buka Lirik"
-            class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer"
+            class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
             style="color: var(--md-sys-color-on-surface-variant);"
           >
             <Icon name="microphone-stage" size={19} />
@@ -274,7 +274,7 @@
               onOpenQueue();
             }}
             aria-label="Buka Queue"
-            class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer"
+            class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
             style="color: var(--md-sys-color-on-surface-variant);"
           >
             <Icon name="queue" size={19} />
@@ -309,7 +309,7 @@
             onClose();
             onOpenLyrics();
           }}
-          class="h-8 px-4 rounded-full text-xs font-bold bg-white text-black cursor-pointer"
+          class="h-8 px-4 rounded-full text-xs font-bold bg-white text-black cursor-pointer transition-transform hover:scale-[1.03] active:scale-95"
         >
           Show lyrics
         </button>

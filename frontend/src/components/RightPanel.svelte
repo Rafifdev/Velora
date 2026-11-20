@@ -34,6 +34,7 @@
     onToggleFavorite: (trackId: number) => void;
     onSeek: (sec: number) => void;
     onOpenTrackDetail?: (track: Track) => void;
+    onOpenArtistDetail?: (track: Track) => void;
     onOpenLyrics?: () => void;
   }
 
@@ -61,6 +62,7 @@
     onToggleFavorite,
     onSeek,
     onOpenTrackDetail,
+    onOpenArtistDetail,
     onOpenLyrics
   }: Props = $props();
 
@@ -479,9 +481,14 @@
               >
                 {currentTrack.title}
               </button>
-              <div class="text-[13px] font-medium text-[var(--md-sys-color-on-surface-variant)] truncate mt-0.5">
+              <button
+                type="button"
+                onclick={() => onOpenArtistDetail?.(currentTrack)}
+                class="w-full text-left text-[13px] font-medium text-[var(--md-sys-color-on-surface-variant)] truncate mt-0.5 hover:underline cursor-pointer"
+                title="Lihat Halaman Artis"
+              >
                 {currentTrack.artistName}
-              </div>
+              </button>
             </div>
 
             <button
@@ -565,11 +572,16 @@
                     : lyricsBlurOthers && line.isSynced
                       ? 'opacity-35 scale-[0.93] blur-[1.2px] hover:opacity-100 hover:blur-none'
                       : 'opacity-35 scale-[0.93] hover:opacity-100'}"
-                  style={active && line.isSynced && lyricsSweep
-                    ? `background-image: linear-gradient(90deg, var(--md-sys-color-on-primary-container) ${sweepPct}%, color-mix(in srgb, var(--md-sys-color-on-primary-container) 40%, transparent) ${sweepPct}%); -webkit-background-clip: text; background-clip: text; color: transparent;`
-                    : ''}
                 >
-                  {line.text}
+                  {#if active && line.isSynced && lyricsSweep}
+                    {@const words = (line.text || '♪').split(' ')}
+                    {#each words as word, wIdx (wIdx)}
+                      {@const wordLit = sweepPct >= (wIdx / Math.max(1, words.length)) * 100}
+                      <span class="transition-opacity duration-150 {wordLit ? 'opacity-100' : 'opacity-40'}">{word}{wIdx < words.length - 1 ? ' ' : ''}</span>
+                    {/each}
+                  {:else}
+                    {line.text}
+                  {/if}
                 </button>
               {/each}
             {:else}

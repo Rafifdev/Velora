@@ -375,6 +375,16 @@
   }
 
   let jamDisabledAlert = $state(false);
+  let jamAlertDialogEl: HTMLDialogElement | undefined = $state();
+
+  $effect(() => {
+    if (!jamAlertDialogEl) return;
+    if (jamDisabledAlert && !jamAlertDialogEl.open) {
+      jamAlertDialogEl.showModal();
+    } else if (!jamDisabledAlert && jamAlertDialogEl.open) {
+      jamAlertDialogEl.close();
+    }
+  });
 
   function submitSearch(q: string) {
     if (debounceTimer) clearTimeout(debounceTimer);
@@ -746,10 +756,10 @@
                 </div>
               {/if}
             </div>
-            <!-- Gradasi halus di bagian bawah card tanpa menutupi item terakhir -->
+            <!-- Gradasi halus di bagian bawah card mengikuti warna surface card -->
             <div
-              class="pointer-events-none absolute inset-x-0 bottom-0 h-7"
-              style="background: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.45) 65%, rgba(0, 0, 0, 0.78) 100%);"
+              class="pointer-events-none absolute inset-x-0 bottom-0 h-10"
+              style="background: linear-gradient(to bottom, transparent 0%, color-mix(in srgb, var(--md-sys-color-surface-container-high) 35%, transparent) 40%, color-mix(in srgb, var(--md-sys-color-surface-container-high) 78%, transparent) 74%, var(--md-sys-color-surface-container-high) 100%);"
             ></div>
           </div>
         </div>
@@ -812,69 +822,47 @@
           <Icon name="qr-code" size={17} />
         </button>
 
-        {#if jamDisabledAlert}
-          <div
-            transition:fade={{ duration: 150 }}
-            class="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
-            onclick={() => (jamDisabledAlert = false)}
-            role="presentation"
-          >
-            <div
-              role="alertdialog"
-              aria-modal="true"
-              aria-labelledby="jam-disabled-title"
-              aria-describedby="jam-disabled-desc"
-              transition:scale={{ duration: 170, start: 0.94 }}
-              onclick={(e) => e.stopPropagation()}
-              onkeydown={(e) => {
-                if (e.key === 'Escape') jamDisabledAlert = false;
-              }}
-              tabindex="-1"
-              class="w-full max-w-sm rounded-2xl p-6 space-y-4 shadow-2xl border outline-none"
-              style="background-color: var(--md-sys-color-surface-container-high); border-color: var(--md-sys-color-outline-variant);"
-            >
-              <div class="flex items-start gap-3">
-                <div
-                  class="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
-                  style="background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant);"
-                >
-                  <Icon name="qr-code" size={19} />
-                </div>
-                <div class="space-y-1">
-                  <h3 id="jam-disabled-title" class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
-                    {lang === 'id' ? 'Velora Jam belum aktif' : 'Velora Jam is turned off'}
-                  </h3>
-                  <p id="jam-disabled-desc" class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
-                    {lang === 'id'
-                      ? 'Aktifkan kontrol Wi-Fi di Pengaturan Velora Jam terlebih dahulu untuk menghubungkan perangkat lain.'
-                      : 'Enable Wi-Fi remote control in Settings → Velora Jam first to connect another device.'}
-                  </p>
-                </div>
-              </div>
-              <div class="flex items-center justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onclick={() => (jamDisabledAlert = false)}
-                  class="h-9 px-4 rounded-full text-xs font-semibold cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
-                  style="color: var(--md-sys-color-on-surface-variant);"
-                >
-                  {lang === 'id' ? 'Tutup' : 'Close'}
-                </button>
-                <button
-                  type="button"
-                  onclick={() => {
-                    jamDisabledAlert = false;
-                    if (onOpenJamSettings) onOpenJamSettings();
-                    else onNavigate({ name: 'preferences' });
-                  }}
-                  class="m3-btn-filled h-9 px-4 text-xs font-bold cursor-pointer"
-                >
-                  {lang === 'id' ? 'Buka Pengaturan' : 'Open Settings'}
-                </button>
-              </div>
-            </div>
+        <dialog
+          bind:this={jamAlertDialogEl}
+          onclose={() => (jamDisabledAlert = false)}
+          closedby="any"
+          aria-labelledby="jam-disabled-title"
+          aria-describedby="jam-disabled-desc"
+          class="m-auto w-full max-w-md rounded-xl shadow-2xl p-6"
+          style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+        >
+          <div class="mb-3">
+            <h2 id="jam-disabled-title" class="text-lg font-bold tracking-tight">
+              {lang === 'id' ? 'Velora Jam belum aktif' : 'Velora Jam is turned off'}
+            </h2>
           </div>
-        {/if}
+          <p id="jam-disabled-desc" class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
+            {lang === 'id'
+              ? 'Aktifkan kontrol Wi-Fi di Pengaturan Velora Jam terlebih dahulu untuk menghubungkan perangkat lain.'
+              : 'Enable Wi-Fi remote control in Settings Velora Jam first to connect another device.'}
+          </p>
+          <div class="flex items-center justify-end gap-2 mt-6">
+            <button
+              type="button"
+              onclick={() => (jamDisabledAlert = false)}
+              class="h-10 px-5 rounded-full bg-[var(--md-sys-color-surface-container)] hover:bg-[var(--md-sys-color-surface-container-highest)] text-xs font-semibold cursor-pointer transition-colors"
+            >
+              {lang === 'id' ? 'Tutup' : 'Close'}
+            </button>
+            <button
+              type="button"
+              onclick={() => {
+                jamDisabledAlert = false;
+                if (onOpenJamSettings) onOpenJamSettings();
+                else onNavigate({ name: 'preferences' });
+              }}
+              class="h-10 px-7 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
+              style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
+            >
+              {lang === 'id' ? 'Buka Pengaturan' : 'Open Settings'}
+            </button>
+          </div>
+        </dialog>
 
         {#if jamStatus}
           <JamModal

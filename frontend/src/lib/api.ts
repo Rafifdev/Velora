@@ -312,6 +312,15 @@ export const api = {
   async clearCache(): Promise<number> {
     return appBridge().ClearCache();
   },
+  async openDataFolder(): Promise<void> {
+    return appBridge()?.OpenDataFolder?.();
+  },
+  async setWindowTitle(title: string): Promise<void> {
+    return appBridge().SetWindowTitle?.(title);
+  },
+  async setKeepAwake(enabled: boolean): Promise<void> {
+    return appBridge().SetKeepAwake?.(enabled);
+  },
   async downloadTrack(trackId: number): Promise<Track> {
     return appBridge().DownloadTrack(trackId);
   },
@@ -385,6 +394,42 @@ export const api = {
   setDynamicIslandStyle(style: string): void {
     if (isJamRemote) return;
     appBridge()?.SetDynamicIslandStyle?.(style);
+  },
+  setDynamicIslandShapeSize(compactStyle: string, size: string, opacity: number): void {
+    if (isJamRemote) return;
+    appBridge()?.SetDynamicIslandShapeSize?.(compactStyle, size, opacity);
+  },
+  setDynamicIslandHideWhenAppActive(hide: boolean): void {
+    if (isJamRemote) return;
+    appBridge()?.SetDynamicIslandHideWhenAppActive?.(hide);
+  },
+  setDynamicIslandHideInFullscreen(hide: boolean): void {
+    if (isJamRemote) return;
+    appBridge()?.SetDynamicIslandHideInFullscreen?.(hide);
+  },
+  setDynamicIslandIdleHideSeconds(sec: number): void {
+    if (isJamRemote) return;
+    appBridge()?.SetDynamicIslandIdleHideSeconds?.(sec);
+  },
+  setDynamicIslandScreen(mode: string): void {
+    if (isJamRemote) return;
+    appBridge()?.SetDynamicIslandScreen?.(mode);
+  },
+  setDynamicIslandAnimSpeed(speed: string): void {
+    if (isJamRemote) return;
+    appBridge()?.SetDynamicIslandAnimSpeed?.(speed);
+  },
+  setDynamicIslandOpenTrigger(trigger: string): void {
+    if (isJamRemote) return;
+    appBridge()?.SetDynamicIslandOpenTrigger?.(trigger);
+  },
+  setDynamicIslandOnlyPlaying(only: boolean): void {
+    if (isJamRemote) return;
+    appBridge()?.SetDynamicIslandOnlyPlaying?.(only);
+  },
+  setDynamicIslandPauseHideSeconds(sec: number): void {
+    if (isJamRemote) return;
+    appBridge()?.SetDynamicIslandPauseHideSeconds?.(sec);
   },
   syncDynamicIsland(payload: {
     title: string;

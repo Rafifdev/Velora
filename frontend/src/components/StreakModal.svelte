@@ -53,15 +53,6 @@
           </p>
         </div>
       </div>
-
-      <button
-        type="button"
-        onclick={() => dialogEl?.close()}
-        aria-label="Tutup dialog"
-        class="m3-icon-btn w-9 h-9 flex items-center justify-center cursor-pointer"
-      >
-        <Icon name="x" size={16} />
-      </button>
     </div>
 
     <div class="grid grid-cols-3 gap-3">

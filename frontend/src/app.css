@@ -528,6 +528,11 @@ input[type='range'].velora-range:hover::-webkit-slider-thumb {
   transform: scale(1.22);
 }
 
+input[type='range'].velora-range-blue::-webkit-slider-thumb {
+  background: var(--md-sys-color-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
 /* Full-width flat top-edge player seekbar (never clipped) */
 input[type='range'].velora-seekbar {
   -webkit-appearance: none;
@@ -723,4 +728,17 @@ html[data-shade="strong"] {
   --md-elevation-1: 0 3px 6px rgba(0, 0, 0, 0.58), 0 2px 6px 2px rgba(0, 0, 0, 0.35);
   --md-elevation-2: 0 6px 14px 4px rgba(0, 0, 0, 0.52), 0 2px 5px rgba(0, 0, 0, 0.55);
   --md-elevation-3: 0 12px 26px 6px rgba(0, 0, 0, 0.6), 0 4px 10px rgba(0, 0, 0, 0.62);
+}
+
+@keyframes velora-shake {
+  0%, 100% { transform: translateX(0); }
+  15% { transform: translateX(-6px); }
+  30% { transform: translateX(6px); }
+  45% { transform: translateX(-4px); }
+  60% { transform: translateX(4px); }
+  75% { transform: translateX(-2px); }
+}
+
+.velora-shake {
+  animation: velora-shake 0.38s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
 }

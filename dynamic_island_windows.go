@@ -94,8 +94,9 @@ const (
 	diModeClosed     = "idle"
 	diModeMusic      = "music"
 	diModeLyrics     = "lyrics"
-	diModeHeadphones = "bt"
-	diModeQueue      = "queue"
+	diModeHeadphones     = "bt"
+	diModeQueue          = "queue"
+	diModeFullscreenHide = "fs_hide"
 
 	diWsPopup        = 0x80000000
 	diWsExTopmost    = 0x00000008
@@ -178,8 +179,10 @@ var (
 	diWlanapi  = windows.NewLazySystemDLL("wlanapi.dll")
 	diBthApis  = windows.NewLazySystemDLL("BluetoothAPIs.dll")
 	diKernel32 = windows.NewLazySystemDLL("kernel32.dll")
+	diShell32  = windows.NewLazySystemDLL("shell32.dll")
 
-	diProcGetSystemPowerStatus         = diKernel32.NewProc("GetSystemPowerStatus")
+	diProcGetSystemPowerStatus           = diKernel32.NewProc("GetSystemPowerStatus")
+	diProcSHQueryUserNotificationState   = diShell32.NewProc("SHQueryUserNotificationState")
 
 	diProcRegisterClassExW             = user32.NewProc("RegisterClassExW")
 	diProcCreateWindowExW              = user32.NewProc("CreateWindowExW")
@@ -206,7 +209,11 @@ var (
 	diProcIsIconic                     = user32.NewProc("IsIconic")
 	diProcIsWindowVisible              = user32.NewProc("IsWindowVisible")
 	diProcGetForegroundWindow          = user32.NewProc("GetForegroundWindow")
+	diProcGetWindowRect                = user32.NewProc("GetWindowRect")
+	diProcGetWindowLongW               = user32.NewProc("GetWindowLongW")
 	diProcGetClassNameW                = user32.NewProc("GetClassNameW")
+	diProcMonitorFromWindow            = user32.NewProc("MonitorFromWindow")
+	diProcGetMonitorInfoW              = user32.NewProc("GetMonitorInfoW")
 	diProcSetThreadDpiAwarenessContext = user32.NewProc("SetThreadDpiAwarenessContext")
 	diProcGetDpiForSystem              = user32.NewProc("GetDpiForSystem")
 	diProcMonitorFromPoint             = user32.NewProc("MonitorFromPoint")
@@ -330,6 +337,17 @@ type diRectF struct {
 	Y      float32
 	Width  float32
 	Height float32
+}
+
+type diRect struct {
+	Left, Top, Right, Bottom int32
+}
+
+type diMonitorInfo struct {
+	CbSize    uint32
+	RcMonitor diRect
+	RcWork    diRect
+	DwFlags   uint32
 }
 
 type diGdiplusStartupInput struct {
@@ -492,6 +510,15 @@ type dynamicIslandController struct {
 	lastTickAt           time.Time
 	liquidSkewDp         float64
 	screenW              int
+	screenLeft           int
+	screenTop            int
+	screenMode           string // "primary" | "cursor"
+	animSpeedScale       float64
+	openTrigger          string // "hover" | "click"
+	onlyPlaying          bool
+	pauseHideSec         int
+	pausedAt             time.Time
+	wasPlaying           bool
 	holdPending          bool
 	holdStart            time.Time
 	holdStartScreenX     int32
@@ -503,6 +530,15 @@ type dynamicIslandController struct {
 	dockRightProg        float64
 	pillMode             bool
 	winY                 int
+	compactStyle         string
+	sizeScale            float64
+	opacityPct           int
+	hideWhenAppActive    bool
+	hideInFullscreen     bool
+	fullscreenActive     bool
+	idleHideSec          int
+	lastActivityAt       time.Time
+	hideLineProg         float64
 
 	// Real-time Velora playback & brand state
 	title         string
@@ -576,6 +612,8 @@ func nusaModeDims(mode string) (w, h, r, e float64) {
 		return 420, 272, 30, 20
 	case diModeHeadphones:
 		return 420, 106, 24, 16
+	case diModeFullscreenHide:
+		return 132, 4, 2.0, 0
 	case diModeClosed:
 		return 216, 36, 18, 12
 	default: // diModeResting
@@ -650,6 +688,14 @@ func (a *App) initDynamicIsland(ctx context.Context) {
 		return
 	}
 	enabled := true
+	hideWhenAppActive := true
+	hideInFullscreen := true
+	idleHideSec := 0
+	screenMode := "primary"
+	animSpeedScale := 1.0
+	openTrigger := "hover"
+	onlyPlaying := false
+	pauseHideSec := 0
 	themeSeed := "monolith"
 	accentHex := "#F6847E"
 	eqPreset := "spotify"
@@ -657,6 +703,35 @@ func (a *App) initDynamicIsland(ctx context.Context) {
 		if prefs, err := a.store.GetPreferences(); err == nil {
 			if v, ok := prefs["ui.dynamicIsland"]; ok && v == "false" {
 				enabled = false
+			}
+			if v, ok := prefs["dynamicIsland.hideApp"]; ok && v == "false" {
+				hideWhenAppActive = false
+			}
+			if v, ok := prefs["dynamicIsland.hideFull"]; ok && v == "false" {
+				hideInFullscreen = false
+			}
+			if v := strings.TrimSpace(prefs["dynamicIsland.idleHideSec"]); v != "" {
+				if sec, convErr := strconv.Atoi(v); convErr == nil && sec > 0 {
+					idleHideSec = sec
+				}
+			}
+			if strings.ToLower(strings.TrimSpace(prefs["dynamicIsland.screen"])) == "cursor" {
+				screenMode = "cursor"
+			}
+			switch strings.ToLower(strings.TrimSpace(prefs["dynamicIsland.animSpeed"])) {
+			case "slow":
+				animSpeedScale = 1.45
+			case "fast":
+				animSpeedScale = 0.62
+			}
+			if strings.ToLower(strings.TrimSpace(prefs["dynamicIsland.openTrigger"])) == "click" {
+				openTrigger = "click"
+			}
+			onlyPlaying = strings.ToLower(strings.TrimSpace(prefs["dynamicIsland.onlyPlaying"])) == "true"
+			if v := strings.TrimSpace(prefs["dynamicIsland.pauseHide"]); v != "" {
+				if sec, convErr := strconv.Atoi(v); convErr == nil && sec > 0 {
+					pauseHideSec = sec
+				}
 			}
 			if v := strings.TrimSpace(prefs["theme.seed"]); v != "" {
 				themeSeed = v
@@ -697,8 +772,18 @@ func (a *App) initDynamicIsland(ctx context.Context) {
 		fromE:           10,
 		toE:             10,
 		curE:            10,
-		volume:          80,
-		repeatMode:      "off",
+		volume:            80,
+		opacityPct:        100,
+		hideWhenAppActive: hideWhenAppActive,
+		hideInFullscreen:  hideInFullscreen,
+		idleHideSec:       idleHideSec,
+		screenMode:        screenMode,
+		animSpeedScale:    animSpeedScale,
+		openTrigger:       openTrigger,
+		onlyPlaying:       onlyPlaying,
+		pauseHideSec:      pauseHideSec,
+		lastActivityAt:    now,
+		repeatMode:        "off",
 		eqPreset:        eqPreset,
 		themeSeed:       themeSeed,
 		accentHex:       accentHex,
@@ -860,6 +945,222 @@ func getDIStrings(lang string) diLocalizedStrings {
 			EmptyQueue:    "Queue is empty",
 			QueueTitle:    "Queue",
 		}
+	}
+}
+
+func (a *App) SetDynamicIslandShapeSize(compactStyle, size string, opacity int) {
+	globalIslandMu.Lock()
+	ctrl := globalIsland
+	globalIslandMu.Unlock()
+	if ctrl == nil {
+		return
+	}
+	cs := strings.ToUpper(strings.TrimSpace(compactStyle))
+	if cs != "SATU_BARIS" && cs != "TERSEMBUNYI" {
+		cs = "RINGKAS"
+	}
+	scale := 1.0
+	switch strings.ToLower(strings.TrimSpace(size)) {
+	case "small":
+		scale = 0.88
+	case "large":
+		scale = 1.08
+	}
+	if opacity < 0 {
+		opacity = 0
+	} else if opacity > 100 {
+		opacity = 100
+	}
+	ctrl.mu.Lock()
+	ctrl.compactStyle = cs
+	ctrl.sizeScale = scale
+	ctrl.opacityPct = opacity
+	ctrl.mu.Unlock()
+	if ctrl.hwnd != 0 {
+		_, _, _ = procPostMessageW.Call(ctrl.hwnd, diWmAppSync, 0, 0)
+	}
+}
+
+func (a *App) SetDynamicIslandHideWhenAppActive(hide bool) {
+	globalIslandMu.Lock()
+	ctrl := globalIsland
+	globalIslandMu.Unlock()
+	if ctrl == nil {
+		return
+	}
+	ctrl.mu.Lock()
+	ctrl.hideWhenAppActive = hide
+	ctrl.mu.Unlock()
+	if ctrl.hwnd != 0 {
+		_, _, _ = procPostMessageW.Call(ctrl.hwnd, diWmAppSync, 0, 0)
+	}
+}
+
+func (a *App) SetDynamicIslandHideInFullscreen(hide bool) {
+	globalIslandMu.Lock()
+	ctrl := globalIsland
+	globalIslandMu.Unlock()
+	if ctrl == nil {
+		return
+	}
+	ctrl.mu.Lock()
+	ctrl.hideInFullscreen = hide
+	ctrl.mu.Unlock()
+	if ctrl.hwnd != 0 {
+		_, _, _ = procPostMessageW.Call(ctrl.hwnd, diWmAppSync, 0, 0)
+	}
+}
+
+func (a *App) SetDynamicIslandIdleHideSeconds(sec int) {
+	if sec < 0 {
+		sec = 0
+	}
+	globalIslandMu.Lock()
+	ctrl := globalIsland
+	globalIslandMu.Unlock()
+	if ctrl == nil {
+		return
+	}
+	ctrl.mu.Lock()
+	ctrl.idleHideSec = sec
+	ctrl.lastActivityAt = time.Now()
+	ctrl.mu.Unlock()
+	if ctrl.hwnd != 0 {
+		_, _, _ = procPostMessageW.Call(ctrl.hwnd, diWmAppSync, 0, 0)
+	}
+}
+
+func resolveMonitorRect(useCursor bool) (left, top, width int) {
+	var hMon uintptr
+	if useCursor {
+		var pt diPoint
+		_, _, _ = diProcGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+		// MONITOR_DEFAULTTONEAREST = 2
+		hMon, _, _ = diProcMonitorFromPoint.Call(uintptr(pt.X), uintptr(pt.Y), 2)
+	} else {
+		// MONITOR_DEFAULTTOPRIMARY = 1
+		hMon, _, _ = diProcMonitorFromPoint.Call(0, 0, 1)
+	}
+	if hMon != 0 {
+		var mi diMonitorInfo
+		mi.CbSize = uint32(unsafe.Sizeof(mi))
+		if ok, _, _ := diProcGetMonitorInfoW.Call(hMon, uintptr(unsafe.Pointer(&mi))); ok != 0 {
+			w := int(mi.RcMonitor.Right - mi.RcMonitor.Left)
+			if w > 0 {
+				return int(mi.RcMonitor.Left), int(mi.RcMonitor.Top), w
+			}
+		}
+	}
+	sw, _, _ := diProcGetSystemMetrics.Call(0)
+	return 0, 0, int(sw)
+}
+
+func (a *App) SetDynamicIslandScreen(mode string) {
+	globalIslandMu.Lock()
+	ctrl := globalIsland
+	globalIslandMu.Unlock()
+	if ctrl == nil {
+		return
+	}
+	m := "primary"
+	if strings.ToLower(strings.TrimSpace(mode)) == "cursor" {
+		m = "cursor"
+	}
+	monLeft, monTop, monW := resolveMonitorRect(m == "cursor")
+	ctrl.mu.Lock()
+	ctrl.screenMode = m
+	ctrl.screenLeft = monLeft
+	ctrl.screenTop = monTop
+	ctrl.screenW = monW
+	u := ctrl.dpiScale
+	if ctrl.sizeScale > 0 {
+		u *= ctrl.sizeScale
+	}
+	if u <= 0 {
+		u = 1.0
+	}
+	if ctrl.pillMode {
+		ctrl.winY = monTop + int(math.Round(10.0*u))
+	} else {
+		ctrl.winY = monTop
+	}
+	centerX := monLeft + (monW-ctrl.physW)/2
+	ctrl.winTargetX = float64(centerX)
+	ctrl.dockSide = 0
+	ctrl.mu.Unlock()
+	if ctrl.hwnd != 0 {
+		_, _, _ = procPostMessageW.Call(ctrl.hwnd, diWmAppSync, 0, 0)
+	}
+}
+
+func (a *App) SetDynamicIslandAnimSpeed(speed string) {
+	globalIslandMu.Lock()
+	ctrl := globalIsland
+	globalIslandMu.Unlock()
+	if ctrl == nil {
+		return
+	}
+	scale := 1.0
+	switch strings.ToLower(strings.TrimSpace(speed)) {
+	case "slow":
+		scale = 1.45
+	case "fast":
+		scale = 0.62
+	}
+	ctrl.mu.Lock()
+	ctrl.animSpeedScale = scale
+	ctrl.mu.Unlock()
+}
+
+func (a *App) SetDynamicIslandOpenTrigger(trigger string) {
+	globalIslandMu.Lock()
+	ctrl := globalIsland
+	globalIslandMu.Unlock()
+	if ctrl == nil {
+		return
+	}
+	t := "hover"
+	if strings.ToLower(strings.TrimSpace(trigger)) == "click" {
+		t = "click"
+	}
+	ctrl.mu.Lock()
+	ctrl.openTrigger = t
+	ctrl.mu.Unlock()
+}
+
+func (a *App) SetDynamicIslandOnlyPlaying(only bool) {
+	globalIslandMu.Lock()
+	ctrl := globalIsland
+	globalIslandMu.Unlock()
+	if ctrl == nil {
+		return
+	}
+	ctrl.mu.Lock()
+	ctrl.onlyPlaying = only
+	ctrl.mu.Unlock()
+	if ctrl.hwnd != 0 {
+		_, _, _ = procPostMessageW.Call(ctrl.hwnd, diWmAppSync, 0, 0)
+	}
+}
+
+func (a *App) SetDynamicIslandPauseHideSeconds(sec int) {
+	if sec < 0 {
+		sec = 0
+	}
+	globalIslandMu.Lock()
+	ctrl := globalIsland
+	globalIslandMu.Unlock()
+	if ctrl == nil {
+		return
+	}
+	ctrl.mu.Lock()
+	ctrl.pauseHideSec = sec
+	if !ctrl.isPlaying && ctrl.pausedAt.IsZero() {
+		ctrl.pausedAt = time.Now()
+	}
+	ctrl.mu.Unlock()
+	if ctrl.hwnd != 0 {
+		_, _, _ = procPostMessageW.Call(ctrl.hwnd, diWmAppSync, 0, 0)
 	}
 }
 
@@ -1399,7 +1700,86 @@ func queryBluetoothAudioBattery() (int, string) {
 	return -1, ""
 }
 
+func isTransientTaskSwitcher(hwnd uintptr) bool {
+	if hwnd == 0 {
+		return false
+	}
+	var clsBuf [128]uint16
+	n, _, _ := diProcGetClassNameW.Call(hwnd, uintptr(unsafe.Pointer(&clsBuf[0])), uintptr(len(clsBuf)))
+	if n == 0 {
+		return false
+	}
+	switch windows.UTF16ToString(clsBuf[:n]) {
+	case "XamlExplorerHostIslandWindow", "MultitaskingViewFrame", "TaskSwitcherWnd":
+		return true
+	}
+	return false
+}
+
+func isForegroundFullscreen(islandHwnd uintptr) bool {
+	fg, _, _ := diProcGetForegroundWindow.Call()
+	if fg == 0 || fg == islandHwnd {
+		return false
+	}
+	var clsBuf [128]uint16
+	n, _, _ := diProcGetClassNameW.Call(fg, uintptr(unsafe.Pointer(&clsBuf[0])), uintptr(len(clsBuf)))
+	if n > 0 {
+		cls := windows.UTF16ToString(clsBuf[:n])
+		switch cls {
+		case "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd", "NotifyIconOverflowWindow", "TopLevelWindowForOverflowXamlIsland":
+			return false
+		}
+	}
+	var qState uint32
+	if hr, _, _ := diProcSHQueryUserNotificationState.Call(uintptr(unsafe.Pointer(&qState))); hr == 0 {
+		// 3 = QUNS_RUNNING_D3D_FULL_SCREEN (Valorant/D3D games), 4 = QUNS_PRESENTATION_MODE
+		if qState == 3 || qState == 4 {
+			return true
+		}
+	}
+	// GWL_STYLE = -16; WS_CAPTION = 0x00C00000
+	gwlStyle := int32(-16)
+	style, _, _ := diProcGetWindowLongW.Call(fg, uintptr(uint32(gwlStyle)))
+	const wsCaption = 0x00C00000
+	if (uint32(style) & wsCaption) == wsCaption {
+		// Maximized normal/browser window (even with auto-hide taskbar) still has WS_CAPTION -> not true fullscreen
+		return false
+	}
+	var winRect diRect
+	okR, _, _ := diProcGetWindowRect.Call(fg, uintptr(unsafe.Pointer(&winRect)))
+	if okR == 0 {
+		return false
+	}
+	// MONITOR_DEFAULTTONEAREST = 2
+	hMon, _, _ := diProcMonitorFromWindow.Call(fg, 2)
+	if hMon == 0 {
+		return false
+	}
+	var mi diMonitorInfo
+	mi.CbSize = uint32(unsafe.Sizeof(mi))
+	okM, _, _ := diProcGetMonitorInfoW.Call(hMon, uintptr(unsafe.Pointer(&mi)))
+	if okM == 0 {
+		return false
+	}
+	return winRect.Left <= mi.RcMonitor.Left &&
+		winRect.Top <= mi.RcMonitor.Top &&
+		winRect.Right >= mi.RcMonitor.Right &&
+		winRect.Bottom >= mi.RcMonitor.Bottom
+}
+
 func shouldDynamicIslandShow(islandHwnd uintptr) bool {
+	globalIslandMu.Lock()
+	ctrl := globalIsland
+	globalIslandMu.Unlock()
+	hideOnFocus := true
+	if ctrl != nil {
+		ctrl.mu.Lock()
+		hideOnFocus = ctrl.hideWhenAppActive
+		ctrl.mu.Unlock()
+	}
+	if !hideOnFocus {
+		return true
+	}
 	globalTaskbarMu.Lock()
 	tb := globalTaskbar
 	globalTaskbarMu.Unlock()
@@ -1536,6 +1916,9 @@ func (c *dynamicIslandController) loadCoverAsync(rawURL string) {
 	}
 	c.mu.Lock()
 	u := c.dpiScale
+	if c.sizeScale > 0 {
+		u *= c.sizeScale
+	}
 	c.mu.Unlock()
 	artPx := maxInt(46, int(math.Round(46.0*u)))
 	art := resizeCoverBilinear(img, artPx, artPx, 8.0*u)
@@ -1613,6 +1996,9 @@ func (c *dynamicIslandController) loadQueueArtAsync(rawURL string) {
 	img := c.fetchImage(rawURL)
 	c.mu.Lock()
 	u := c.dpiScale
+	if c.sizeScale > 0 {
+		u *= c.sizeScale
+	}
 	c.mu.Unlock()
 	if img != nil {
 		smPx := maxInt(38, int(math.Round(38.0*u)))
@@ -1978,6 +2364,9 @@ func diWndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 		my := int(int16((lParam >> 16) & 0xFFFF))
 		c.mu.Lock()
 		u := c.dpiScale
+	if c.sizeScale > 0 {
+		u *= c.sizeScale
+	}
 		if u <= 0 {
 			u = 1.0
 		}
@@ -2032,6 +2421,9 @@ func diWndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 			c.dragActive = false
 			c.lyricDragScroll = false
 			u := c.dpiScale
+	if c.sizeScale > 0 {
+		u *= c.sizeScale
+	}
 			if u <= 0 {
 				u = 1.0
 			}
@@ -2067,6 +2459,9 @@ func diWndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 		}
 		wasDrag := c.dragActive
 		u := c.dpiScale
+	if c.sizeScale > 0 {
+		u *= c.sizeScale
+	}
 		if u <= 0 {
 			u = 1.0
 		}
@@ -2095,6 +2490,9 @@ func diWndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 
 func (c *dynamicIslandController) clampWinXLocked(rawX int, withSnap bool) (int, int) {
 	u := c.dpiScale
+	if c.sizeScale > 0 {
+		u *= c.sizeScale
+	}
 	if u <= 0 {
 		u = 1.0
 	}
@@ -2104,20 +2502,21 @@ func (c *dynamicIslandController) clampWinXLocked(rawX int, withSnap bool) (int,
 		screenW = int(sw)
 		c.screenW = screenW
 	}
+	screenLeft := c.screenLeft
 	nx := (float64(diLogicalW) - c.curW) / 2.0
 	marginPx := 0
 	if c.pillMode {
 		marginPx = int(math.Round(10.0 * u))
 	}
-	minX := marginPx - int(math.Round(nx*u))
-	maxX := screenW - marginPx - int(math.Round((nx+c.curW)*u))
+	minX := screenLeft + marginPx - int(math.Round(nx*u))
+	maxX := screenLeft + screenW - marginPx - int(math.Round((nx+c.curW)*u))
 	if maxX < minX {
-		minX = (screenW - c.physW) / 2
+		minX = screenLeft + (screenW-c.physW)/2
 		maxX = minX
 	}
 	dock := 0
 	if withSnap {
-		centerX := (screenW - c.physW) / 2
+		centerX := screenLeft + (screenW-c.physW)/2
 		centerSnapPx := int(math.Round(20.0 * u))
 		edgeSnapPx := int(math.Round(5.0 * u))
 		if rawX >= centerX-centerSnapPx && rawX <= centerX+centerSnapPx {
@@ -2167,6 +2566,9 @@ func (c *dynamicIslandController) handleMouseMove(mx, my int) {
 	}
 	if c.holdPending && !c.winDragActive {
 		u := c.dpiScale
+	if c.sizeScale > 0 {
+		u *= c.sizeScale
+	}
 		if u <= 0 {
 			u = 1.0
 		}
@@ -2202,6 +2604,9 @@ func (c *dynamicIslandController) handleMouseMove(mx, my int) {
 		c.tracking = true
 	}
 	u := c.dpiScale
+	if c.sizeScale > 0 {
+		u *= c.sizeScale
+	}
 	if u <= 0 {
 		u = 1.0
 	}
@@ -2214,7 +2619,10 @@ func (c *dynamicIslandController) handleMouseMove(mx, my int) {
 	rxCur := float64(mx)/u - nxCur
 	ryCur := float64(my) / u
 	if rxCur >= 0 && rxCur <= c.curW && ryCur >= 0 && ryCur <= c.curH {
-		c.hovered = true
+		isClosedState := c.activeMode == diModeClosed || c.activeMode == diModeResting || c.activeMode == diModeFullscreenHide
+		if c.openTrigger != "click" || !isClosedState {
+			c.hovered = true
+		}
 	}
 	c.lastMouseRx = rxCur
 	maxScrollDp := math.Max(0.0, float64(len(c.queueItems))*54.0-162.0)
@@ -2332,6 +2740,12 @@ func (c *dynamicIslandController) switchPageByDeltaLocked(delta int) {
 
 func (c *dynamicIslandController) handleClick(mx, my int) {
 	c.mu.Lock()
+	if c.openTrigger == "click" && (c.activeMode == diModeClosed || c.activeMode == diModeResting || c.activeMode == diModeFullscreenHide) {
+		c.hovered = true
+		c.lastActivityAt = time.Now()
+		c.mu.Unlock()
+		return
+	}
 	zone, ratio, lyrIdx := c.hitTestLocked(mx, my)
 	dur := c.durSec
 	ctx := c.ctx
@@ -2550,6 +2964,9 @@ func diOtherAudioIndices(outputs []windowsAudioEndpoint) []int {
 
 func (c *dynamicIslandController) hitTestLocked(mxPhys, myPhys int) (int, float64, int) {
 	u := c.dpiScale
+	if c.sizeScale > 0 {
+		u *= c.sizeScale
+	}
 	if u <= 0 {
 		u = 1.0
 	}
@@ -2821,6 +3238,18 @@ func (c *dynamicIslandController) resolveTargetModeLocked() string {
 		}
 		return diModeMusic
 	}
+	if c.onlyPlaying && !c.isPlaying {
+		return diModeFullscreenHide
+	}
+	if !c.onlyPlaying && c.pauseHideSec > 0 && !c.isPlaying && c.title != "" && !c.pausedAt.IsZero() && now.Sub(c.pausedAt) >= time.Duration(c.pauseHideSec)*time.Second {
+		return diModeFullscreenHide
+	}
+	if c.hideInFullscreen && c.fullscreenActive {
+		return diModeFullscreenHide
+	}
+	if !c.hideInFullscreen && c.idleHideSec > 0 && !c.lastActivityAt.IsZero() && now.Sub(c.lastActivityAt) >= time.Duration(c.idleHideSec)*time.Second {
+		return diModeFullscreenHide
+	}
 	return diModeClosed
 }
 
@@ -2884,6 +3313,9 @@ func (c *dynamicIslandController) resolveClosedWidthLocked() float64 {
 
 func (c *dynamicIslandController) tickAndRender() {
 	showAllowed := shouldDynamicIslandShow(c.hwnd)
+	fgNow, _, _ := diProcGetForegroundWindow.Call()
+	transientSwitcher := isTransientTaskSwitcher(fgNow)
+	isFullscreen := isForegroundFullscreen(c.hwnd)
 	if showAllowed {
 		c.pollAudioHardware(true)
 	}
@@ -2891,9 +3323,24 @@ func (c *dynamicIslandController) tickAndRender() {
 
 	c.mu.Lock()
 	c.wasMinimized = showAllowed
-	shouldAppear := c.enabled && showAllowed
-
+	if !transientSwitcher {
+		c.fullscreenActive = isFullscreen
+	}
+	if c.isPlaying {
+		c.pausedAt = time.Time{}
+	} else if c.wasPlaying || c.pausedAt.IsZero() {
+		c.pausedAt = now
+	}
+	c.wasPlaying = c.isPlaying
+	if c.hovered || c.winDragActive || c.holdPending || c.pinnedMode != "" {
+		c.lastActivityAt = now
+	}
 	targetMode := c.resolveTargetModeLocked()
+	if !showAllowed && c.activeMode == diModeFullscreenHide {
+		targetMode = diModeFullscreenHide
+	}
+	hideClosed := c.compactStyle == "TERSEMBUNYI" && (targetMode == diModeClosed || targetMode == diModeResting) && !c.hovered && c.pinnedMode == "" && targetMode != diModeFullscreenHide
+	shouldAppear := c.enabled && showAllowed && !hideClosed
 	if targetMode != c.activeMode {
 		tw, th, tr, te := nusaModeDims(targetMode)
 		if targetMode == diModeClosed {
@@ -2951,15 +3398,19 @@ func (c *dynamicIslandController) tickAndRender() {
 		c.hpListProg = math.Max(0.0, c.hpListProg-0.11)
 	}
 
+	spd := c.animSpeedScale
+	if spd <= 0 {
+		spd = 1.0
+	}
 	el := now.Sub(c.transStart).Seconds()
 	var whEase float64
 	var reEase float64
 	if c.shrinking {
-		whEase = nusaShrinkEase(clamp01(el / 0.48))
+		whEase = nusaShrinkEase(clamp01(el / (0.48 * spd)))
 		reEase = whEase
 	} else {
-		whEase = nusaSpring(clamp01(el / 0.62))
-		reEase = nusaCssEase(clamp01(el / 0.45))
+		whEase = nusaSpring(clamp01(el / (0.62 * spd)))
+		reEase = nusaCssEase(clamp01(el / (0.45 * spd)))
 	}
 
 	c.curW = c.fromW + (c.toW-c.fromW)*whEase
@@ -2984,6 +3435,9 @@ func (c *dynamicIslandController) tickAndRender() {
 	var promoteMoveCur uintptr
 	if c.holdPending && !c.winDragActive {
 		u := c.dpiScale
+	if c.sizeScale > 0 {
+		u *= c.sizeScale
+	}
 		if u <= 0 {
 			u = 1.0
 		}
@@ -3012,12 +3466,31 @@ func (c *dynamicIslandController) tickAndRender() {
 	c.lastTickAt = now
 
 	uVal := c.dpiScale
+	if c.sizeScale > 0 {
+		uVal *= c.sizeScale
+	}
 	if uVal <= 0 {
 		uVal = 1.0
 	}
+	if c.screenMode == "cursor" && !c.winDragActive && !c.hovered {
+		monLeft, monTop, monW := resolveMonitorRect(true)
+		if monW > 0 && (monLeft != c.screenLeft || monTop != c.screenTop || monW != c.screenW) {
+			c.screenLeft = monLeft
+			c.screenTop = monTop
+			c.screenW = monW
+			if c.pillMode {
+				c.winY = monTop + int(math.Round(10.0*uVal))
+			} else {
+				c.winY = monTop
+			}
+			c.winTargetX = float64(monLeft + (monW-c.physW)/2)
+			c.winXFloat = c.winTargetX
+			c.dockSide = 0
+		}
+	}
 	nxBaseCur := (float64(diLogicalW) - c.curW) / 2.0
-	minEdgeX := -int(math.Round(nxBaseCur * uVal))
-	maxEdgeX := c.screenW - int(math.Round((nxBaseCur+c.curW)*uVal))
+	minEdgeX := c.screenLeft - int(math.Round(nxBaseCur*uVal))
+	maxEdgeX := c.screenLeft + c.screenW - int(math.Round((nxBaseCur+c.curW)*uVal))
 	if c.dockSide < 0 {
 		c.winTargetX = float64(minEdgeX)
 	} else if c.dockSide > 0 {
@@ -3032,7 +3505,7 @@ func (c *dynamicIslandController) tickAndRender() {
 		c.winXFloat = c.winTargetX
 		c.winVelX = 0
 	} else {
-		alphaPos := 1.0 - math.Exp(-22.0*dt)
+		alphaPos := 1.0 - math.Exp((-22.0/spd)*dt)
 		c.winXFloat += diffX * alphaPos
 		c.winVelX = ((c.winXFloat - prevWinXFloat) / dt) * 0.016
 	}
@@ -3065,15 +3538,30 @@ func (c *dynamicIslandController) tickAndRender() {
 		if !inX || !inY {
 			c.hovered = false
 			c.hoverZone = diHitNone
+			c.lastActivityAt = now
+			if c.hideInFullscreen && c.fullscreenActive {
+				c.pinnedMode = ""
+			}
+		}
+	} else if !c.hovered && !transientSwitcher && c.openTrigger != "click" && c.activeMode == diModeFullscreenHide && c.winShown {
+		var ptHover diPoint
+		_, _, _ = diProcGetCursorPos.Call(uintptr(unsafe.Pointer(&ptHover)))
+		nxH := (float64(diLogicalW) - c.curW) / 2.0
+		padX := 12.0 * uVal
+		inX := float64(ptHover.X) >= float64(c.winX)+nxH*uVal-padX && float64(ptHover.X) <= float64(c.winX)+(nxH+c.curW)*uVal+padX
+		inY := float64(ptHover.Y) >= float64(c.screenTop) && float64(ptHover.Y) <= float64(c.winY)+10.0*uVal
+		if inX && inY {
+			c.hovered = true
+			c.lastActivityAt = now
 		}
 	}
 
 	// Recompute docked target after liquid stretch so glued corner never detaches
 	nxBasePost := (float64(diLogicalW) - c.curW) / 2.0
 	if c.dockSide < 0 {
-		c.winXFloat = float64(-int(math.Round(nxBasePost * uVal)))
+		c.winXFloat = float64(c.screenLeft - int(math.Round(nxBasePost*uVal)))
 	} else if c.dockSide > 0 {
-		c.winXFloat = float64(c.screenW - int(math.Round((nxBasePost+c.curW)*uVal)))
+		c.winXFloat = float64(c.screenLeft + c.screenW - int(math.Round((nxBasePost+c.curW)*uVal)))
 	}
 	newWinX, _ := c.clampWinXLocked(int(math.Round(c.winXFloat)), false)
 	if newWinX != c.winX {
@@ -3085,8 +3573,8 @@ func (c *dynamicIslandController) tickAndRender() {
 		c.dockLeftProg = 0
 		c.dockRightProg = 0
 	} else {
-		leftScreenPx := float64(newWinX) + nxBasePost*uVal
-		rightGapPx := float64(c.screenW) - (float64(newWinX) + (nxBasePost+c.curW)*uVal)
+		leftScreenPx := float64(newWinX-c.screenLeft) + nxBasePost*uVal
+		rightGapPx := float64(c.screenLeft+c.screenW) - (float64(newWinX) + (nxBasePost+c.curW)*uVal)
 		targetDockL := clamp01(1.0 - leftScreenPx/(8.0*uVal))
 		targetDockR := clamp01(1.0 - rightGapPx/(8.0*uVal))
 		if c.dockSide < 0 {
@@ -3099,9 +3587,15 @@ func (c *dynamicIslandController) tickAndRender() {
 	}
 
 	if shouldAppear {
-		c.appearProg = math.Min(1.0, c.appearProg+dt/0.24)
+		c.appearProg = math.Min(1.0, c.appearProg+dt/(0.24*spd))
 	} else {
-		c.appearProg = math.Max(0.0, c.appearProg-dt/0.20)
+		c.appearProg = math.Max(0.0, c.appearProg-dt/(0.20*spd))
+	}
+
+	if c.activeMode == diModeFullscreenHide && c.curH <= 10.0 {
+		c.hideLineProg = math.Min(1.0, c.hideLineProg+dt/(0.22*spd))
+	} else {
+		c.hideLineProg = math.Max(0.0, c.hideLineProg-dt/(0.18*spd))
 	}
 
 	if c.activeMode == diModeLyrics {
@@ -3176,6 +3670,12 @@ func (c *dynamicIslandController) tickAndRender() {
 	appearProg := c.appearProg
 	physW := c.physW
 	physH := c.physH
+	opacityPct := c.opacityPct
+	if opacityPct < 0 {
+		opacityPct = 0
+	} else if opacityPct > 100 {
+		opacityPct = 100
+	}
 	curWinX := c.winX
 	curWinY := c.winY
 	c.mu.Unlock()
@@ -3216,9 +3716,19 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 
 	c.mu.Lock()
 	u := c.dpiScale
+	if c.sizeScale > 0 {
+		u *= c.sizeScale
+	}
 	physW := c.physW
 	physH := c.physH
+	opacityPct := c.opacityPct
+	if opacityPct < 0 {
+		opacityPct = 0
+	} else if opacityPct > 100 {
+		opacityPct = 100
+	}
 	appear := clamp01(c.appearProg)
+	hideLineProg := c.hideLineProg
 	mode := c.activeMode
 	w := c.curW
 	easeAppear := nusaCssEase(appear)
@@ -3374,6 +3884,47 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	eBotR := e * dockRightProg
 
 	// 1. Draw Velora Obsidian Carbon Notch / Floating Pill Shape + Brand Ambient Gradients
+	if mode == diModeFullscreenHide {
+		maxAlpha := 255.0 * clamp01(float64(opacityPct)/100.0)
+		if easeAppear < 0.45 {
+			maxAlpha *= clamp01(easeAppear / 0.45)
+		}
+		if h > 10.0 {
+			// Still shrinking from open Dynamic Island: shrink & fade out the normal dark notch
+			drawVeloraNotchShapePhys(pix, physW, physH, nx*u, w*u, h*u, rL*u, eL*u, eBotL*u, rR*u, eR*u, eBotR*u, pillMode, pal)
+			maxAlpha *= clamp01((h - 10.0) / 22.0)
+		} else {
+			// Notch finished disappearing: animate in/out the sleek thin hide line at the top edge
+			lineEase := nusaCssEase(clamp01(hideLineProg))
+			lineOp := lineEase * 0.90
+			lineW := w * (0.62 + 0.38*lineEase)
+			lineX := nx + (w-lineW)/2.0
+			var gBar uintptr
+			_, _, _ = diProcGdipCreateFromHDC.Call(c.memDC, uintptr(unsafe.Pointer(&gBar)))
+			if gBar != 0 {
+				_, _, _ = diProcGdipSetSmoothingMode.Call(gBar, 2)
+				_, _, _ = diProcGdipSetPixelOffsetMode.Call(gBar, 2)
+				barH := 3.5 * u
+				drawFilledPillGdip(gBar, lineX*u, 1.5*u, lineW*u, barH, barH/2.0, rgbaToARGB(pal.Accent, lineOp))
+				_, _, _ = diProcGdipDeleteGraphics.Call(gBar)
+			}
+		}
+		sizeDst := diSize{Cx: int32(physW), Cy: int32(physH)}
+		ptDst := diPoint{X: int32(curWinX), Y: int32(curWinY)}
+		ptSrc := diPoint{}
+		constAlpha := uint8(math.Round(maxAlpha))
+		blend := diBlendFunction{
+			BlendOp:             diAcSrcOver,
+			SourceConstantAlpha: constAlpha,
+			AlphaFormat:         diAcSrcAlpha,
+		}
+		_, _, _ = diProcUpdateLayeredWindow.Call(
+			c.hwnd, 0, uintptr(unsafe.Pointer(&ptDst)), uintptr(unsafe.Pointer(&sizeDst)),
+			c.memDC, uintptr(unsafe.Pointer(&ptSrc)), 0,
+			uintptr(unsafe.Pointer(&blend)), diUlwAlpha,
+		)
+		return
+	}
 	drawVeloraNotchShapePhys(pix, physW, physH, nx*u, w*u, h*u, rL*u, eL*u, eBotL*u, rR*u, eR*u, eBotR*u, pillMode, pal)
 
 	shiftX := (edgeLeftProg-edgeRightProg)*24.0 + pageShift - liquidSkewDp*0.24
@@ -3892,9 +4443,10 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	sizeDst := diSize{Cx: int32(physW), Cy: int32(physH)}
 	ptDst := diPoint{X: int32(curWinX), Y: int32(curWinY)}
 	ptSrc := diPoint{}
-	constAlpha := uint8(255)
+	maxAlpha := 255.0 * clamp01(float64(opacityPct)/100.0)
+	constAlpha := uint8(math.Round(maxAlpha))
 	if easeAppear < 0.45 {
-		constAlpha = uint8(math.Round(255.0 * clamp01(easeAppear/0.45)))
+		constAlpha = uint8(math.Round(maxAlpha * clamp01(easeAppear/0.45)))
 	}
 	blend := diBlendFunction{
 		BlendOp:             diAcSrcOver,
@@ -5530,7 +6082,7 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 		miniPx := maxInt(21, int(math.Round(20.8*u)))
 		topCov := int(math.Round((h/2.0)*u - float64(miniPx)/2.0))
 		cyExact := float64(topCov) + float64(miniPx)/2.0
-		if playing && lyricsOpen && len(lyrics) > 0 {
+		if c.compactStyle == "SATU_BARIS" && playing && lyricsOpen && len(lyrics) > 0 {
 			txtHeightPx := float64(miniPx) * 0.60
 			_, _, _ = diProcGdipSetClipRect.Call(
 				g,
@@ -5922,11 +6474,20 @@ func pillSignedDist(fx, fy, nx, w, h, r float64) float64 {
 
 func nusaNotchSignedDistLR(fx, fy, nx, w, h, rL, eL, eBotL, rR, eR, eBotR float64) float64 {
 	if fy > h {
+		if fx < nx || fx > nx+w {
+			return 10.0
+		}
 		if eBotL > 0.1 && fx >= nx && fx <= nx+eBotL && fy <= h+eBotL {
 			return eBotL - math.Hypot(fx-(nx+eBotL), fy-(h+eBotL))
 		}
 		if eBotR > 0.1 && fx <= nx+w && fx >= nx+w-eBotR && fy <= h+eBotR {
 			return eBotR - math.Hypot(fx-(nx+w-eBotR), fy-(h+eBotR))
+		}
+		if rL > 0.1 && fx < nx+rL {
+			return math.Hypot(fx-(nx+rL), fy-(h-rL)) - rL
+		}
+		if rR > 0.1 && fx > nx+w-rR {
+			return math.Hypot(fx-(nx+w-rR), fy-(h-rR)) - rR
 		}
 		return fy - h
 	}

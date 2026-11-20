@@ -9,6 +9,6 @@ Aturan setiap kali diminta melakukan commit, push, dan merge di proyek Velora:
    - Gunakan awalan `feat(<scope>):`, `fix(<scope>):`, `refactor(<scope>):`, `style(<scope>):`, atau `chore(<scope>):`.
    - Tulis pesan commit dalam **bahasa Indonesia yang natural, jelas, dan mudah dipahami developer lain** (hindari bahasa terlalu baku/kaku).
 3. **Alur Push & Merge**:
-   - Commit dan push ke branch `develop` terlebih dahulu (`git push origin develop`).
-   - Checkout `main`, lakukan `git merge develop --no-ff -m "Merge branch 'develop'"`, push ke `origin/main`, lalu kembali ke branch `develop`.
+   - **Dilarang melakukan `git push` atau `git merge` ke GitHub tanpa izin dan perintah eksplisit dari pengguna.** Selalu tunggu pengguna memerintahkan push/merge terlebih dahulu.
+   - Setelah diizinkan: commit dan push ke branch `develop` terlebih dahulu (`git push origin develop`), lalu checkout `main`, lakukan `git merge develop --no-ff -m "Merge branch 'develop'"`, push ke `origin/main`, dan kembali ke branch `develop`.
    - Jangan ikutkan file referensi sementara yang tidak terkait (seperti `Auralys-1.9.7-Settings.md`).

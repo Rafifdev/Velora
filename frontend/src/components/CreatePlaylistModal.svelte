@@ -52,18 +52,10 @@
   class="m-auto w-full max-w-md rounded-lg shadow-2xl p-6"
   style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
 >
-  <div class="flex items-center justify-between mb-5">
+  <div class="mb-5">
     <h2 id="create-playlist-title" class="text-lg font-semibold">
       {isLocal ? 'Buat Local Playlist' : 'Buat Playlist Baru'}
     </h2>
-    <button
-      type="button"
-      onclick={() => dialogEl?.close()}
-      aria-label="Tutup"
-      class="m3-icon-btn w-9 h-9 flex items-center justify-center cursor-pointer"
-    >
-      <Icon name="x" size={16} />
-    </button>
   </div>
 
   <form onsubmit={handleFormSubmit} class="space-y-4">
