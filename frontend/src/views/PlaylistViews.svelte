@@ -357,7 +357,7 @@
             </div>
 
             <button type="button" onclick={startEdit} class="block text-left cursor-pointer group">
-              <h1 class="text-3xl font-extrabold tracking-tight group-hover:underline decoration-2 underline-offset-4" style="color: var(--md-sys-color-on-surface);">
+              <h1 class="text-3xl font-bold tracking-tight group-hover:underline decoration-2 underline-offset-4" style="color: var(--md-sys-color-on-surface);">
                 {pl.name}
               </h1>
             </button>
@@ -704,7 +704,7 @@
       <!-- Recommended Section: 10 Lagu Acak dari Top 100 YouTube Music -->
       <section class="pt-2 space-y-3">
         <div class="flex items-end justify-between gap-3">
-          <h2 class="text-base font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+          <h2 class="text-base font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
             Direkomendasikan
           </h2>
           <button
@@ -806,7 +806,7 @@
     style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
   >
     <div class="flex items-center justify-between mb-5">
-      <h2 id="edit-playlist-title" class="text-xl font-extrabold tracking-tight">
+      <h2 id="edit-playlist-title" class="text-xl font-bold tracking-tight">
         Edit detail
       </h2>
       <button
@@ -892,7 +892,7 @@
             <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--md-sys-color-primary)]">
               Collection • Playlists
             </div>
-            <h1 class="text-3xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+            <h1 class="text-3xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
               Playlists
             </h1>
             <p class="text-xs tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
@@ -962,7 +962,7 @@
           <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
             <Icon name="playlist" weight="fill" size={38} />
           </div>
-          <h2 class="text-2xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+          <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
             Belum ada playlist
           </h2>
           <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
@@ -1041,7 +1041,7 @@
   style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
 >
   <div class="flex items-center justify-between mb-5">
-    <h2 id="import-playlist-title" class="text-lg font-extrabold tracking-tight">
+    <h2 id="import-playlist-title" class="text-lg font-bold tracking-tight">
       Import Playlist
     </h2>
     <button

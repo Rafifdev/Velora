@@ -445,7 +445,7 @@
             <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--md-sys-color-secondary)]">
               Playback Archive
             </div>
-            <h1 class="text-3xl font-extrabold tracking-tight text-[var(--md-sys-color-on-surface)]">History</h1>
+            <h1 class="text-3xl font-bold tracking-tight text-[var(--md-sys-color-on-surface)]">History</h1>
             <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] tabular-nums">
               {history.length} recent streams • {listeningStats.totalMinutes} min listened
             </p>
@@ -487,7 +487,7 @@
           <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
             <Icon name="music-note" weight="bold" size={38} />
           </div>
-          <h2 class="text-2xl font-extrabold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+          <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
             Belum ada riwayat putar
           </h2>
           <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">

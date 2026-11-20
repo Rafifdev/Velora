@@ -333,7 +333,7 @@
         </div>
 
         <h1
-          class="text-2xl sm:text-4xl lg:text-[42px] font-extrabold tracking-tight leading-tight line-clamp-2"
+          class="text-2xl sm:text-4xl lg:text-[42px] font-bold tracking-tight leading-tight line-clamp-2"
           style="color: var(--md-sys-color-on-surface);"
         >
           {displayTitle}

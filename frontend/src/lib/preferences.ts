@@ -79,6 +79,20 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     widget: 'toggle',
     defaultValue: 'true'
   },
+  {
+    id: 'dynamicIsland.style',
+    category: 'general',
+    group: 'Desktop',
+    title: 'Gaya Dynamic Island',
+    description: 'Pilih tampilan menempel di tepi atas layar atau melayang bebas berbentuk pil.',
+    widget: 'segmented',
+    defaultValue: 'notch',
+    options: [
+      { value: 'notch', label: 'Menempel' },
+      { value: 'pill', label: 'Melayang' }
+    ],
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
 
   // Pemutaran
   {
