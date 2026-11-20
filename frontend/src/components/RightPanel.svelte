@@ -5,6 +5,7 @@
   import { isYTVideoThumb, resolveCoverUrl } from '../lib/api';
   import { svelteMotionEnter } from '../lib/motion';
   import { getPrefBool, getPrefValue } from '../lib/preferences';
+  import { getPrefLang, tr } from '../lib/i18n';
   import type { Track, TrackLyrics } from '../lib/types';
   import Icon from './Icon.svelte';
 
@@ -82,6 +83,7 @@
   const COLLAPSED_HOVER_WIDTH = 72;
   let collapsedHover = $state(false);
 
+  const lang = $derived(getPrefLang(preferences));
   const lyricsAutoScroll = $derived(getPrefBool(preferences, 'lyrics.autoScroll'));
   const lyricsTextSize = $derived(Number(getPrefValue(preferences, 'lyrics.textSize') || '1'));
 
@@ -313,7 +315,7 @@
           </span>
         </button>
         <span class="text-xs font-semibold tracking-wide truncate" style="color: var(--md-sys-color-on-surface-variant);">
-          {mode === 'queue' ? 'Antrean' : 'Sedang Diputar'}
+          {mode === 'queue' ? tr(lang, 'nav.queue') : tr(lang, 'nav.nowPlaying')}
         </span>
       </div>
       {#if mode === 'queue' && onChangeMode}
@@ -378,12 +380,12 @@
           <section class="space-y-2">
             <h3 class="px-1.5 text-[14px] font-bold leading-snug" style="color: var(--md-sys-color-on-surface);">
               {queueSourceTitle
-                ? `Berikutnya dari: ${queueSourceTitle}`
-                : 'Berikutnya: Rekomendasi untuk Anda'}
+                ? `${tr(lang, 'nav.nextFrom')} ${queueSourceTitle}`
+                : tr(lang, 'nav.upNext')}
             </h3>
             {#if upcomingQueue.length === 0}
               <p class="px-1.5 text-xs py-2" style="color: var(--md-sys-color-on-surface-variant);">
-                Antrean berikutnya masih kosong.
+                {tr(lang, 'nav.emptyQueue')}
               </p>
             {:else}
               <div class="space-y-1">
@@ -496,13 +498,13 @@
         style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
       >
         <div class="flex items-center justify-between gap-2 mb-3">
-          <span class="text-[15px] font-bold">Lirik</span>
+          <span class="text-[15px] font-bold">{tr(lang, 'nav.lyrics')}</span>
 
           <button
             type="button"
             onclick={() => onOpenLyrics?.()}
-            title="Perluas lirik"
-            aria-label="Perluas lirik"
+            title={tr(lang, 'nav.expandLyrics')}
+            aria-label={tr(lang, 'nav.expandLyrics')}
             class="w-7 h-7 rounded-full flex items-center justify-center opacity-75 hover:opacity-100 hover:bg-[var(--md-sys-color-state-hover)] transition-colors cursor-pointer"
           >
             <Icon name="arrows-out-simple" size={16} />
@@ -517,10 +519,10 @@
           >
             {#if !currentTrack}
               <p class="text-[14px] font-semibold opacity-80 py-3">
-                Putar lagu untuk menampilkan lirik.
+                {tr(lang, 'nav.playSongForLyrics')}
               </p>
             {:else if lyricsLoading}
-              <div class="py-6 flex items-center justify-center" aria-label="Memuat lirik">
+              <div class="py-6 flex items-center justify-center" aria-label={tr(lang, 'nav.loadingLyrics')}>
                 <span class="velora-eq-loader" style="--loader-color: var(--md-sys-color-on-primary-container);" aria-hidden="true">
                   <span class="velora-eq-bar"></span>
                   <span class="velora-eq-bar"></span>
@@ -545,7 +547,7 @@
               {/each}
             {:else}
               <p class="text-[14px] font-semibold text-[var(--md-sys-color-on-primary-container)] opacity-75 py-4">
-                Lirik tidak ditemukan untuk "{currentTrack.title}".
+                {tr(lang, 'nav.noLyricsFor')} "{currentTrack.title}".
               </p>
             {/if}
           </div>
@@ -560,7 +562,7 @@
               style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
               class="text-[12px] font-bold px-4 py-1.5 rounded-full cursor-pointer opacity-0 translate-y-3 pointer-events-none group-hover/lyrics:opacity-100 group-hover/lyrics:translate-y-0 group-hover/lyrics:pointer-events-auto transition-all duration-300 ease-out hover:scale-[1.03] active:scale-[0.98]"
             >
-              {lyricsExpanded ? 'Lihat lebih sedikit' : 'Lihat lebih banyak'}
+              {lyricsExpanded ? tr(lang, 'nav.seeLess') : tr(lang, 'nav.seeMore')}
             </button>
           </div>
         </div>
@@ -573,19 +575,19 @@
         style="background-color: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface);"
       >
         <div class="flex items-center justify-between gap-2 mb-3.5">
-          <span class="text-[15px] font-bold">Antrean berikutnya</span>
+          <span class="text-[15px] font-bold">{tr(lang, 'nav.upNext')}</span>
           <button
             type="button"
             onclick={() => (onChangeMode ? onChangeMode('queue') : (queueExpanded = !queueExpanded))}
             class="text-[13px] font-bold text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)] hover:underline cursor-pointer transition-colors shrink-0"
           >
-            Buka antrean
+            {tr(lang, 'nav.openQueue')}
           </button>
         </div>
 
         {#if !nextTrack}
           <p class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] py-2">
-            Antrean berikutnya masih kosong.
+            {tr(lang, 'nav.emptyQueue')}
           </p>
         {:else if !queueExpanded}
           {@const nextCover = resolveCoverUrl(nextTrack.coverUrl, mediaBaseUrl)}

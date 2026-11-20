@@ -116,6 +116,8 @@ export function SearchYouTubeMusicPlaylists(arg1:string):Promise<Array<sources.Y
 
 export function SetDynamicIslandEnabled(arg1:boolean):Promise<void>;
 
+export function SetDynamicIslandLanguage(arg1:string):Promise<void>;
+
 export function SetDynamicIslandStyle(arg1:string):Promise<void>;
 
 export function SetFrontendFS(arg1:fs.FS):Promise<void>;

@@ -1,26 +1,29 @@
 <script lang="ts">
   import { fly } from 'svelte/transition';
   import { PREFERENCE_APP_TABS, PREFERENCE_CATEGORIES } from '../lib/preferences';
+  import { tr, type LangCode } from '../lib/i18n';
   import Icon from './Icon.svelte';
 
   interface Props {
     activeTab: string;
     search: string;
     savedToast?: string;
+    lang?: LangCode;
     onBack: () => void;
   }
 
   let {
-    activeTab = $bindable('general'),
+    activeTab = $bindable('appearance'),
     search = $bindable(''),
     savedToast = '',
+    lang = 'en',
     onBack
   }: Props = $props();
 </script>
 
 <div
   in:fly={{ x: -12, duration: 220 }}
-  aria-label="Preferences navigation"
+  aria-label="Settings navigation"
   class="w-full h-full min-h-0 flex flex-col justify-between select-none"
 >
   <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-2.5 space-y-4">
@@ -30,14 +33,14 @@
         <button
           type="button"
           onclick={onBack}
-          title="Kembali"
-          aria-label="Kembali dari Preferences"
+          title={tr(lang, 'nav.back')}
+          aria-label={tr(lang, 'nav.back')}
           class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer shrink-0"
         >
           <Icon name="arrow-left" size={17} />
         </button>
         <span class="text-[13px] font-bold tracking-tight truncate" style="color: var(--md-sys-color-on-surface);">
-          Pengaturan
+          {tr(lang, 'nav.settings')}
         </span>
       </div>
       {#if savedToast}
@@ -45,7 +48,7 @@
           class="px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0"
           style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
         >
-          Tersimpan
+          {tr(lang, 'nav.saved')}
         </span>
       {/if}
     </div>
@@ -61,18 +64,18 @@
       <input
         type="search"
         bind:value={search}
-        placeholder="Cari pengaturan..."
+        placeholder={tr(lang, 'nav.searchSettings')}
         class="m3-input w-full h-9 pl-8 pr-3 rounded-md text-[12px] outline-none"
       />
     </div>
 
-    <!-- Section 1: Pengaturan -->
+    <!-- Section 1: Settings Categories -->
     <div class="space-y-1">
       <div
         class="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider"
         style="color: var(--md-sys-color-on-surface-variant); opacity: 0.78;"
       >
-        Kategori
+        {tr(lang, 'nav.categories')}
       </div>
       {#each PREFERENCE_CATEGORIES as cat (cat.id)}
         {@const active = !search.trim() && activeTab === cat.id}
@@ -90,18 +93,18 @@
             : 'color: var(--md-sys-color-on-surface-variant);'}
         >
           <Icon name={cat.icon} weight={active ? 'fill' : 'regular'} size={18} class="shrink-0" />
-          <span class="truncate">{cat.title}</span>
+          <span class="truncate">{tr(lang, cat.titleKey, cat.title)}</span>
         </button>
       {/each}
     </div>
 
-    <!-- Section 2: Aplikasi -->
+    <!-- Section 2: App Info -->
     <div class="space-y-1">
       <div
         class="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider"
         style="color: var(--md-sys-color-on-surface-variant); opacity: 0.78;"
       >
-        Aplikasi
+        Velora
       </div>
       {#each PREFERENCE_APP_TABS as tab (tab.id)}
         {@const active = !search.trim() && activeTab === tab.id}
@@ -119,7 +122,7 @@
             : 'color: var(--md-sys-color-on-surface-variant);'}
         >
           <Icon name={tab.icon} weight={active ? 'fill' : 'regular'} size={18} class="shrink-0" />
-          <span class="truncate">{tab.title}</span>
+          <span class="truncate">{tr(lang, tab.titleKey, tab.title)}</span>
         </button>
       {/each}
     </div>

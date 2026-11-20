@@ -5,6 +5,7 @@
   import { api, isJamRemote, resolveCoverUrl, safeEventsOn, sendJamCommand } from './lib/api';
   import { VeloraAudioEngine } from './lib/audioEngine';
   import { getPrefBool, getPrefValue } from './lib/preferences';
+  import { getPrefLang, tr } from './lib/i18n';
   import type {
     Album,
     Artist,
@@ -83,6 +84,9 @@
   let sources = $state<Source[]>([]);
   let history = $state<PlayHistoryItem[]>([]);
   let preferences = $state<Record<string, string>>({});
+  const appLang = $derived(getPrefLang(preferences));
+  const lockLeftHidden = $derived(getPrefBool(preferences, 'layout.hideLeft'));
+  const lockRightHidden = $derived(getPrefBool(preferences, 'layout.hideRight'));
   let mediaBaseUrl = $state('');
 
   let fireStreak = $state<FireStreakStatus>({
@@ -133,6 +137,33 @@
   let loadingCollectionId = $state<string | null>(null);
   let playRequestSeq = 0;
   let switchingTrack = false;
+  let pendingResumeSeek = 0;
+  let silentTailTicks = 0;
+  let lastQueueSaveAt = 0;
+
+  function getRadioLimit(): number {
+    const val = Number(getPrefValue(preferences, 'playback.radioSize'));
+    if (val === 0) return 50;
+    return Number.isFinite(val) && val > 0 ? val : 20;
+  }
+
+  function saveLastQueue(force = false): void {
+    if (!getPrefBool(preferences, 'playback.resumeQueue') || !currentTrack || queue.length === 0) return;
+    const now = Date.now();
+    if (!force && now - lastQueueSaveAt < 2500) return;
+    lastQueueSaveAt = now;
+    try {
+      const idx = Math.max(0, queue.findIndex((t) => trackQueueKey(t) === trackQueueKey(currentTrack!)));
+      localStorage.setItem('velora.lastQueue', JSON.stringify({
+        queue: queue.slice(0, 50),
+        index: idx < 50 ? idx : 0,
+        positionSec: Math.floor(positionSec || 0),
+        queueSourceTitle,
+      }));
+    } catch {
+      // Ignore storage quota errors
+    }
+  }
   let sourcesStatus = $state('');
 
   // Dynamic Left & Right Panel Width + Collapse States
@@ -142,7 +173,7 @@
   let rightCollapsed = $state(false);
   let rightPanelMode = $state<'now-playing' | 'queue'>('now-playing');
   let focusRightSignal = $state<{ card: 'album' | 'lyrics' | 'queue'; seq: number } | null>(null);
-  let activePrefTab = $state<string>('general');
+  let activePrefTab = $state<string>('appearance');
   let prefSearch = $state('');
   let prefSavedToast = $state('');
   let seekDeltaSec = $state(0);
@@ -708,8 +739,54 @@
       const v = Number(preferences['volume']);
       if (Number.isFinite(v)) volume = v;
     }
+    const startVol = Number(getPrefValue(preferences, 'playback.startVolume'));
+    if (Number.isFinite(startVol) && startVol >= 0) {
+      volume = startVol;
+    }
+    if (getPrefBool(preferences, 'playback.shuffleOnStart')) {
+      shuffle = true;
+    }
     audioEngine.setVolume(volume, muted);
+
+    if (getPrefBool(preferences, 'playback.resumeQueue') && !currentTrack) {
+      try {
+        const raw = localStorage.getItem('velora.lastQueue');
+        if (raw) {
+          const saved = JSON.parse(raw) as { queue?: Track[]; index?: number; positionSec?: number; queueSourceTitle?: string };
+          if (Array.isArray(saved.queue) && saved.queue.length > 0) {
+            const idx = typeof saved.index === 'number' && saved.index >= 0 && saved.index < saved.queue.length ? saved.index : 0;
+            queue = saved.queue;
+            queueSourceTitle = saved.queueSourceTitle || '';
+            currentTrack = saved.queue[idx];
+            positionSec = typeof saved.positionSec === 'number' && saved.positionSec > 0 ? saved.positionSec : 0;
+            durationSec = currentTrack.durationSec || 0;
+            pendingResumeSeek = positionSec;
+            isPlaying = false;
+            loadLyricsForTrack(currentTrack);
+          }
+        }
+      } catch {
+        // Ignore corrupt saved queue
+      }
+    }
+
+    const startPage = getPrefValue(preferences, 'appearance.startPage');
+    if (startPage === 'explore') {
+      homeFilter = 'musik';
+      void navigate({ name: 'home', filter: 'musik' });
+    } else if (startPage === 'library') {
+      void navigate({ name: 'liked-songs' });
+    }
   }
+
+  $effect(() => {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    const perf = getPrefValue(preferences, 'appearance.performance') || 'full';
+    root.dataset.perf = perf;
+    root.dataset.shade = getPrefValue(preferences, 'appearance.shade') || 'soft';
+    root.dataset.animations = perf === 'lite' ? 'off' : 'on';
+  });
 
   async function patchPrefs(patch: Record<string, string>) {
     preferences = { ...preferences, ...patch };
@@ -1662,10 +1739,11 @@
       if (diverse.length >= 20) break;
     }
 
-    let picked = shuffleAndSpreadByArtist(diverse, (t) => t.artistName || t.albumTitle || '').slice(0, 20);
-    if (picked.length < 20) {
-      const extra = collectFallbackGenrePool(seen, 20 - picked.length);
-      picked = shuffleAndSpreadByArtist([...picked, ...extra], (t) => t.artistName || t.albumTitle || '').slice(0, 20);
+    const radioLimit = getRadioLimit();
+    let picked = shuffleAndSpreadByArtist(diverse, (t) => t.artistName || t.albumTitle || '').slice(0, radioLimit);
+    if (picked.length < radioLimit) {
+      const extra = collectFallbackGenrePool(seen, radioLimit - picked.length);
+      picked = shuffleAndSpreadByArtist([...picked, ...extra], (t) => t.artistName || t.albumTitle || '').slice(0, radioLimit);
     }
 
     for (const item of picked) {
@@ -1693,7 +1771,12 @@
     algoBatchRound = 0;
     const tr = await api.playYTMusicTrack(yt);
     playedAlgoKeys = new Set<string>([trackQueueKey(tr)]);
-    const seed = collectFallbackGenrePool(playedAlgoKeys, 20);
+    if (!getPrefBool(preferences, 'playback.radioOnPick')) {
+      await playTrack(tr, [tr], '');
+      void refreshAll();
+      return;
+    }
+    const seed = collectFallbackGenrePool(playedAlgoKeys, getRadioLimit());
     for (const s of seed) {
       playedAlgoKeys.add(trackQueueKey(s));
     }
@@ -1841,8 +1924,12 @@
         queue = [tr, ...shuffleAndSpreadByArtist(rest, (item) => item.artistName || item.albumTitle || '')];
       }
     } else {
-      queue = buildLocalAlgorithmQueue(tr);
-      void populateYTMusicAlgorithmQueue(tr);
+      if (getPrefBool(preferences, 'playback.radioOnPick')) {
+        queue = buildLocalAlgorithmQueue(tr);
+        void populateYTMusicAlgorithmQueue(tr);
+      } else {
+        queue = [tr];
+      }
     }
 
     const prevTrack = currentTrack;
@@ -1853,12 +1940,16 @@
     }
 
     const seq = ++playRequestSeq;
+    const resumeSeek = pendingResumeSeek > 0 && currentTrack && trackQueueKey(currentTrack) === trackQueueKey(tr) ? pendingResumeSeek : 0;
+    pendingResumeSeek = 0;
+    silentTailTicks = 0;
     currentTrack = tr;
     listenedAccumulator = 0;
     recordedForCurrentTrack = false;
-    positionSec = 0;
+    positionSec = resumeSeek;
     durationSec = tr.durationSec;
     loadLyricsForTrack(tr);
+    saveLastQueue(true);
 
     let streamUrl = resolveDirectStreamUrl(tr);
     if (streamUrl) {
@@ -1879,7 +1970,11 @@
       audioEngine.setVolume(volume, muted);
       try {
         await audioEngine.resume();
-        audioEngine.fadeIn(0.03);
+        const cfSec = Number(getPrefValue(preferences, 'playback.crossfadeSec'));
+        audioEngine.fadeIn(Number.isFinite(cfSec) && cfSec > 0 ? Math.min(cfSec * 0.45, 2.5) : 0.03);
+        if (resumeSeek > 0 && Number.isFinite(resumeSeek)) {
+          audioEl.currentTime = resumeSeek;
+        }
         await audioEl.play();
         if (seq === playRequestSeq) {
           isPlaying = true;
@@ -1918,6 +2013,32 @@
       if (listenedAccumulator >= 10 && !recordedForCurrentTrack) {
         recordedForCurrentTrack = true;
         flushListenProgress(currentTrack.id, 10, false);
+      }
+      saveLastQueue();
+
+      if (durationSec > 0) {
+        const remaining = durationSec - positionSec;
+        const cfSec = Number(getPrefValue(preferences, 'playback.crossfadeSec'));
+        if (Number.isFinite(cfSec) && cfSec > 0 && durationSec > cfSec * 2) {
+          if (remaining <= cfSec && remaining > 0) {
+            audioEngine.setFadeLevel(Math.max(0.05, remaining / cfSec));
+          } else if (positionSec > Math.min(cfSec * 0.45, 2.5)) {
+            audioEngine.setFadeLevel(1.0);
+          }
+        }
+        if (!switchingTrack && getPrefBool(preferences, 'playback.skipSilence') && durationSec > 15 && remaining <= 5 && remaining > 0.4) {
+          if (audioEngine.getRmsLevel() < 0.006) {
+            silentTailTicks += 1;
+            if (silentTailTicks >= 3) {
+              silentTailTicks = 0;
+              void handleAudioEnded();
+            }
+          } else {
+            silentTailTicks = 0;
+          }
+        } else {
+          silentTailTicks = 0;
+        }
       }
     }
   }
@@ -1982,7 +2103,7 @@
       await playTrack(queue[nextIdx], queue, queueSourceTitle);
     } else if (repeatMode === 'all' && queueSourceTitle !== '') {
       await playTrack(queue[0], queue, queueSourceTitle);
-    } else if (currentTrack) {
+    } else if (currentTrack && getPrefBool(preferences, 'playback.autoplay')) {
       if (queueSourceTitle !== '') {
         algoBatchRound = 0;
         playedAlgoKeys = new Set<string>(queue.map(trackQueueKey));
@@ -2010,7 +2131,8 @@
       await sendJamCommand('prev');
       return;
     }
-    if (audioEl && audioEl.currentTime > 3) {
+    const restartThreshold = Number(getPrefValue(preferences, 'playback.prevRestartSec'));
+    if (audioEl && Number.isFinite(restartThreshold) && restartThreshold > 0 && audioEl.currentTime > restartThreshold) {
       audioEl.currentTime = 0;
       return;
     }
@@ -2295,6 +2417,8 @@
     {mediaBaseUrl}
     {zoomLevel}
     {zoomBadgeVisible}
+    showStreak={true}
+    lang={appLang}
     jamRunning={jamStatus.running}
     {jamStatus}
     jamOpen={jamModalOpen}
@@ -2332,6 +2456,7 @@
   <!-- Main 3-Section Resizable & Collapsible Borderless Workspace -->
   <div
     class="flex-1 min-h-0 flex gap-2 pl-2 pb-2 overflow-hidden {rightCollapsed &&
+    !lockRightHidden &&
     currentRoute.name !== 'preferences' &&
     currentRoute.name !== 'track-detail' &&
     currentRoute.name !== 'album-detail' &&
@@ -2345,7 +2470,8 @@
       <Sidebar
       {currentRoute}
       width={leftWidth}
-      collapsed={leftCollapsed}
+      collapsed={lockLeftHidden ? true : leftCollapsed}
+      lockedCollapsed={lockLeftHidden}
       {accentColor}
       favoriteAlbumsCount={albums.filter((a) => a.isFavorite).length}
       favoriteTracksCount={tracks.filter((t) => t.isFavorite).length}
@@ -2357,6 +2483,7 @@
       bind:activePrefTab
       bind:prefSearch
       {prefSavedToast}
+      lang={appLang}
       onBackFromPreferences={() => {
         if (navIndex > 0) goBack();
         else navigate({ name: 'home' });
@@ -2384,6 +2511,10 @@
     >
       {#if currentRoute.name === 'home'}
         <HomeView
+          lang={appLang}
+          showGreeting={getPrefBool(preferences, 'appearance.showGreeting')}
+          showRecentHome={getPrefBool(preferences, 'appearance.showRecentHome')}
+          meltCards={getPrefBool(preferences, 'appearance.meltCards')}
           {albums}
           {artists}
           {tracks}
@@ -2427,6 +2558,7 @@
         />
       {:else if currentRoute.name === 'search' || currentRoute.name === 'liked-songs' || currentRoute.name === 'downloaded' || currentRoute.name === 'favorite-albums' || currentRoute.name === 'favorite-artists' || currentRoute.name === 'artist-detail'}
         <LibraryViews
+          lang={appLang}
           mode={currentRoute.name}
           {searchQuery}
           {tracks}
@@ -2494,6 +2626,7 @@
         />
       {:else if currentRoute.name === 'playlists' || currentRoute.name === 'local-playlists' || currentRoute.name === 'playlist-detail'}
         <PlaylistViews
+          lang={appLang}
           mode={currentRoute.name}
           {playlists}
           {playlistsLoading}
@@ -2718,8 +2851,8 @@
       {/if}
     </main>
 
-    <!-- SECTION 3 (RIGHT): Hidden on Preferences, Track/Album Detail & Lyrics pages -->
-    {#if (!isMobile || mobileShowQueue) && currentRoute.name !== 'preferences' && currentRoute.name !== 'track-detail' && currentRoute.name !== 'album-detail' && currentRoute.name !== 'yt-album-detail' && currentRoute.name !== 'lyrics'}
+    <!-- SECTION 3 (RIGHT): Hidden when locked in Settings or on Preferences, Track/Album Detail & Lyrics pages -->
+    {#if !lockRightHidden && (!isMobile || mobileShowQueue) && currentRoute.name !== 'preferences' && currentRoute.name !== 'track-detail' && currentRoute.name !== 'album-detail' && currentRoute.name !== 'yt-album-detail' && currentRoute.name !== 'lyrics'}
       <RightPanel
         width={isMobile ? window.innerWidth - 16 : rightWidth}
         collapsed={isMobile ? false : rightCollapsed}
@@ -2760,6 +2893,7 @@
   <!-- Bottom Full-Width Flat Player Bar (No rounded corners) -->
   <div class="w-full shrink-0">
     <PlayerBar
+      lang={appLang}
       {currentTrack}
       {isPlaying}
       {positionSec}
@@ -2775,6 +2909,7 @@
       {seekDeltaSeq}
       {mediaBaseUrl}
       {accentColor}
+      waveBar={getPrefBool(preferences, 'playback.waveBar')}
       onTogglePlay={togglePlay}
       onPrev={playPrev}
       onNext={playNext}
@@ -2803,6 +2938,7 @@
         }
       }}
       onFocusRightCard={(card) => {
+        if (lockRightHidden) return;
         if (card === 'queue') {
           if (!rightCollapsed && rightPanelMode === 'queue') {
             rightCollapsed = true;
@@ -2881,14 +3017,14 @@
           </div>
           <div class="grid grid-cols-2 gap-2">
             {#each [
-              { label: 'Favorite albums', icon: 'vinyl-record', route: { name: 'favorite-albums' } as ViewRoute },
-              { label: 'Favorite music', icon: 'music-note', route: { name: 'liked-songs' } as ViewRoute },
-              { label: 'Favorite artists', icon: 'user', route: { name: 'favorite-artists' } as ViewRoute },
-              { label: 'Playlists', icon: 'playlist', route: { name: 'playlists' } as ViewRoute },
-              { label: 'Downloaded', icon: 'download', route: { name: 'downloaded' } as ViewRoute },
-              { label: 'History', icon: 'clock-counter-clockwise', route: { name: 'history' } as ViewRoute },
-              { label: 'Settings', icon: 'gear', route: { name: 'preferences' } as ViewRoute }
-            ] as entry (entry.label)}
+              { label: tr(appLang, 'nav.favoriteAlbums'), icon: 'vinyl-record', route: { name: 'favorite-albums' } as ViewRoute },
+              { label: tr(appLang, 'nav.favoriteMusic'), icon: 'music-note', route: { name: 'liked-songs' } as ViewRoute },
+              { label: tr(appLang, 'nav.favoriteArtists'), icon: 'user', route: { name: 'favorite-artists' } as ViewRoute },
+              { label: tr(appLang, 'nav.playlists'), icon: 'playlist', route: { name: 'playlists' } as ViewRoute },
+              { label: tr(appLang, 'nav.downloaded'), icon: 'download', route: { name: 'downloaded' } as ViewRoute },
+              { label: tr(appLang, 'nav.history'), icon: 'clock-counter-clockwise', route: { name: 'history' } as ViewRoute },
+              { label: tr(appLang, 'nav.settings'), icon: 'gear', route: { name: 'preferences' } as ViewRoute }
+            ] as entry (entry.icon)}
               <button
                 type="button"
                 onclick={() => {

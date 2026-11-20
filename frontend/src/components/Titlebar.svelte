@@ -2,6 +2,7 @@
   import { fade, scale } from 'svelte/transition';
   import { api, isJamRemote, resolveCoverUrl, isYTVideoThumb } from '../lib/api';
   import type { Artist, FireStreakStatus, JamStatus, Track, ViewRoute, YTMusicTrack } from '../lib/types';
+  import { tr, type LangCode } from '../lib/i18n';
   import Icon from './Icon.svelte';
   import JamModal from './JamModal.svelte';
 
@@ -19,6 +20,8 @@
     mediaBaseUrl?: string;
     zoomLevel?: number;
     zoomBadgeVisible?: boolean;
+    showStreak?: boolean;
+    lang?: LangCode;
     onBack: () => void;
     onForward: () => void;
     onNavigate: (route: ViewRoute) => void;
@@ -57,6 +60,8 @@
     mediaBaseUrl = '',
     zoomLevel = 1,
     zoomBadgeVisible = false,
+    showStreak = true,
+    lang = 'en',
     onBack,
     onForward,
     onNavigate,
@@ -494,7 +499,7 @@
           }}
           oninput={handleInput}
           onkeydown={handleKeyDown}
-          placeholder="Apa yang ingin kamu putar?"
+          placeholder={tr(lang, 'nav.searchPlaceholder')}
           class="w-full h-full bg-transparent text-[14px] font-normal outline-none border-none"
           style="color: var(--md-sys-color-on-surface);"
         />
@@ -502,26 +507,28 @@
           <button
             type="button"
             onclick={clearSearch}
-            title="Hapus pencarian"
-            aria-label="Hapus pencarian"
+            title={tr(lang, 'nav.clearSearch')}
+            aria-label={tr(lang, 'nav.clearSearch')}
             class="shrink-0 flex items-center justify-center cursor-pointer transition-opacity hover:opacity-80"
             style="color: var(--md-sys-color-on-surface);"
           >
             <Icon name="x" weight="regular" size={20} />
           </button>
         {/if}
-        <span class="w-[1px] h-6 shrink-0" style="background-color: rgba(114, 114, 114, 0.55);"></span>
-        <button
-          type="button"
-          onclick={onOpenStreakModal}
-          title="Fire Streak Hari Ini ({fireStreak.currentStreak} Hari)"
-          aria-label="Fire Streak {fireStreak.currentStreak}"
-          class="h-8 px-2.5 rounded-full flex items-center gap-1.5 shrink-0 text-[13px] font-bold cursor-pointer transition-all duration-200 hover:brightness-125"
-          style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
-        >
-          <Icon name="flame" weight="fill" size={18} style="color: var(--md-sys-color-tertiary);" />
-          <span class="tabular-nums">{fireStreak.currentStreak}</span>
-        </button>
+        {#if showStreak}
+          <span class="w-[1px] h-6 shrink-0" style="background-color: rgba(114, 114, 114, 0.55);"></span>
+          <button
+            type="button"
+            onclick={onOpenStreakModal}
+            title="Fire Streak Hari Ini ({fireStreak.currentStreak} Hari)"
+            aria-label="Fire Streak {fireStreak.currentStreak}"
+            class="h-8 px-2.5 rounded-full flex items-center gap-1.5 shrink-0 text-[13px] font-bold cursor-pointer transition-all duration-200 hover:brightness-125"
+            style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+          >
+            <Icon name="flame" weight="fill" size={18} style="color: var(--md-sys-color-tertiary);" />
+            <span class="tabular-nums">{fireStreak.currentStreak}</span>
+          </button>
+        {/if}
       </div>
 
       {#if dropdownVisible}
@@ -709,7 +716,7 @@
 
               {#if !isDebouncing && !ytLoading && titleSuggestions.length === 0 && songSuggestions.length === 0 && artistSuggestions.length === 0}
                 <div class="py-4 px-2 text-xs text-center" style="color: var(--md-sys-color-on-surface-variant);">
-                  Tidak ada saran ditemukan. Tekan <span class="font-semibold">Enter</span> untuk cari "{localQuery.trim()}".
+                  {tr(lang, 'nav.noSuggestions')} "{localQuery.trim()}".
                 </div>
               {/if}
             </div>

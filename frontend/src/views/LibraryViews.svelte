@@ -2,6 +2,7 @@
   import { formatDuration, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
   import { svelteMotionEnter } from '../lib/motion';
   import type { Album, Artist, DownloadProgress, Playlist, Track, ViewRoute, YTMusicArtistView, YTMusicTrack } from '../lib/types';
+  import { tr, type LangCode } from '../lib/i18n';
   import Icon from '../components/Icon.svelte';
   import TrackTable from '../components/TrackTable.svelte';
 
@@ -56,6 +57,7 @@
     onOpenYTMusicAlbum?: (yt: YTMusicTrack) => void;
     onOpenTrackAlbum?: (track: Track) => void;
     onNavigate?: (route: ViewRoute) => void;
+    lang?: LangCode;
   }
 
   let {
@@ -102,7 +104,8 @@
     onOpenArtist,
     onOpenYTMusicAlbum,
     onOpenTrackAlbum,
-    onNavigate
+    onNavigate,
+    lang = 'en'
   }: Props = $props();
 
   let mobileSearchInputEl: HTMLInputElement | undefined = $state();
@@ -259,7 +262,7 @@
               Favorites • Music
             </div>
             <h1 class="text-3xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-              Favorite music
+              {tr(lang, 'nav.favoriteMusic')}
             </h1>
             <p class="text-xs tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
               {likedTracks.length} lagu disukai • Local & YouTube Music
@@ -305,10 +308,10 @@
             <Icon name="music-note" weight="fill" size={38} />
           </div>
           <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-            Belum ada lagu favorit
+            {tr(lang, 'nav.noFavSongs')}
           </h2>
           <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-            Simpan lagu dengan mengetuk ikon hati.
+            {tr(lang, 'nav.noFavSongsDesc')}
           </p>
           <button
             type="button"
@@ -316,7 +319,7 @@
             class="mt-6 h-10 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
             style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
           >
-            Jelajahi lagu
+            {tr(lang, 'nav.exploreSongs')}
           </button>
         </div>
       {:else}

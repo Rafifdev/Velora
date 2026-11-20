@@ -432,6 +432,7 @@ type dynamicIslandController struct {
 	dwFontColl      uintptr
 	d2dFmtCache     map[d2dFmtKey]uintptr
 	d2dAlphaScratch []byte
+	lang            string
 
 	// Exact CSS transition state
 	lyricsOpen           bool
@@ -742,6 +743,122 @@ func (a *App) SetDynamicIslandEnabled(enabled bool) {
 	ctrl.mu.Unlock()
 	if ctrl.hwnd != 0 {
 		_, _, _ = procPostMessageW.Call(ctrl.hwnd, diWmAppSync, 0, 0)
+	}
+}
+
+func (a *App) SetDynamicIslandLanguage(lang string) {
+	globalIslandMu.Lock()
+	ctrl := globalIsland
+	globalIslandMu.Unlock()
+	if ctrl == nil {
+		return
+	}
+	ctrl.mu.Lock()
+	ctrl.lang = strings.ToLower(strings.TrimSpace(lang))
+	ctrl.mu.Unlock()
+}
+
+type diLocalizedStrings struct {
+	Connected     string
+	Available     string
+	NoLyrics      string
+	LoadingLyrics string
+	EmptyQueue    string
+	QueueTitle    string
+}
+
+func getDIStrings(lang string) diLocalizedStrings {
+	switch strings.ToLower(strings.TrimSpace(lang)) {
+	case "id":
+		return diLocalizedStrings{
+			Connected:     "Terhubung",
+			Available:     "Tersedia",
+			NoLyrics:      "Lirik tidak ditemukan.",
+			LoadingLyrics: "Memuat lirik…",
+			EmptyQueue:    "Antrean lagu kosong",
+			QueueTitle:    "Antrean",
+		}
+	case "ms":
+		return diLocalizedStrings{
+			Connected:     "Disambung",
+			Available:     "Tersedia",
+			NoLyrics:      "Lirik tidak ditemui.",
+			LoadingLyrics: "Memuatkan lirik…",
+			EmptyQueue:    "Baris gilir kosong",
+			QueueTitle:    "Baris Gilir",
+		}
+	case "ja":
+		return diLocalizedStrings{
+			Connected:     "接続済み",
+			Available:     "利用可能",
+			NoLyrics:      "歌詞が見つかりません。",
+			LoadingLyrics: "歌詞を読み込み中…",
+			EmptyQueue:    "再生キューは空です",
+			QueueTitle:    "キュー",
+		}
+	case "ko":
+		return diLocalizedStrings{
+			Connected:     "연결됨",
+			Available:     "사용 가능",
+			NoLyrics:      "가사를 찾을 수 없습니다.",
+			LoadingLyrics: "가사 불러오는 중…",
+			EmptyQueue:    "대기열이 비어 있습니다",
+			QueueTitle:    "대기열",
+		}
+	case "hi":
+		return diLocalizedStrings{
+			Connected:     "कनेक्टेड",
+			Available:     "उपलब्ध",
+			NoLyrics:      "बोल नहीं मिले।",
+			LoadingLyrics: "बोल लोड हो रहे हैं…",
+			EmptyQueue:    "कतार खाली है",
+			QueueTitle:    "कतार",
+		}
+	case "pt":
+		return diLocalizedStrings{
+			Connected:     "Conectado",
+			Available:     "Disponível",
+			NoLyrics:      "Letra não encontrada.",
+			LoadingLyrics: "Carregando letra…",
+			EmptyQueue:    "Fila vazia",
+			QueueTitle:    "Fila",
+		}
+	case "de":
+		return diLocalizedStrings{
+			Connected:     "Verbunden",
+			Available:     "Verfügbar",
+			NoLyrics:      "Keine Songtexte gefunden.",
+			LoadingLyrics: "Songtext wird geladen…",
+			EmptyQueue:    "Warteschlange ist leer",
+			QueueTitle:    "Warteschlange",
+		}
+	case "fr":
+		return diLocalizedStrings{
+			Connected:     "Connecté",
+			Available:     "Disponible",
+			NoLyrics:      "Paroles introuvables.",
+			LoadingLyrics: "Chargement des paroles…",
+			EmptyQueue:    "File d'attente vide",
+			QueueTitle:    "File d'attente",
+		}
+	case "es":
+		return diLocalizedStrings{
+			Connected:     "Conectado",
+			Available:     "Disponible",
+			NoLyrics:      "Letra no encontrada.",
+			LoadingLyrics: "Cargando letra…",
+			EmptyQueue:    "La cola está vacía",
+			QueueTitle:    "Cola",
+		}
+	default: // "en"
+		return diLocalizedStrings{
+			Connected:     "Connected",
+			Available:     "Available",
+			NoLyrics:      "No lyrics found.",
+			LoadingLyrics: "Loading lyrics…",
+			EmptyQueue:    "Queue is empty",
+			QueueTitle:    "Queue",
+		}
 	}
 }
 
@@ -2517,10 +2634,10 @@ func (c *dynamicIslandController) hitTestLocked(mxPhys, myPhys int) (int, float6
 			return diHitDot0 + idx, 0, -1
 		}
 		if math.Hypot(rx-38, ry-54) <= 17 {
-			return diHitPlay, 0, -1
+			return diHitShuffle, 0, -1
 		}
 		if math.Hypot(rx-385.5, ry-54) <= 17 {
-			return diHitShuffle, 0, -1
+			return diHitPlay, 0, -1
 		}
 		if len(c.queueItems) > 3 && rx >= 393 && rx <= 402 && ry >= 78 && ry <= 242 {
 			return diHitQueueScroll, 0, -1
@@ -2971,9 +3088,9 @@ func (c *dynamicIslandController) tickAndRender() {
 	}
 
 	if shouldAppear {
-		c.appearProg = math.Min(1.0, c.appearProg+0.12)
+		c.appearProg = math.Min(1.0, c.appearProg+dt/0.28)
 	} else {
-		c.appearProg = math.Max(0.0, c.appearProg-0.14)
+		c.appearProg = math.Max(0.0, c.appearProg-dt/0.34)
 	}
 
 	if c.activeMode == diModeLyrics {
@@ -3149,7 +3266,12 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	qTitle := c.queueTitle
 	qIndex := c.queueIndex
 	qScrollDp := c.queueScrollDp
+	qScrolling := c.queueDragScroll || math.Abs(c.queueTargetScrollDp-c.queueScrollDp) > 0.05 || c.lyricDragScroll || math.Abs(c.lyricTargetOffsetDp-c.lyricManualOffsetDp) > 0.05
 	qItems := c.queueItems
+	diLang := c.lang
+	if diLang == "" {
+		diLang = detectSystemLanguage()
+	}
 	hoverQueueIdx := c.hoverQueueIdx
 	queueDragScroll := c.queueDragScroll
 	shuffle := c.shuffle
@@ -3166,6 +3288,11 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	curWinX := c.winX
 	curWinY := c.winY
 	pillMode := c.pillMode
+	if pillMode && easeAppear < 0.999 {
+		// Slide floating pill smoothly up to & past the top edge of the screen as it hides
+		slideUp := (1.0 - easeAppear) * (float64(c.winY) + c.curH*u*0.55)
+		curWinY = int(math.Round(float64(c.winY) - slideUp))
+	}
 	pal := c.resolvePaletteLocked()
 	c.mu.Unlock()
 
@@ -3580,27 +3707,27 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 			// Row 1 Right: Live System Connectivity Icons (Wi-Fi, GPS, Bluetooth) - static X
 			c.drawSystemStatusIconsGdip(g, mapXStatic(w-76), mapXStatic(w-52), mapXStatic(w-28), mapY(18), u, wifiOn, gpsOn, btOn, hoverZone, contentOp, pal)
 
-			// Row 2: Play/Pause (38, 54) & Shuffle (405.5, 54)
-			playBgQ := pal.Accent
-			if hoverZone == diHitPlay {
-				playBgQ = lerpColor(pal.Accent, color.RGBA{R: 255, G: 255, B: 255, A: 255}, 0.14)
-			}
-			drawFilledPillGdip(g, mapX(38)-16.5*u, mapY(54)-16.5*u, 33.0*u, 33.0*u, 16.5*u, rgbaToARGB(playBgQ, contentOp))
-			qPlayGlyph := rune(0xE3D0)
-			if playing {
-				qPlayGlyph = 0xE39E
-			}
-			onTertiaryQ := color.RGBA{R: 0x34, G: 0x11, B: 0x00, A: 255}
-			c.drawPhosphorGlyphGdip(g, true, qPlayGlyph, mapX(38), mapY(54), 15.5*u, rgbaToARGB(onTertiaryQ, contentOp))
-
-			drawCircleButtonBgGdip(g, mapX(385.5), mapY(54), 16.5*u, hoverZone == diHitShuffle, shuffle, contentOp, pal)
+			// Row 2: Shuffle (38, 54) & Play/Pause (385.5, 54)
+			drawCircleButtonBgGdip(g, mapX(38), mapY(54), 16.5*u, hoverZone == diHitShuffle, shuffle, contentOp, pal)
 			shufCol := pal.TextMain
 			if shuffle {
 				shufCol = pal.Accent
 			} else if hoverZone == diHitShuffle {
 				shufCol = pal.Primary
 			}
-			c.drawPhosphorGlyphGdip(g, false, 0xE422, mapX(385.5), mapY(54), 16.0*u, rgbaToARGB(shufCol, contentOp))
+			c.drawPhosphorGlyphGdip(g, false, 0xE422, mapX(38), mapY(54), 16.0*u, rgbaToARGB(shufCol, contentOp))
+
+			playBgQ := pal.Accent
+			if hoverZone == diHitPlay {
+				playBgQ = lerpColor(pal.Accent, color.RGBA{R: 255, G: 255, B: 255, A: 255}, 0.14)
+			}
+			drawFilledPillGdip(g, mapX(385.5)-16.5*u, mapY(54)-16.5*u, 33.0*u, 33.0*u, 16.5*u, rgbaToARGB(playBgQ, contentOp))
+			qPlayGlyph := rune(0xE3D0)
+			if playing {
+				qPlayGlyph = 0xE39E
+			}
+			onTertiaryQ := color.RGBA{R: 0x34, G: 0x11, B: 0x00, A: 255}
+			c.drawPhosphorGlyphGdip(g, true, qPlayGlyph, mapX(385.5), mapY(54), 15.5*u, rgbaToARGB(onTertiaryQ, contentOp))
 
 			// Row 3..N: Smooth Inner Scroll Queue Viewport (y = 78..242)
 			const qViewTop = 78.0
@@ -3620,6 +3747,9 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 			lastIdx := minInt(len(qItems)-1, int(math.Ceil((qScrollDp+164.0)/54.0)))
 			var lazyURLs []string
 
+			if qScrolling {
+				_, _, _ = diProcGdipSetTextRendering.Call(g, 5) // AntiAlias (no grid-fit jitter during scroll)
+			}
 			for itemIdx := firstIdx; itemIdx <= lastIdx; itemIdx++ {
 				item := qItems[itemIdx]
 				cy := 104.0 + float64(itemIdx)*54.0 - qScrollDp
@@ -3662,14 +3792,21 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 						c.drawPhosphorGlyphGdip(g, false, 0xE33C, mapX(44), mapY(cy), 16.0*u, rgbaToARGB(pal.TextVariant, 0.50*contentOp))
 					}
 				}
-				// On current track: dark translucent overlay + centered Pause/Play glyph
+				// On current track: dark translucent overlay aligned pixel-exact with qArt + centered Pause/Play glyph
 				if isCur {
-					drawFilledPillGdip(g, mapX(25), mapY(cy-19), mapW(38), mapH(38), 6.0*u, rgbaToARGB(pal.BgDeep, 0.52*contentOp))
+					artX := int(math.Round(mapX(25)))
+					ovW := mapW(38)
+					ovH := mapH(38)
+					if qArt != nil {
+						ovW = float64(qArt.Bounds().Dx())
+						ovH = float64(qArt.Bounds().Dy())
+					}
+					drawFilledPillGdip(g, float64(artX)+0.5, mapY(cy-19)+0.5, ovW, ovH, 6.0*u, rgbaToARGB(pal.BgDeep, 0.52*contentOp))
 					gRune := rune(0xE3D0)
 					if playing {
 						gRune = 0xE39E
 					}
-					c.drawPhosphorGlyphGdip(g, true, gRune, mapX(44), mapY(cy), 15.0*u, rgbaToARGB(pal.TextMain, contentOp))
+					c.drawPhosphorGlyphGdip(g, true, gRune, float64(artX)+ovW/2.0, mapY(cy), 15.0*u, rgbaToARGB(pal.TextMain, contentOp))
 				}
 
 				// Heart (Love) icon directly inside the same row container at (372, cy)
@@ -3715,14 +3852,14 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 		title, artist, pos, dur, playing, lyricsOpen, vol, muted, eqPreset, streakDays,
 		audioDev, connType, btBat, sysBat, isBt, audioOutputs, hpListOpen, hpListProg, lyricsLoading, lyrics, lyricIdx, prevLyricIdx, lyricAnimProg, lyricCurY, lyricManualOffsetDp, hoverLyric,
 		closedLyricFrom, closedLyricTo, closedLyricProg,
-		qTitle, qIndex, qScrollDp, qItems, pal, now.Sub(c.marqueeStart).Seconds(),
+		qTitle, qIndex, qScrollDp, qItems, pal, now.Sub(c.marqueeStart).Seconds(), diLang, qScrolling,
 	) {
 		c.drawVeloraTextGdip(
 			g, nx, w, h, u, mode, contentOp, mapX, mapXStatic, mapY, mapW, mapH,
 			title, artist, pos, dur, playing, lyricsOpen, vol, muted, eqPreset, streakDays,
 			audioDev, connType, btBat, sysBat, isBt, audioOutputs, hpListOpen, hpListProg, lyricsLoading, lyrics, lyricIdx, prevLyricIdx, lyricAnimProg, lyricCurY, lyricManualOffsetDp, hoverLyric,
 			closedLyricFrom, closedLyricTo, closedLyricProg,
-			qTitle, qIndex, qScrollDp, qItems, pal, now.Sub(c.marqueeStart).Seconds(),
+			qTitle, qIndex, qScrollDp, qItems, pal, now.Sub(c.marqueeStart).Seconds(), diLang,
 		)
 	}
 
@@ -3744,9 +3881,13 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	sizeDst := diSize{Cx: int32(physW), Cy: int32(physH)}
 	ptDst := diPoint{X: int32(curWinX), Y: int32(curWinY)}
 	ptSrc := diPoint{}
+	constAlpha := uint8(255)
+	if easeAppear < 0.45 {
+		constAlpha = uint8(math.Round(255.0 * clamp01(easeAppear/0.45)))
+	}
 	blend := diBlendFunction{
 		BlendOp:             diAcSrcOver,
-		SourceConstantAlpha: 255,
+		SourceConstantAlpha: constAlpha,
 		AlphaFormat:         diAcSrcAlpha,
 	}
 	_, _, _ = diProcUpdateLayeredWindow.Call(
@@ -5212,10 +5353,12 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 	qItems []DynamicIslandQueueItem,
 	pal veloraBrandPalette,
 	marqueeElapsed float64,
+	diLang string,
 ) {
 	if contentOp <= 0.02 {
 		return
 	}
+	diStr := getDIStrings(diLang)
 
 	famReg := c.famRegular
 	famSemi := c.famSemiBold
@@ -5457,9 +5600,9 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 			}
 		}
 		drawStrPhys(activeDev.Name, f14Semi, brushMain, sfLeft, mapX(68), mapY(38), mapW(290), 22*u)
-		subTxt := "Terhubung"
+		subTxt := diStr.Connected
 		if activeDev.BatPct >= 0 && activeDev.BatPct <= 100 {
-			subTxt = fmt.Sprintf("Terhubung · %d%%", activeDev.BatPct)
+			subTxt = fmt.Sprintf("%s · %d%%", diStr.Connected, activeDev.BatPct)
 		}
 		drawStrPhys(subTxt, f115Reg, brushVar, sfLeft, mapX(68), mapY(60), mapW(290), 18*u)
 
@@ -5493,9 +5636,9 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 					_, _, _ = diProcGdipDeleteBrush.Call(bName)
 				}
 
-				subTxt := "Tersedia"
+				subTxt := diStr.Available
 				if dev.BatPct >= 0 && dev.BatPct <= 100 {
-					subTxt = fmt.Sprintf("Tersedia · %d%%", dev.BatPct)
+					subTxt = fmt.Sprintf("%s · %d%%", diStr.Available, dev.BatPct)
 				}
 				var bSub uintptr
 				_, _, _ = diProcGdipCreateSolidFill.Call(uintptr(rgbaToARGB(pal.TextVariant, 0.52*rowOp)), uintptr(unsafe.Pointer(&bSub)))
@@ -5526,9 +5669,9 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 		// Right Half: 1:1 Velora App Lyrics Card (wrapped multi-line lyrics, no header, no "...")
 		onPrimCont := color.RGBA{R: 0xD8, G: 0xF3, B: 0xFF, A: 255}
 		if len(lyrics) == 0 {
-			msgTitle := "Lirik tidak ditemukan."
+			msgTitle := diStr.NoLyrics
 			if lyricsLoading {
-				msgTitle = "Memuat lirik…"
+				msgTitle = diStr.LoadingLyrics
 			}
 			var bEmpty uintptr
 			_, _, _ = diProcGdipCreateSolidFill.Call(uintptr(rgbaToARGB(onPrimCont, 0.78*contentOp)), uintptr(unsafe.Pointer(&bEmpty)))
@@ -5659,13 +5802,13 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 
 		// Row 2 Center: Queue / Playlist Header Title
 		hdrTitle := qTitle
-		if hdrTitle == "" {
-			hdrTitle = "Queue"
+		if hdrTitle == "" || strings.EqualFold(hdrTitle, "Queue") || strings.EqualFold(hdrTitle, "Antrean") {
+			hdrTitle = diStr.QueueTitle
 		}
 		drawStrPhys(hdrTitle, f14Semi, brushMain, sfCenter, mapX(72), mapY(43), mapW(276), 22*u)
 
 		if len(qItems) == 0 {
-			drawStrPhys("Antrean lagu kosong", f13Semi, brushVar, sfCenter, mapX(40), mapY(136), mapW(340), 22*u)
+			drawStrPhys(diStr.EmptyQueue, f13Semi, brushVar, sfCenter, mapX(40), mapY(136), mapW(340), 22*u)
 			return
 		}
 

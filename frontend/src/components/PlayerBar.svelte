@@ -2,6 +2,7 @@
   import { fade, fly } from 'svelte/transition';
   import { api, formatDuration, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
   import type { Track } from '../lib/types';
+  import { tr, type LangCode } from '../lib/i18n';
   import Icon from './Icon.svelte';
 
   interface Props {
@@ -20,6 +21,8 @@
     seekDeltaSeq?: number;
     mediaBaseUrl: string;
     accentColor: string;
+    waveBar?: boolean;
+    lang?: LangCode;
     onTogglePlay: () => void;
     onPrev: () => void;
     onNext: () => void;
@@ -50,6 +53,8 @@
     seekDeltaSec = 0,
     seekDeltaSeq = 0,
     mediaBaseUrl,
+    waveBar = true,
+    lang = 'en',
     onTogglePlay,
     onPrev,
     onNext,
@@ -115,7 +120,7 @@
           type="button"
           disabled={!currentTrack}
           onclick={() => currentTrack && onToggleFavorite(currentTrack.id)}
-          aria-label="Sukai lagu"
+          aria-label={tr(lang, 'nav.likeSong')}
           class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer disabled:opacity-40"
         >
           <Icon
@@ -155,7 +160,7 @@
   <!-- Top Edge Full-Width Seekbar + Timestamps -->
   <div class="relative w-full">
     <div
-      class="w-full py-1.5 -mt-1.5 cursor-pointer"
+      class="relative w-full py-1.5 -mt-1.5 cursor-pointer"
       onpointerdown={(e) => {
         const rect = e.currentTarget.getBoundingClientRect();
         if (rect.width <= 0) return;
@@ -163,6 +168,40 @@
         onSeek(ratio * Math.max(1, effectiveDuration));
       }}
     >
+      {#if waveBar && isPlaying}
+        <div
+          class="pointer-events-none absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[9px] flex items-center"
+          aria-hidden="true"
+        >
+          <div
+            class="h-full overflow-hidden shrink-0"
+            style="width: {progressPct}%;"
+          >
+            <svg
+              class="velora-wave-svg h-full w-[calc(100%+24px)] block"
+              preserveAspectRatio="none"
+              style="color: var(--md-sys-color-primary);"
+            >
+              <defs>
+                <pattern id="velora-wave-pat" width="24" height="9" patternUnits="userSpaceOnUse">
+                  <path
+                    d="M0 4.5 Q6 1 12 4.5 T24 4.5"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                  />
+                </pattern>
+              </defs>
+              <rect width="100%" height="9" fill="url(#velora-wave-pat)" />
+            </svg>
+          </div>
+          <div
+            class="h-[4px] flex-1"
+            style="background-color: var(--md-sys-color-surface-container-highest);"
+          ></div>
+        </div>
+      {/if}
       <input
         type="range"
         min="0"
@@ -171,8 +210,10 @@
         value={Math.min(positionSec, Math.max(1, effectiveDuration))}
         oninput={(e) => onSeek(Number((e.target as HTMLInputElement).value))}
         aria-label="Seekbar durasi lagu"
-        class="velora-seekbar w-full block"
-        style="background: linear-gradient(to right, var(--md-sys-color-primary) {progressPct}%, var(--md-sys-color-surface-container-highest) {progressPct}%);"
+        class="velora-seekbar w-full block relative z-10"
+        style={waveBar && isPlaying
+          ? 'background: transparent;'
+          : `background: linear-gradient(to right, var(--md-sys-color-primary) ${progressPct}%, var(--md-sys-color-surface-container-highest) ${progressPct}%);`}
       />
     </div>
     <div
@@ -266,7 +307,7 @@
         type="button"
         disabled={!currentTrack}
         onclick={() => currentTrack && onToggleFavorite(currentTrack.id)}
-        aria-label="Sukai lagu"
+        aria-label={tr(lang, 'nav.likeSong')}
         class="hidden sm:flex m3-icon-btn w-9 h-9 items-center justify-center cursor-pointer disabled:opacity-35"
       >
         <Icon
@@ -280,7 +321,7 @@
       <button
         type="button"
         onclick={onToggleShuffle}
-        aria-label="Shuffle"
+        aria-label={tr(lang, 'nav.shuffle')}
         class="hidden sm:flex m3-icon-btn w-9 h-9 items-center justify-center relative cursor-pointer"
         style={shuffle ? 'color: var(--md-sys-color-primary);' : ''}
       >
@@ -296,7 +337,7 @@
       <button
         type="button"
         onclick={onPrev}
-        aria-label="Previous"
+        aria-label={tr(lang, 'nav.previous')}
         class="m3-icon-btn w-9 h-9 flex items-center justify-center cursor-pointer"
         style="color: var(--md-sys-color-on-surface);"
       >
@@ -306,7 +347,7 @@
       <button
         type="button"
         onclick={onTogglePlay}
-        aria-label={isPlaying ? 'Pause' : 'Play'}
+        aria-label={isPlaying ? tr(lang, 'nav.pause') : tr(lang, 'nav.play')}
         class="m3-fab w-12 h-12 flex items-center justify-center cursor-pointer"
       >
         <Icon name={isPlaying ? 'pause' : 'play'} weight="fill" size={21} />
@@ -315,7 +356,7 @@
       <button
         type="button"
         onclick={onNext}
-        aria-label="Next"
+        aria-label={tr(lang, 'nav.next')}
         class="m3-icon-btn w-9 h-9 flex items-center justify-center cursor-pointer"
         style="color: var(--md-sys-color-on-surface);"
       >
@@ -325,7 +366,7 @@
       <button
         type="button"
         onclick={onCycleRepeat}
-        aria-label="Repeat"
+        aria-label={tr(lang, 'nav.repeat')}
         class="hidden sm:flex m3-icon-btn w-9 h-9 items-center justify-center relative cursor-pointer"
         style={repeatMode !== 'off' ? 'color: var(--md-sys-color-primary);' : ''}
       >
@@ -345,8 +386,8 @@
         <button
           type="button"
           onclick={() => (onToggleLyrics ? onToggleLyrics() : onFocusRightCard('lyrics'))}
-          title={isLyricsOpen ? 'Tutup Lirik Layar Penuh' : 'Lirik Lagu'}
-          aria-label="Lirik Lagu"
+          title={isLyricsOpen ? tr(lang, 'nav.closeLyrics') : tr(lang, 'nav.songLyrics')}
+          aria-label={tr(lang, 'nav.songLyrics')}
           class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer"
           style={isLyricsOpen ? 'color: var(--md-sys-color-primary);' : ''}
         >
@@ -355,8 +396,8 @@
         <button
           type="button"
           onclick={() => onFocusRightCard('queue')}
-          title={rightCollapsed ? 'Expand Queue Card' : 'Focus Queue Card'}
-          aria-label="Focus Queue Card"
+          title={rightCollapsed ? tr(lang, 'nav.expandQueue') : tr(lang, 'nav.focusQueue')}
+          aria-label={tr(lang, 'nav.focusQueue')}
           class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer"
           style={!rightCollapsed && rightPanelMode === 'queue' ? 'color: var(--md-sys-color-primary);' : ''}
         >
@@ -365,8 +406,8 @@
         <button
           type="button"
           onclick={() => api.windowMinimize()}
-          title="Mini Player (Dynamic Island)"
-          aria-label="Minimize to Dynamic Island"
+          title={tr(lang, 'nav.miniPlayer')}
+          aria-label={tr(lang, 'nav.minimizeIsland')}
           class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer"
         >
           <Icon name="picture-in-picture" size={17} />
@@ -377,7 +418,7 @@
         <button
           type="button"
           onclick={onToggleMute}
-          aria-label={muted ? 'Unmute' : 'Mute'}
+          aria-label={muted ? tr(lang, 'nav.unmute') : tr(lang, 'nav.mute')}
           class="m3-icon-btn w-8 h-8 shrink-0 flex items-center justify-center cursor-pointer"
         >
           <Icon name={displayVolume === 0 ? 'speaker-x' : displayVolume < 45 ? 'speaker-low' : 'speaker-high'} size={18} />
