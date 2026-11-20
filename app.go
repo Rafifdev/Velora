@@ -402,6 +402,13 @@ func (a *App) GetBootstrapData() (BootstrapData, error) {
 	srcs, _ := a.store.GetSources()
 	history, _ := a.store.GetPlayHistory(100)
 	prefs, _ := a.store.GetPreferences()
+	if prefs == nil {
+		prefs = map[string]string{}
+	}
+	if prefs["content.language"] == "" {
+		prefs["content.language"] = detectSystemLanguage()
+	}
+	a.SetDynamicIslandLanguage(prefs["content.language"])
 	streak, _ := a.statsSvc.GetFireStreak(time.Now())
 	lStats, _ := a.statsSvc.GetListeningStats()
 
@@ -1175,6 +1182,9 @@ func (a *App) GetFireStreak() (stats.FireStreakStatus, error) {
 func (a *App) SavePreferences(prefs map[string]string) error {
 	if err := a.store.SavePreferences(prefs); err != nil {
 		return err
+	}
+	if lang, ok := prefs["content.language"]; ok && lang != "" {
+		a.SetDynamicIslandLanguage(lang)
 	}
 	_, hasID := prefs["integrations.spotify.clientId"]
 	_, hasSecret := prefs["integrations.spotify.clientSecret"]

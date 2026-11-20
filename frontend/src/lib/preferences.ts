@@ -1,3 +1,5 @@
+import { normalizeLang, tr, type LangCode, SUPPORTED_LANGUAGES } from './i18n';
+
 export type WidgetType = 'toggle' | 'select' | 'segmented' | 'stepper' | 'slider' | 'number-input' | 'text' | 'info' | 'action';
 
 export interface PreferenceOption {
@@ -5,7 +7,17 @@ export interface PreferenceOption {
   label: string;
 }
 
-export type PreferenceCategoryId = 'general' | 'playback' | 'audio' | 'devices' | 'storage';
+export type PreferenceCategoryId =
+  | 'appearance'
+  | 'player'
+  | 'lyrics'
+  | 'content'
+  | 'storage'
+  | 'privacy'
+  | 'backup'
+  | 'system'
+  | 'dynamic-island'
+  | 'about';
 
 export interface PreferenceItemDef {
   id: string;
@@ -26,26 +38,403 @@ export interface PreferenceItemDef {
   visibleWhen?: { id: string; equals: string };
 }
 
+export interface LocalizedPair {
+  en: [string, string];
+  id: [string, string];
+}
+
+const ITEM_TEXT: Record<string, LocalizedPair> = {
+  // 1. Appearance
+  'general.zoomLevel': {
+    en: ['Display scale', 'Adjust interface zoom from 70% to 130% (Ctrl +, -, or 0).'],
+    id: ['Ukuran tampilan', 'Sesuaikan ukuran antarmuka dari 70% hingga 130% (Ctrl +, -, atau 0).']
+  },
+  'appearance.performance': {
+    en: ['Animation effects', 'Control interface transitions and motion intensity.'],
+    id: ['Efek animasi', 'Atur transisi dan intensitas animasi antarmuka aplikasi.']
+  },
+  'appearance.shade': {
+    en: ['Shadow effects', 'Adjust card and surface shadow intensity.'],
+    id: ['Efek bayangan', 'Atur intensitas bayangan pada kartu dan panel.']
+  },
+  'appearance.showStreak': {
+    en: ['Streak on Home', 'Show listening streak badge on the Home screen.'],
+    id: ['Streak di Beranda', 'Tampilkan lencana streak mendengarkan di halaman Beranda.']
+  },
+  'layout.hideLeft': {
+    en: ['Hide left sidebar', 'Permanently hide/collapse the left navigation bar until turned off here.'],
+    id: ['Sembunyikan menu kiri', 'Sembunyikan bilah navigasi kiri secara permanen hingga dimatikan kembali di sini.']
+  },
+  'layout.hideRight': {
+    en: ['Hide right panel', 'Permanently hide the right studio panel until turned off here.'],
+    id: ['Sembunyikan panel kanan', 'Hilangkan panel studio kanan secara permanen hingga dimatikan kembali di sini.']
+  },
+  'appearance.meltCards': {
+    en: ['Melt cards with cover', 'Blend card backgrounds into their cover art colors (Full performance only).'],
+    id: ['Kartu menyatu dengan sampul', 'Sampul menyatu ke panel berwarna sampulnya. Hanya di Kinerja Penuh.']
+  },
+  'appearance.listDensity': {
+    en: ['List density', 'Choose comfortable or compact row spacing in track lists.'],
+    id: ['Kepadatan daftar', 'Pilih jarak baris nyaman atau rapat pada daftar lagu.']
+  },
+  'appearance.cornerStyle': {
+    en: ['Card and cover corners', 'Adjust corner roundness for cards and album covers.'],
+    id: ['Sudut kartu dan sampul', 'Atur kelengkungan sudut pada kartu dan sampul album.']
+  },
+  'appearance.startPage': {
+    en: ['Start page', 'Applied when Velora opens.'],
+    id: ['Mulai di halaman', 'Berlaku saat Velora dibuka.']
+  },
+  'appearance.showGreeting': {
+    en: ['Show greeting', 'Display a time-based greeting at the top of Home.'],
+    id: ['Tampilkan sapaan', 'Tampilkan sapaan sesuai waktu di bagian atas Beranda.']
+  },
+  'appearance.showRecentHome': {
+    en: ['Show Recently Played', 'Display recently played tracks on the Home screen.'],
+    id: ['Tampilkan Terakhir diputar', 'Tampilkan lagu yang baru diputar di halaman Beranda.']
+  },
+
+  // 2. Player
+  'playback.autoplay': {
+    en: ['Autoplay', 'When the queue ends, continue with similar songs.'],
+    id: ['Putar otomatis', 'Saat antrean habis, lanjutkan dengan lagu yang mirip.']
+  },
+  'playback.audioNormalize': {
+    en: ['Normalize loudness', 'Keep a consistent volume level across songs.'],
+    id: ['Samakan volume lagu', 'Setel tingkat volume yang konsisten antar lagu untuk mencegah lonjakan suara.']
+  },
+  'playback.waveBar': {
+    en: ['Wavy progress bar', 'Use an animated wavy style for the playback progress bar.'],
+    id: ['Bilah progres bergelombang', 'Gunakan tampilan garis bergelombang pada bilah progres pemutaran.']
+  },
+  'stream_quality': {
+    en: ['Audio streaming quality', 'Choose streaming audio bitrate. Very High gives the clearest detail.'],
+    id: ['Kualitas streaming audio', 'Pilih kualitas audio saat memutar musik secara daring.']
+  },
+  'playback.eqPreset': {
+    en: ['Equalizer sound profile', 'Choose a live 5-band equalizer sound character.'],
+    id: ['Gaya suara Equalizer', 'Pilih karakter suara dari mesin audio lima band secara langsung.']
+  },
+  'playback.crossfadeSec': {
+    en: ['Song transition (Crossfade)', 'Overlap the end of the current song with the start of the next.'],
+    id: ['Peralihan lagu (Crossfade)', 'Akhir lagu dan awal lagu berikutnya saling menumpuk.']
+  },
+  'playback.skipSilence': {
+    en: ['Skip silence', 'Skip silent gaps at the beginning and end of tracks.'],
+    id: ['Lewati hening di awal dan akhir lagu', 'Lewati bagian senyap di awal dan akhir lagu.']
+  },
+  'playback.radioOnPick': {
+    en: ['Start radio when picking a song', 'Automatically queue similar tracks when playing a song from search or shelves.'],
+    id: ['Mulai radio saat memilih lagu', 'Putar lagu-lagu serupa secara otomatis saat memilih lagu dari pencarian atau rak.']
+  },
+  'playback.radioSize': {
+    en: ['Radio track count', 'How many similar tracks to add at once.'],
+    id: ['Jumlah lagu radio', 'Berapa lagu serupa yang ditambahkan sekali ambil.']
+  },
+  'playback.resumeQueue': {
+    en: ['Resume last queue', 'Restore the previous queue and track position paused on startup.'],
+    id: ['Lanjutkan antrean terakhir', 'Saat Velora dibuka, antrean dan posisi lagu terakhir kembali dalam keadaan jeda.']
+  },
+  'playback.shuffleOnStart': {
+    en: ['Shuffle on startup', 'Enable shuffle automatically when Velora launches.'],
+    id: ['Acak menyala saat dibuka', 'Aktifkan mode acak secara otomatis saat aplikasi dibuka.']
+  },
+  'playback.startVolume': {
+    en: ['Volume on startup', 'Set the initial volume when Velora opens.'],
+    id: ['Volume saat dibuka', 'Atur volume awal saat Velora dibuka.']
+  },
+  'playback.prevRestartSec': {
+    en: ['Previous restarts song after', 'After playing this many seconds, Previous restarts the current track instead of going back.'],
+    id: ['Sebelumnya mengulang lagu', 'Setelah lagu berjalan sekian detik, Sebelumnya kembali ke awal lagu itu, bukan ke lagu sebelumnya.']
+  },
+
+  // 3. Lyrics
+  'lyrics.textSize': {
+    en: ['Font size', 'Adjust text size in the lyrics panel.'],
+    id: ['Ukuran huruf', 'Mengatur besar kecilnya huruf pada panel lirik.']
+  },
+  'lyrics.autoScroll': {
+    en: ['Auto-scroll lyrics', 'Automatically follow the active synced lyric line.'],
+    id: ['Gulir otomatis lirik', 'Menggulir lirik tersinkronisasi secara otomatis mengikuti posisi lagu.']
+  },
+  'lyrics.sweep': {
+    en: ['Word-by-word sweep', 'Highlight lyrics smoothly word by word when timed data is available.'],
+    id: ['Sapuan per kata', 'Sorot lirik per kata secara halus jika tersedia data waktu kata.']
+  },
+  'lyrics.blurOthers': {
+    en: ['Blur inactive lines', 'Applies in Full performance mode only.'],
+    id: ['Kaburkan baris lain', 'Hanya berlaku di Kinerja Penuh.']
+  },
+  'lyrics.miniLyrics': {
+    en: ['Small lyrics in mini mode', 'Show compact lyrics in the mini player view.'],
+    id: ['Lirik kecil di mode mini', 'Tampilkan lirik ringkas pada tampilan pemutar mini.']
+  },
+  'lyrics.nudgeMs': {
+    en: ['Lyric timing nudge step', 'Step size for faster/slower lyric sync buttons.'],
+    id: ['Langkah geser waktu lirik', 'Untuk tombol Lirik lebih cepat dan lebih lambat.']
+  },
+  'lyrics.plainFallback': {
+    en: ['Show plain lyrics', 'Show unsynced lyrics when synced lyrics are unavailable.'],
+    id: ['Tampilkan lirik biasa', 'Lirik tanpa waktu, jika lirik berjalan tidak ada.']
+  },
+  'lyrics.showSource': {
+    en: ['Show lyrics source', 'Display which provider supplied the lyrics.'],
+    id: ['Tampilkan sumber lirik', 'Tampilkan penyedia sumber lirik yang digunakan.']
+  },
+  'lyrics.sourceInfo': {
+    en: ['Synced lyrics providers', 'Queried in parallel from BetterLyrics, LyricsPlus, LrcLib, Unison, and KuGou, with YouTube Music plain lyrics fallback.'],
+    id: ['Lirik berjalan', 'Dicari ke BetterLyrics, LyricsPlus, LrcLib, Unison, dan KuGou sekaligus, lalu cadangan lirik biasa dari YouTube Music.']
+  },
+
+  // 4. Content
+  'content.country': {
+    en: ['Content region', 'Country catalog for Home and Explore recommendations.'],
+    id: ['Negara konten', 'Wilayah katalog untuk rekomendasi Beranda dan Jelajahi.']
+  },
+  'content.language': {
+    en: ['App & Dynamic Island language', 'Applies across the entire Velora interface and Windows Dynamic Island. Defaults to your Windows locale (or English).'],
+    id: ['Bahasa aplikasi & Dynamic Island', 'Berlaku di seluruh antarmuka Velora dan Dynamic Island Windows. Default mengikuti lokasi sistem Windows (atau English).']
+  },
+  'content.searchStart': {
+    en: ['Default search filter', 'Initial tab selected when opening search results.'],
+    id: ['Filter pencarian awal', 'Tab awal yang dipilih saat menampilkan hasil pencarian.']
+  },
+  'content.hideExplicit': {
+    en: ['Hide explicit songs', 'Filter explicit tracks from search results and radio.'],
+    id: ['Sembunyikan lagu eksplisit', 'Di hasil pencarian dan di radio.']
+  },
+
+  // 5. Storage
+  'storage.clearCache': {
+    en: ['Clear audio and artwork cache', 'Delete temporary streamed files and cover art to free disk space.'],
+    id: ['Bersihkan cache lagu dan sampul', 'Hapus berkas sementara hasil streaming dan gambar sampul untuk menghemat ruang penyimpanan.']
+  },
+  'storage.cacheLimit': {
+    en: ['Cache limit', 'Maximum number of recent songs kept in cache (up to ~1 GB).'],
+    id: ['Batas cache', 'Jumlah lagu terakhir yang disimpan (paling banyak sekitar 1 GB).']
+  },
+  'storage.autoDownloadOnLike': {
+    en: ['Download liked songs', 'Automatically save liked songs to your downloads folder for offline playback.'],
+    id: ['Unduh lagu yang disukai', 'Lagu yang kamu sukai ikut disimpan di folder unduhan agar bisa diputar tanpa internet.']
+  },
+  'storage.clearCacheOnExit': {
+    en: ['Clear song cache on exit', 'Downloaded songs are kept.'],
+    id: ['Bersihkan cache lagu saat keluar', 'Unduhan tidak ikut dihapus.']
+  },
+
+  // 6. Privacy
+  'history.enabled': {
+    en: ['Save listening history', 'Used for Recently Played and Stats. Stored locally on this PC only.'],
+    id: ['Simpan riwayat dengar', 'Dipakai untuk Terakhir diputar dan Statistik. Hanya tersimpan di komputer ini.']
+  },
+  'privacy.saveSearches': {
+    en: ['Save search history', 'Record recent search queries locally for quick access.'],
+    id: ['Simpan riwayat pencarian', 'Simpan kata kunci pencarian terbaru secara lokal agar mudah diakses lagi.']
+  },
+  'privacy.historyDays': {
+    en: ['Auto-delete listening history', 'Older records are removed automatically. Streak days remain intact.'],
+    id: ['Hapus riwayat dengar otomatis', 'Catatan yang lebih lama dihapus. Hari-hari streak tetap ada.']
+  },
+
+  // 7. Backup & Sync
+  'integrations.jam.enabled': {
+    en: ['Phone / Wi-Fi remote sync (Velora Jam)', 'Allow controlling playback from your phone or another device on the same Wi-Fi network.'],
+    id: ['Sinkron dengan HP / Kontrol Wi-Fi (Velora Jam)', 'Izinkan kendali pemutaran musik dari ponsel atau perangkat lain di jaringan Wi-Fi yang sama.']
+  },
+  'integrations.jam.remoteUrl': {
+    en: ['Remote URL', 'Open this address in another device browser to control playback.'],
+    id: ['Alamat Remote', 'Buka alamat ini di browser perangkat lain untuk mengendalikan pemutaran.']
+  },
+  'integrations.jam.apiUrl': {
+    en: ['Local API URL', 'Base HTTP API address for local network devices.'],
+    id: ['Alamat API Lokal', 'Alamat dasar HTTP API untuk akses perangkat di jaringan lokal.']
+  },
+
+  // 8. System
+  'system.mediaKeys': {
+    en: ['Media keys', 'Play, pause, next, and previous keys on keyboard or headset work from any window.'],
+    id: ['Tombol media', 'Putar, jeda, berikutnya, dan sebelumnya di keyboard atau headset bekerja dari jendela mana pun.']
+  },
+  'system.globalHotkeys': {
+    en: ['Global shortcuts', 'Ctrl+Alt+Space play/pause, Ctrl+Alt+Right next, Ctrl+Alt+Left previous, Ctrl+Alt+Up/Down volume.'],
+    id: ['Pintasan global', 'Ctrl+Alt+Spasi putar/jeda, Ctrl+Alt+Kanan berikutnya, Ctrl+Alt+Kiri sebelumnya, Ctrl+Alt+Atas/Bawah volume.']
+  },
+  'system.closeToTray': {
+    en: ['Close window to tray', 'Closing the window keeps music playing in the background.'],
+    id: ['Tutup jendela ke baki sistem', 'Tombol tutup hanya menyembunyikan jendela dan musik tetap berjalan.']
+  },
+  'system.keepAwake': {
+    en: ['Keep PC awake while playing', 'Display may still turn off.'],
+    id: ['Jangan biarkan PC tidur saat musik diputar', 'Layar tetap boleh mati.']
+  },
+  'system.hideTitle': {
+    en: ['Hide song title in window bar', 'Window title stays Velora while playing.'],
+    id: ['Sembunyikan judul lagu di jendela', 'Judul jendela tetap Velora saat lagu diputar.']
+  },
+  'system.alwaysOnTop': {
+    en: ['Always on top', 'Keep Velora above other windows.'],
+    id: ['Selalu di atas jendela lain', 'Pertahankan jendela Velora di atas jendela lainnya.']
+  },
+
+  // 9. Dynamic Island
+  'dynamicIsland.enabled': {
+    en: ['Dynamic Island', 'Compact player at the top edge of your screen to view songs and lyrics without opening Velora.'],
+    id: ['Dynamic Island', 'Pemutar kecil di tepi atas layar, untuk melihat lagu dan lirik tanpa membuka Velora.']
+  },
+  'dynamicIsland.style': {
+    en: ['Position', 'Choose docked at screen edge/notch or floating pill.'],
+    id: ['Posisi', 'Pilih tampilan menempel di tepi atas layar atau melayang berbentuk pil.']
+  },
+  'dynamicIsland.accent': {
+    en: ['Accent color', 'For progress bar, equalizer, active lyric line, and heart button.'],
+    id: ['Warna aksen', 'Untuk bilah progres, equalizer, lirik yang sedang dinyanyikan, dan hati.']
+  },
+  'dynamicIsland.coverShape': {
+    en: ['Cover shape', 'Choose square, circle, or vinyl cover style.'],
+    id: ['Bentuk sampul', 'Pilih bentuk sampul persegi, lingkaran, atau piringan.']
+  },
+  'dynamicIsland.spinSpeed': {
+    en: ['Vinyl spin speed', 'Spins during playback and pauses when paused.'],
+    id: ['Putaran piringan', 'Berputar saat lagu diputar, berhenti saat dijeda.']
+  },
+  'dynamicIsland.compactStyle': {
+    en: ['Compact style', 'Closed Dynamic Island appearance.'],
+    id: ['Gaya ringkas', 'Tampilan Dynamic Island saat tertutup.']
+  },
+  'dynamicIsland.size': {
+    en: ['Size', 'Overall Dynamic Island scale preset.'],
+    id: ['Ukuran', 'Preset ukuran Dynamic Island.']
+  },
+  'dynamicIsland.opacity': {
+    en: ['Opacity', 'Below 100%, the screen behind becomes slightly visible.'],
+    id: ['Kepekatan', 'Di bawah 100% layar di belakang terlihat sedikit.']
+  },
+  'dynamicIsland.showCover': {
+    en: ['Show cover art', 'Display album artwork inside Dynamic Island.'],
+    id: ['Sampul album', 'Tampilkan sampul album di Dynamic Island.']
+  },
+  'dynamicIsland.showArtist': {
+    en: ['Show artist name', 'Display artist subtitle below track title.'],
+    id: ['Nama artis', 'Tampilkan nama artis di bawah judul lagu.']
+  },
+  'dynamicIsland.showLyric': {
+    en: ['Show lyric line', 'Active lyric line below artist and in one-line pill.'],
+    id: ['Baris lirik', 'Baris yang sedang dinyanyikan, di bawah artis dan di pil satu baris.']
+  },
+  'dynamicIsland.showHeart': {
+    en: ['Show heart button', 'Quick favorite toggle inside Dynamic Island.'],
+    id: ['Tombol hati', 'Tombol suka cepat di dalam Dynamic Island.']
+  },
+  'dynamicIsland.showDots': {
+    en: ['Show page dots', 'Navigation dots for Player, Queue, and Devices.'],
+    id: ['Titik halaman', 'Titik navigasi halaman Player, Antrean, dan Perangkat.']
+  },
+  'dynamicIsland.showProgress': {
+    en: ['Show progress bar', 'Track playback progress indicator.'],
+    id: ['Bilah progres', 'Indikator progres pemutaran lagu.']
+  },
+  'dynamicIsland.progressStyle': {
+    en: ['Progress bar style', 'Choose thin, thick, or dotted progress bar.'],
+    id: ['Gaya progres', 'Pilih gaya bilah progres tipis, tebal, atau titik.']
+  },
+  'dynamicIsland.showBars': {
+    en: ['Show equalizer', 'Live audio visualizer bars.'],
+    id: ['Equalizer', 'Tampilkan batang equalizer animasi.']
+  },
+  'dynamicIsland.barsStyle': {
+    en: ['Equalizer style', 'Choose the visual style for the audio equalizer indicator.'],
+    id: ['Gaya equalizer', 'Pilih gaya visual indikator equalizer audio.']
+  },
+  'dynamicIsland.animSpeed': {
+    en: ['Animation speed', 'Adjust transition smoothness when Dynamic Island resizes.'],
+    id: ['Kecepatan animasi', 'Atur kehalusan animasi saat ukuran Dynamic Island berubah.']
+  },
+  'dynamicIsland.openTrigger': {
+    en: ['Open trigger', 'How Dynamic Island expands from compact mode.'],
+    id: ['Membuka', 'Cara memperluas Dynamic Island dari mode ringkas.']
+  },
+  'dynamicIsland.pauseHide': {
+    en: ['Hide when paused', 'Automatically collapse/hide after pausing playback.'],
+    id: ['Sembunyikan saat dijeda', 'Sembunyikan otomatis setelah musik dijeda.']
+  },
+  'dynamicIsland.onlyPlaying': {
+    en: ['Show only while playing', 'Dynamic Island hides when music is paused until playback resumes.'],
+    id: ['Tampil hanya saat memutar', 'Saat musik dijeda, Dynamic Island hilang sampai lagu diputar lagi.']
+  },
+  'dynamicIsland.toastSong': {
+    en: ['Track changed', 'Briefly expand/notify when a new song starts.'],
+    id: ['Lagu berganti', 'Tampilkan pemberitahuan singkat saat lagu berganti.']
+  },
+  'dynamicIsland.toastVolume': {
+    en: ['Volume changed', 'Show volume HUD when adjusting volume.'],
+    id: ['Volume berubah', 'Tampilkan indikator saat volume diubah.']
+  },
+  'dynamicIsland.toastSync': {
+    en: ['Phone sync', 'Notify when Velora Jam connects or syncs.'],
+    id: ['Sinkronisasi dengan ponsel', 'Beri tahu saat Velora Jam tersinkronisasi.']
+  },
+  'dynamicIsland.toastDownload': {
+    en: ['Download complete', 'Notify when an offline track finishes downloading.'],
+    id: ['Unduhan selesai', 'Beri tahu saat unduhan lagu selesai.']
+  },
+  'dynamicIsland.toastSleep': {
+    en: ['Sleep timer', 'Notify when sleep timer activates or expires.'],
+    id: ['Timer tidur', 'Beri tahu terkait status timer tidur.']
+  },
+  'dynamicIsland.clickLeft': {
+    en: ['Left click', 'Click on an empty area of Dynamic Island.'],
+    id: ['Klik kiri', 'Klik di bagian kosong Dynamic Island.']
+  },
+  'dynamicIsland.clickMid': {
+    en: ['Middle click', 'Action when middle-clicking Dynamic Island.'],
+    id: ['Klik tengah', 'Aksi saat klik tengah pada Dynamic Island.']
+  },
+  'dynamicIsland.wheel': {
+    en: ['Mouse wheel', 'Scroll down for next track, up for previous track (or volume).'],
+    id: ['Roda tetikus', 'Ke bawah untuk lagu berikutnya, ke atas untuk sebelumnya (atau volume).']
+  },
+  'dynamicIsland.screen': {
+    en: ['Display', 'Choose which monitor hosts Dynamic Island.'],
+    id: ['Layar', 'Pilih monitor tempat Dynamic Island tampil.']
+  },
+  'dynamicIsland.hideApp': {
+    en: ['Hide when Velora window is active', 'Hide Dynamic Island while the main Velora window is focused.'],
+    id: ['Sembunyikan saat jendela Velora aktif', 'Sembunyikan Dynamic Island saat jendela utama Velora sedang aktif.']
+  },
+  'dynamicIsland.hideFull': {
+    en: ['Hide in fullscreen apps', 'Automatically hide Dynamic Island during fullscreen games or videos.'],
+    id: ['Sembunyikan saat aplikasi layar penuh', 'Otomatis sembunyikan saat ada game atau video layar penuh.']
+  },
+  'dynamicIsland.reset': {
+    en: ['Reset Dynamic Island', 'Restore all Dynamic Island options to defaults. Enabled state stays unchanged.'],
+    id: ['Atur ulang Dynamic Island', 'Semua pilihan di halaman ini kembali ke awal. Nyala atau matinya tidak berubah.']
+  }
+};
+
 export const PREFERENCE_CATEGORIES = [
-  { id: 'general', title: 'Umum', icon: 'ph-sliders-horizontal' },
-  { id: 'playback', title: 'Pemutaran', icon: 'ph-play-circle' },
-  { id: 'audio', title: 'Kualitas Audio', icon: 'ph-speaker-high' },
-  { id: 'devices', title: 'Perangkat', icon: 'ph-devices' },
-  { id: 'storage', title: 'Penyimpanan', icon: 'ph-hard-drive' }
+  { id: 'appearance', titleKey: 'cat.appearance', title: 'Appearance', icon: 'ph-palette' },
+  { id: 'player', titleKey: 'cat.player', title: 'Player', icon: 'ph-play-circle' },
+  { id: 'lyrics', titleKey: 'cat.lyrics', title: 'Lyrics', icon: 'ph-microphone-stage' },
+  { id: 'content', titleKey: 'cat.content', title: 'Content', icon: 'ph-globe' },
+  { id: 'storage', titleKey: 'cat.storage', title: 'Storage', icon: 'ph-hard-drive' },
+  { id: 'privacy', titleKey: 'cat.privacy', title: 'Privacy', icon: 'ph-shield-check' },
+  { id: 'backup', titleKey: 'cat.backup', title: 'Backup', icon: 'ph-cloud-arrow-up' },
+  { id: 'system', titleKey: 'cat.system', title: 'System', icon: 'ph-desktop' },
+  { id: 'dynamic-island', titleKey: 'cat.dynamic-island', title: 'Dynamic Island', icon: 'ph-sparkle' }
 ] as const;
 
 export const PREFERENCE_APP_TABS = [
-  { id: 'whats-new', title: 'Tentang Velora', icon: 'ph-sparkle' }
+  { id: 'about', titleKey: 'cat.about', title: 'About', icon: 'ph-info' }
 ] as const;
 
 export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
-  // Umum
+  // 1. Appearance (Single Dark Theme only — no light mode)
   {
     id: 'general.zoomLevel',
-    category: 'general',
-    group: 'Tampilan',
-    title: 'Skala Antarmuka',
-    description: 'Sesuaikan ukuran tampilan aplikasi dari 70% hingga 130%.',
+    category: 'appearance',
+    group: 'grp.displayEffects',
+    title: 'Display scale',
+    description: 'Adjust interface zoom from 70% to 130%.',
     widget: 'stepper',
     defaultValue: '1',
     min: 0.7,
@@ -53,156 +442,953 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     step: 0.1
   },
   {
-    id: 'layout.leftCollapsed',
-    category: 'general',
-    group: 'Tata Letak',
-    title: 'Sembunyikan Menu Kiri',
-    description: 'Perkecil bilah navigasi kiri agar area konten utama lebih luas.',
+    id: 'appearance.performance',
+    category: 'appearance',
+    group: 'grp.displayEffects',
+    title: 'Animation effects',
+    description: 'Full: all animations enabled. Lite: no animations for faster performance.',
+    widget: 'segmented',
+    defaultValue: 'full',
+    options: [
+      { value: 'full', label: 'opt.full' },
+      { value: 'lite', label: 'opt.lite' }
+    ]
+  },
+  {
+    id: 'appearance.shade',
+    category: 'appearance',
+    group: 'grp.displayEffects',
+    title: 'Shadow effects',
+    description: 'Adjust card and surface shadow intensity.',
+    widget: 'segmented',
+    defaultValue: 'soft',
+    options: [
+      { value: 'off', label: 'opt.off' },
+      { value: 'soft', label: 'opt.soft' },
+      { value: 'strong', label: 'opt.strong' }
+    ]
+  },
+  {
+    id: 'layout.hideLeft',
+    category: 'appearance',
+    group: 'grp.layout',
+    title: 'Hide left sidebar',
+    description: 'Permanently collapse the left navigation bar.',
     widget: 'toggle',
     defaultValue: 'false'
   },
   {
-    id: 'layout.rightCollapsed',
-    category: 'general',
-    group: 'Tata Letak',
-    title: 'Sembunyikan Panel Kanan',
-    description: 'Tutup panel studio kanan yang menampilkan sampul album, lirik, dan antrean.',
+    id: 'layout.hideRight',
+    category: 'appearance',
+    group: 'grp.layout',
+    title: 'Hide right panel',
+    description: 'Permanently hide the right studio panel.',
     widget: 'toggle',
     defaultValue: 'false'
   },
+
+  // 2. Player
   {
-    id: 'dynamicIsland.enabled',
-    category: 'general',
-    group: 'Desktop',
-    title: 'Tampilkan Dynamic Island',
-    description: 'Aktifkan bilah interaktif di bagian atas layar untuk kontrol cepat pemutaran musik.',
+    id: 'playback.autoplay',
+    category: 'player',
+    group: 'grp.playback',
+    title: 'Autoplay',
+    description: 'Continue with similar songs when the queue ends.',
     widget: 'toggle',
     defaultValue: 'true'
-  },
-  {
-    id: 'dynamicIsland.style',
-    category: 'general',
-    group: 'Desktop',
-    title: 'Gaya Dynamic Island',
-    description: 'Pilih tampilan menempel di tepi atas layar atau melayang bebas berbentuk pil.',
-    widget: 'segmented',
-    defaultValue: 'notch',
-    options: [
-      { value: 'notch', label: 'Menempel' },
-      { value: 'pill', label: 'Melayang' }
-    ],
-    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
-  },
-
-  // Pemutaran
-  {
-    id: 'lyrics.autoScroll',
-    category: 'playback',
-    group: 'Lirik Lagu',
-    title: 'Gulir Otomatis Lirik',
-    description: 'Menggulir lirik tersinkronisasi secara otomatis mengikuti posisi lagu yang diputar.',
-    widget: 'toggle',
-    defaultValue: 'true'
-  },
-  {
-    id: 'lyrics.textSize',
-    category: 'playback',
-    group: 'Lirik Lagu',
-    title: 'Ukuran Teks Lirik',
-    description: 'Mengatur besar kecilnya huruf pada panel lirik.',
-    widget: 'segmented',
-    defaultValue: '1',
-    options: [
-      { value: '0', label: 'Kecil' },
-      { value: '1', label: 'Sedang' },
-      { value: '2', label: 'Besar' }
-    ]
-  },
-
-  // Kualitas Audio
-  {
-    id: 'stream_quality',
-    category: 'audio',
-    group: 'Streaming',
-    title: 'Kualitas Streaming Audio',
-    description: 'Pilih kualitas audio saat memutar musik secara daring. Sangat Tinggi memberikan detail suara paling jernih.',
-    widget: 'select',
-    defaultValue: 'high',
-    options: [
-      { value: 'high', label: 'Sangat Tinggi' },
-      { value: 'normal', label: 'Normal' },
-      { value: 'low', label: 'Hemat Kuota' }
-    ]
   },
   {
     id: 'playback.audioNormalize',
-    category: 'audio',
-    group: 'Volume',
-    title: 'Normalisasi Kenyaringan',
-    description: 'Setel tingkat volume yang konsisten antar lagu untuk mencegah lonjakan suara.',
+    category: 'player',
+    group: 'grp.playback',
+    title: 'Normalize loudness',
+    description: 'Keep consistent volume across tracks.',
     widget: 'toggle',
     defaultValue: 'true'
   },
   {
+    id: 'playback.waveBar',
+    category: 'player',
+    group: 'grp.playback',
+    title: 'Wavy progress bar',
+    description: 'Off: straight progress line.',
+    widget: 'toggle',
+    defaultValue: 'true'
+  },
+  {
+    id: 'stream_quality',
+    category: 'player',
+    group: 'grp.sound',
+    title: 'Audio streaming quality',
+    description: 'Select streaming audio bitrate.',
+    widget: 'select',
+    defaultValue: 'high',
+    options: [
+      { value: 'high', label: 'opt.high' },
+      { value: 'normal', label: 'opt.normal' },
+      { value: 'low', label: 'opt.low' }
+    ]
+  },
+  {
     id: 'playback.eqPreset',
-    category: 'audio',
-    group: 'Equalizer',
-    title: 'Profil Suara Equalizer',
-    description: 'Pilih karakter suara dari mesin audio lima band secara langsung.',
+    category: 'player',
+    group: 'grp.sound',
+    title: 'Equalizer sound profile',
+    description: 'Live 5-band equalizer sound character.',
     widget: 'select',
     defaultValue: 'spotify',
     options: [
-      { value: 'spotify', label: 'Velora Studio' },
-      { value: 'flat', label: 'Datar' },
-      { value: 'bass', label: 'Bass Mendalam' },
-      { value: 'vocal', label: 'Vokal Jernih' },
-      { value: 'electronic', label: 'Elektronik' }
+      { value: 'spotify', label: 'opt.eqStudio' },
+      { value: 'flat', label: 'opt.eqFlat' },
+      { value: 'bass', label: 'opt.eqBass' },
+      { value: 'vocal', label: 'opt.eqVocal' },
+      { value: 'electronic', label: 'opt.eqElectronic' }
+    ]
+  },
+  {
+    id: 'playback.crossfadeSec',
+    category: 'player',
+    group: 'grp.volumeTransitions',
+    title: 'Song transition',
+    description: 'Crossfade between songs.',
+    widget: 'select',
+    defaultValue: '0',
+    options: [
+      { value: '0', label: 'opt.gapless' },
+      { value: '2', label: '2s' },
+      { value: '4', label: '4s' },
+      { value: '6', label: '6s' },
+      { value: '8', label: '8s' },
+      { value: '12', label: '12s' }
+    ]
+  },
+  {
+    id: 'playback.skipSilence',
+    category: 'player',
+    group: 'grp.volumeTransitions',
+    title: 'Skip silence',
+    description: 'Skip silent gaps at start and end of tracks.',
+    widget: 'toggle',
+    defaultValue: 'false'
+  },
+  {
+    id: 'playback.radioOnPick',
+    category: 'player',
+    group: 'grp.queue',
+    title: 'Start radio when picking a song',
+    description: 'Play similar tracks automatically.',
+    widget: 'toggle',
+    defaultValue: 'true'
+  },
+  {
+    id: 'playback.radioSize',
+    category: 'player',
+    group: 'grp.queue',
+    title: 'Radio track count',
+    description: 'Number of similar tracks fetched.',
+    widget: 'segmented',
+    defaultValue: '25',
+    options: [
+      { value: '10', label: '10' },
+      { value: '25', label: '25' },
+      { value: '0', label: 'opt.all' }
+    ]
+  },
+  {
+    id: 'playback.resumeQueue',
+    category: 'player',
+    group: 'grp.queue',
+    title: 'Resume last queue',
+    description: 'Restore previous queue paused on startup.',
+    widget: 'toggle',
+    defaultValue: 'false'
+  },
+  {
+    id: 'playback.shuffleOnStart',
+    category: 'player',
+    group: 'grp.queue',
+    title: 'Shuffle on startup',
+    description: 'Enable shuffle when Velora opens.',
+    widget: 'toggle',
+    defaultValue: 'false'
+  },
+  {
+    id: 'playback.startVolume',
+    category: 'player',
+    group: 'grp.controls',
+    title: 'Volume on startup',
+    description: 'Initial volume level.',
+    widget: 'select',
+    defaultValue: '-1',
+    options: [
+      { value: '-1', label: 'opt.last' },
+      { value: '30', label: '30%' },
+      { value: '50', label: '50%' },
+      { value: '70', label: '70%' },
+      { value: '100', label: '100%' }
+    ]
+  },
+  {
+    id: 'playback.prevRestartSec',
+    category: 'player',
+    group: 'grp.controls',
+    title: 'Previous restarts song',
+    description: 'Restart current track after N seconds.',
+    widget: 'select',
+    defaultValue: '3',
+    options: [
+      { value: '0', label: 'opt.never' },
+      { value: '3', label: 'opt.3sec' },
+      { value: '5', label: 'opt.5sec' },
+      { value: '10', label: 'opt.10sec' }
     ]
   },
 
-  // Perangkat
+  // 3. Lyrics
+  {
+    id: 'lyrics.textSize',
+    category: 'lyrics',
+    group: 'grp.lyricsDisplay',
+    title: 'Font size',
+    description: 'Adjust lyrics text size.',
+    widget: 'segmented',
+    defaultValue: '1',
+    options: [
+      { value: '0', label: 'opt.small' },
+      { value: '1', label: 'opt.medium' },
+      { value: '2', label: 'opt.large' }
+    ]
+  },
+  {
+    id: 'lyrics.autoScroll',
+    category: 'lyrics',
+    group: 'grp.lyricsDisplay',
+    title: 'Auto-scroll lyrics',
+    description: 'Follow active synced lyric line.',
+    widget: 'toggle',
+    defaultValue: 'true'
+  },
+  {
+    id: 'lyrics.sweep',
+    category: 'lyrics',
+    group: 'grp.lyricsDisplay',
+    title: 'Word-by-word sweep',
+    description: 'Smooth word-level highlighting.',
+    widget: 'toggle',
+    defaultValue: 'true'
+  },
+  {
+    id: 'lyrics.blurOthers',
+    category: 'lyrics',
+    group: 'grp.lyricsDisplay',
+    title: 'Blur inactive lines',
+    description: 'Full performance mode only.',
+    widget: 'toggle',
+    defaultValue: 'true'
+  },
+  {
+    id: 'lyrics.miniLyrics',
+    category: 'lyrics',
+    group: 'grp.lyricsDisplay',
+    title: 'Small lyrics in mini mode',
+    description: 'Compact lyrics in mini player.',
+    widget: 'toggle',
+    defaultValue: 'true'
+  },
+  {
+    id: 'lyrics.nudgeMs',
+    category: 'lyrics',
+    group: 'grp.lyricsBehavior',
+    title: 'Lyric timing nudge step',
+    description: 'Step size for timing buttons.',
+    widget: 'segmented',
+    defaultValue: '500',
+    options: [
+      { value: '250', label: '0.25s' },
+      { value: '500', label: '0.5s' },
+      { value: '1000', label: '1s' }
+    ]
+  },
+  {
+    id: 'lyrics.plainFallback',
+    category: 'lyrics',
+    group: 'grp.lyricsBehavior',
+    title: 'Show plain lyrics',
+    description: 'Fallback when synced lyrics are unavailable.',
+    widget: 'toggle',
+    defaultValue: 'true'
+  },
+  {
+    id: 'lyrics.showSource',
+    category: 'lyrics',
+    group: 'grp.lyricsBehavior',
+    title: 'Show lyrics source',
+    description: 'Show provider badge.',
+    widget: 'toggle',
+    defaultValue: 'true'
+  },
+  {
+    id: 'lyrics.sourceInfo',
+    category: 'lyrics',
+    group: 'grp.lyricsSource',
+    title: 'Synced lyrics providers',
+    description: 'BetterLyrics, LyricsPlus, LrcLib, Unison, KuGou + YouTube Music fallback.',
+    widget: 'info',
+    defaultValue: 'BetterLyrics · LyricsPlus · LrcLib · KuGou'
+  },
+
+  // 4. Content
+  {
+    id: 'content.country',
+    category: 'content',
+    group: 'grp.regionLanguage',
+    title: 'Content region',
+    description: 'Catalog country for recommendations.',
+    widget: 'select',
+    defaultValue: 'ID',
+    options: [
+      { value: 'ID', label: 'Indonesia' },
+      { value: 'US', label: 'United States' },
+      { value: 'GB', label: 'United Kingdom' },
+      { value: 'JP', label: 'Japan' },
+      { value: 'KR', label: 'South Korea' },
+      { value: 'IN', label: 'India' },
+      { value: 'BR', label: 'Brazil' },
+      { value: 'DE', label: 'Germany' },
+      { value: 'FR', label: 'France' },
+      { value: 'MX', label: 'Mexico' },
+      { value: 'AU', label: 'Australia' },
+      { value: 'MY', label: 'Malaysia' }
+    ]
+  },
+  {
+    id: 'content.language',
+    category: 'content',
+    group: 'grp.regionLanguage',
+    title: 'App & Dynamic Island language',
+    description: 'Interface language for Velora & Dynamic Island.',
+    widget: 'select',
+    defaultValue: 'en',
+    options: SUPPORTED_LANGUAGES.map((l) => ({ value: l.code, label: l.label }))
+  },
+  {
+    id: 'content.searchStart',
+    category: 'content',
+    group: 'grp.search',
+    title: 'Default search filter',
+    description: 'Initial tab when searching.',
+    widget: 'select',
+    defaultValue: 'song',
+    options: [
+      { value: 'song', label: 'nav.songs' },
+      { value: 'album', label: 'nav.albums' },
+      { value: 'artist', label: 'nav.artists' },
+      { value: 'playlist', label: 'nav.playlists' },
+      { value: 'video', label: 'nav.videos' }
+    ]
+  },
+  {
+    id: 'content.hideExplicit',
+    category: 'content',
+    group: 'grp.search',
+    title: 'Hide explicit songs',
+    description: 'Filter explicit songs in search & radio.',
+    widget: 'toggle',
+    defaultValue: 'false'
+  },
+
+  // 5. Storage
+  {
+    id: 'storage.clearCache',
+    category: 'storage',
+    group: 'grp.songCache',
+    title: 'Clear audio and artwork cache',
+    description: 'Delete temporary streamed files and cover art.',
+    widget: 'action',
+    defaultValue: '',
+    actionLabel: 'nav.clear'
+  },
+  {
+    id: 'storage.cacheLimit',
+    category: 'storage',
+    group: 'grp.songCache',
+    title: 'Cache limit',
+    description: 'Recent songs kept cached.',
+    widget: 'segmented',
+    defaultValue: '40',
+    options: [
+      { value: '20', label: '20' },
+      { value: '40', label: '40' },
+      { value: '100', label: '100' }
+    ]
+  },
+  {
+    id: 'storage.autoDownloadOnLike',
+    category: 'storage',
+    group: 'grp.downloads',
+    title: 'Download liked songs',
+    description: 'Save liked songs for offline playback.',
+    widget: 'toggle',
+    defaultValue: 'false'
+  },
+  {
+    id: 'storage.clearCacheOnExit',
+    category: 'storage',
+    group: 'grp.cleanup',
+    title: 'Clear song cache on exit',
+    description: 'Downloads are preserved.',
+    widget: 'toggle',
+    defaultValue: 'false'
+  },
+
+  // 6. Privacy
+  {
+    id: 'history.enabled',
+    category: 'privacy',
+    group: 'grp.history',
+    title: 'Save listening history',
+    description: 'Stored locally on this PC only.',
+    widget: 'toggle',
+    defaultValue: 'true'
+  },
+  {
+    id: 'privacy.saveSearches',
+    category: 'privacy',
+    group: 'grp.automatic',
+    title: 'Save search history',
+    description: 'Off: new searches are not recorded.',
+    widget: 'toggle',
+    defaultValue: 'true'
+  },
+  {
+    id: 'privacy.historyDays',
+    category: 'privacy',
+    group: 'grp.automatic',
+    title: 'Auto-delete listening history',
+    description: 'Older records are removed automatically.',
+    widget: 'select',
+    defaultValue: '0',
+    options: [
+      { value: '0', label: 'opt.forever' },
+      { value: '30', label: 'opt.30days' },
+      { value: '90', label: 'opt.90days' },
+      { value: '365', label: 'opt.1year' }
+    ]
+  },
+
+  // 7. Backup & Sync
   {
     id: 'integrations.jam.enabled',
-    category: 'devices',
-    group: 'Velora Jam',
-    title: 'Kontrol Jarak Jauh Wi-Fi',
-    description: 'Izinkan kendali pemutaran musik dari ponsel atau perangkat lain di jaringan Wi-Fi yang sama.',
+    category: 'backup',
+    group: 'grp.syncPhone',
+    title: 'Phone / Wi-Fi remote sync (Velora Jam)',
+    description: 'Control playback from another device on Wi-Fi.',
     widget: 'toggle',
     defaultValue: 'false'
   },
   {
     id: 'integrations.jam.remoteUrl',
-    category: 'devices',
-    group: 'Velora Jam',
-    title: 'Alamat Remote',
-    description: 'Buka alamat ini di browser perangkat lain untuk mengendalikan pemutaran.',
+    category: 'backup',
+    group: 'grp.syncPhone',
+    title: 'Remote URL',
+    description: 'Open in browser on another device.',
     widget: 'info',
     defaultValue: 'http://127.0.0.1:8899/jam',
     visibleWhen: { id: 'integrations.jam.enabled', equals: 'true' }
   },
   {
     id: 'integrations.jam.apiUrl',
-    category: 'devices',
-    group: 'Velora Jam',
-    title: 'Alamat API Lokal',
-    description: 'Alamat dasar HTTP API untuk akses perangkat di jaringan lokal.',
+    category: 'backup',
+    group: 'grp.syncPhone',
+    title: 'Local API URL',
+    description: 'Base HTTP API for local network.',
     widget: 'info',
     defaultValue: 'http://127.0.0.1:8899/api',
     visibleWhen: { id: 'integrations.jam.enabled', equals: 'true' }
   },
 
-  // Penyimpanan
+  // 8. System
   {
-    id: 'storage.clearCache',
-    category: 'storage',
-    group: 'Cache Aplikasi',
-    title: 'Bersihkan Cache Audio dan Sampul',
-    description: 'Hapus berkas sementara hasil streaming dan gambar sampul untuk menghemat ruang penyimpanan.',
+    id: 'system.mediaKeys',
+    category: 'system',
+    group: 'grp.keysShortcuts',
+    title: 'Media keys',
+    description: 'Hardware play/pause/next/prev keys.',
+    widget: 'toggle',
+    defaultValue: 'true'
+  },
+  {
+    id: 'system.globalHotkeys',
+    category: 'system',
+    group: 'grp.keysShortcuts',
+    title: 'Global shortcuts',
+    description: 'Ctrl+Alt+Space/Arrows.',
+    widget: 'toggle',
+    defaultValue: 'true'
+  },
+  {
+    id: 'system.closeToTray',
+    category: 'system',
+    group: 'grp.trayWindow',
+    title: 'Close window to tray',
+    description: 'Keep music playing in background.',
+    widget: 'toggle',
+    defaultValue: 'false'
+  },
+  {
+    id: 'system.keepAwake',
+    category: 'system',
+    group: 'grp.power',
+    title: 'Keep PC awake while playing',
+    description: 'Display may still turn off.',
+    widget: 'toggle',
+    defaultValue: 'true'
+  },
+  {
+    id: 'system.hideTitle',
+    category: 'system',
+    group: 'grp.trayWindow',
+    title: 'Hide song title in window bar',
+    description: 'Window title stays Velora.',
+    widget: 'toggle',
+    defaultValue: 'false'
+  },
+  {
+    id: 'system.alwaysOnTop',
+    category: 'system',
+    group: 'grp.trayWindow',
+    title: 'Always on top',
+    description: 'Keep Velora above other windows.',
+    widget: 'toggle',
+    defaultValue: 'false'
+  },
+
+  // 9. Dynamic Island (No Light mode — pure black dark theme)
+  {
+    id: 'dynamicIsland.enabled',
+    category: 'dynamic-island',
+    group: 'grp.islandShapeSize',
+    title: 'Dynamic Island',
+    description: 'Compact top-edge player for playback & lyrics.',
+    widget: 'toggle',
+    defaultValue: 'true'
+  },
+  {
+    id: 'dynamicIsland.style',
+    category: 'dynamic-island',
+    group: 'grp.islandShapeSize',
+    title: 'Position',
+    description: 'Docked at edge/notch or floating pill.',
+    widget: 'segmented',
+    defaultValue: 'notch',
+    options: [
+      { value: 'notch', label: 'opt.notch' },
+      { value: 'pill', label: 'opt.pill' }
+    ],
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.compactStyle',
+    category: 'dynamic-island',
+    group: 'grp.islandShapeSize',
+    title: 'Compact style',
+    description: 'Closed Dynamic Island appearance.',
+    widget: 'segmented',
+    defaultValue: 'RINGKAS',
+    options: [
+      { value: 'RINGKAS', label: 'opt.compact' },
+      { value: 'SATU_BARIS', label: 'opt.oneLineLyric' },
+      { value: 'TERSEMBUNYI', label: 'opt.hidden' }
+    ],
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.size',
+    category: 'dynamic-island',
+    group: 'grp.islandShapeSize',
+    title: 'Size',
+    description: 'Scale preset.',
+    widget: 'segmented',
+    defaultValue: 'medium',
+    options: [
+      { value: 'small', label: 'opt.small' },
+      { value: 'medium', label: 'opt.medium' },
+      { value: 'large', label: 'opt.large' }
+    ],
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.opacity',
+    category: 'dynamic-island',
+    group: 'grp.islandShapeSize',
+    title: 'Opacity',
+    description: 'Background opacity.',
+    widget: 'segmented',
+    defaultValue: '100',
+    options: [
+      { value: '100', label: '100%' },
+      { value: '90', label: '90%' },
+      { value: '80', label: '80%' }
+    ],
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.accent',
+    category: 'dynamic-island',
+    group: 'grp.islandColorCover',
+    title: 'Accent color',
+    description: 'Progress bar, equalizer, lyrics, and heart color.',
+    widget: 'segmented',
+    defaultValue: 'pink',
+    options: [
+      { value: 'neutral', label: 'opt.neutral' },
+      { value: 'pink', label: 'opt.pink' },
+      { value: 'blue', label: 'opt.blue' }
+    ],
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.coverShape',
+    category: 'dynamic-island',
+    group: 'grp.islandColorCover',
+    title: 'Cover shape',
+    description: 'Album art shape.',
+    widget: 'segmented',
+    defaultValue: 'square',
+    options: [
+      { value: 'square', label: 'opt.square' },
+      { value: 'circle', label: 'opt.circle' },
+      { value: 'vinyl', label: 'opt.vinyl' }
+    ],
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.spinSpeed',
+    category: 'dynamic-island',
+    group: 'grp.islandColorCover',
+    title: 'Vinyl spin speed',
+    description: 'Spins while playing.',
+    widget: 'segmented',
+    defaultValue: 'normal',
+    options: [
+      { value: 'slow', label: 'opt.slow' },
+      { value: 'normal', label: 'opt.normal' },
+      { value: 'fast', label: 'opt.fast' }
+    ],
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.showCover',
+    category: 'dynamic-island',
+    group: 'grp.islandContent',
+    title: 'Show cover art',
+    description: 'Display album cover.',
+    widget: 'toggle',
+    defaultValue: 'true',
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.showArtist',
+    category: 'dynamic-island',
+    group: 'grp.islandContent',
+    title: 'Show artist name',
+    description: 'Display artist subtitle.',
+    widget: 'toggle',
+    defaultValue: 'true',
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.showLyric',
+    category: 'dynamic-island',
+    group: 'grp.islandContent',
+    title: 'Show lyric line',
+    description: 'Active lyric line.',
+    widget: 'toggle',
+    defaultValue: 'true',
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.showHeart',
+    category: 'dynamic-island',
+    group: 'grp.islandContent',
+    title: 'Show heart button',
+    description: 'Quick favorite toggle.',
+    widget: 'toggle',
+    defaultValue: 'true',
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.showDots',
+    category: 'dynamic-island',
+    group: 'grp.islandContent',
+    title: 'Show page dots',
+    description: 'Page switcher dots.',
+    widget: 'toggle',
+    defaultValue: 'true',
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.showProgress',
+    category: 'dynamic-island',
+    group: 'grp.islandContent',
+    title: 'Show progress bar',
+    description: 'Track progress indicator.',
+    widget: 'toggle',
+    defaultValue: 'true',
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.progressStyle',
+    category: 'dynamic-island',
+    group: 'grp.islandContent',
+    title: 'Progress bar style',
+    description: 'Visual style.',
+    widget: 'segmented',
+    defaultValue: 'thin',
+    options: [
+      { value: 'thin', label: 'opt.thin' },
+      { value: 'thick', label: 'opt.thick' },
+      { value: 'dots', label: 'opt.dots' }
+    ],
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.showBars',
+    category: 'dynamic-island',
+    group: 'grp.islandContent',
+    title: 'Show equalizer',
+    description: 'Live visualizer bars.',
+    widget: 'toggle',
+    defaultValue: 'true',
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.barsStyle',
+    category: 'dynamic-island',
+    group: 'grp.islandContent',
+    title: 'Equalizer style',
+    description: 'Static: bars do not move.',
+    widget: 'segmented',
+    defaultValue: 'bars',
+    options: [
+      { value: 'bars', label: 'opt.bars' },
+      { value: 'wave', label: 'opt.wave' },
+      { value: 'static', label: 'opt.static' }
+    ],
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.animSpeed',
+    category: 'dynamic-island',
+    group: 'grp.islandMotion',
+    title: 'Animation speed',
+    description: 'Off: shapes snap instantly.',
+    widget: 'segmented',
+    defaultValue: 'smooth',
+    options: [
+      { value: 'off', label: 'opt.off' },
+      { value: 'normal', label: 'opt.normal' },
+      { value: 'smooth', label: 'opt.smooth' }
+    ],
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.openTrigger',
+    category: 'dynamic-island',
+    group: 'grp.islandBehavior',
+    title: 'Open trigger',
+    description: 'How Dynamic Island expands.',
+    widget: 'segmented',
+    defaultValue: 'hover',
+    options: [
+      { value: 'hover', label: 'opt.onHover' },
+      { value: 'click', label: 'opt.onClick' }
+    ],
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.pauseHide',
+    category: 'dynamic-island',
+    group: 'grp.islandBehavior',
+    title: 'Hide when paused',
+    description: 'Auto-hide delay after pausing.',
+    widget: 'segmented',
+    defaultValue: '0',
+    options: [
+      { value: '0', label: 'opt.no' },
+      { value: '10', label: '10s' },
+      { value: '30', label: '30s' },
+      { value: '60', label: '60s' }
+    ],
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.onlyPlaying',
+    category: 'dynamic-island',
+    group: 'grp.islandBehavior',
+    title: 'Show only while playing',
+    description: 'Hide whenever playback is paused.',
+    widget: 'toggle',
+    defaultValue: 'false',
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.toastSong',
+    category: 'dynamic-island',
+    group: 'grp.islandNotifications',
+    title: 'Track changed',
+    description: 'Notify when song changes.',
+    widget: 'toggle',
+    defaultValue: 'true',
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.toastVolume',
+    category: 'dynamic-island',
+    group: 'grp.islandNotifications',
+    title: 'Volume changed',
+    description: 'Show volume HUD.',
+    widget: 'toggle',
+    defaultValue: 'true',
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.toastSync',
+    category: 'dynamic-island',
+    group: 'grp.islandNotifications',
+    title: 'Phone sync',
+    description: 'Notify on Velora Jam sync.',
+    widget: 'toggle',
+    defaultValue: 'true',
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.toastDownload',
+    category: 'dynamic-island',
+    group: 'grp.islandNotifications',
+    title: 'Download complete',
+    description: 'Notify when download finishes.',
+    widget: 'toggle',
+    defaultValue: 'true',
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.toastSleep',
+    category: 'dynamic-island',
+    group: 'grp.islandNotifications',
+    title: 'Sleep timer',
+    description: 'Notify on sleep timer.',
+    widget: 'toggle',
+    defaultValue: 'true',
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.clickLeft',
+    category: 'dynamic-island',
+    group: 'grp.islandClickWheel',
+    title: 'Left click',
+    description: 'Click on empty area.',
+    widget: 'segmented',
+    defaultValue: 'pin',
+    options: [
+      { value: 'pin', label: 'opt.pin' },
+      { value: 'play', label: 'opt.playPause' },
+      { value: 'open', label: 'opt.openVelora' }
+    ],
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.clickMid',
+    category: 'dynamic-island',
+    group: 'grp.islandClickWheel',
+    title: 'Middle click',
+    description: 'Middle-click action.',
+    widget: 'segmented',
+    defaultValue: 'next',
+    options: [
+      { value: 'next', label: 'opt.nextTrack' },
+      { value: 'play', label: 'opt.playPause' },
+      { value: 'none', label: 'opt.none' }
+    ],
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.wheel',
+    category: 'dynamic-island',
+    group: 'grp.islandClickWheel',
+    title: 'Mouse wheel',
+    description: 'Scroll action on Dynamic Island.',
+    widget: 'segmented',
+    defaultValue: 'volume',
+    options: [
+      { value: 'volume', label: 'opt.volume' },
+      { value: 'track', label: 'opt.switchTrack' }
+    ],
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.screen',
+    category: 'dynamic-island',
+    group: 'grp.islandScreen',
+    title: 'Display',
+    description: 'Which monitor shows Dynamic Island.',
+    widget: 'segmented',
+    defaultValue: 'primary',
+    options: [
+      { value: 'primary', label: 'opt.primaryScreen' },
+      { value: 'cursor', label: 'opt.cursorScreen' }
+    ],
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.hideApp',
+    category: 'dynamic-island',
+    group: 'grp.islandScreen',
+    title: 'Hide when Velora window is active',
+    description: 'Hide while Velora is focused.',
+    widget: 'toggle',
+    defaultValue: 'false',
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.hideFull',
+    category: 'dynamic-island',
+    group: 'grp.islandScreen',
+    title: 'Hide in fullscreen apps',
+    description: 'Hide during fullscreen games/videos.',
+    widget: 'toggle',
+    defaultValue: 'true',
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.reset',
+    category: 'dynamic-island',
+    group: 'grp.islandReset',
+    title: 'Reset Dynamic Island',
+    description: 'Restore Dynamic Island options to defaults.',
     widget: 'action',
     defaultValue: '',
-    actionLabel: 'Bersihkan Cache'
+    actionLabel: 'nav.reset',
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
   }
 ];
+
+export function localizeItem(item: PreferenceItemDef, lang: LangCode | string): PreferenceItemDef {
+  const code = normalizeLang(lang);
+  const pair = ITEM_TEXT[item.id];
+  const [title, description] = pair ? (code === 'id' ? pair.id : pair.en) : [item.title, item.description];
+  return {
+    ...item,
+    group: item.group.startsWith('grp.') ? tr(code, item.group, item.group) : item.group,
+    title,
+    description,
+    actionLabel: item.actionLabel?.startsWith('nav.') ? tr(code, item.actionLabel, item.actionLabel) : item.actionLabel,
+    options: item.options?.map((o) => ({
+      value: o.value,
+      label: o.label.includes('.') ? tr(code, o.label, o.label) : o.label
+    }))
+  };
+}
 
 export function getPrefValue(prefs: Record<string, string>, id: string): string {
   if (prefs[id] !== undefined) return prefs[id];

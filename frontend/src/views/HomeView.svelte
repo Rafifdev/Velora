@@ -3,6 +3,7 @@
   import { isYTVideoThumb, resolveCoverUrl } from '../lib/api';
   import { svelteMotionEnter } from '../lib/motion';
   import type { Album, Artist, HomeFilter, Playlist, Track, ViewRoute, YTMusicCard, YTMusicShelf, YTMusicTrack } from '../lib/types';
+  import { tr, type LangCode } from '../lib/i18n';
   import Icon from '../components/Icon.svelte';
 
   interface Props {
@@ -50,6 +51,10 @@
     onLoadMoreYTMusic?: (category: HomeFilter) => void;
     onLoadMorePopularArtists?: () => void;
     onNavigate: (route: ViewRoute) => void;
+    lang?: LangCode;
+    showGreeting?: boolean;
+    showRecentHome?: boolean;
+    meltCards?: boolean;
   }
 
   let {
@@ -91,7 +96,11 @@
     onRefreshYTMusicHome,
     onLoadMoreYTMusic,
     onLoadMorePopularArtists,
-    onNavigate
+    onNavigate,
+    lang = 'en',
+    showGreeting: _showGreeting = true,
+    showRecentHome: _showRecentHome = true,
+    meltCards: _meltCards = true
   }: Props = $props();
 
   let activeFilterPill = $state<HomeFilter>('semua');
@@ -171,22 +180,22 @@
     };
   });
 
-  const filterPills = [
-    { id: 'semua', label: 'Semua' },
-    { id: 'musik', label: 'Music' },
-    { id: 'artis', label: 'Artis' },
-    { id: 'album', label: 'Album' }
-  ] as const;
+  const filterPills = $derived([
+    { id: 'semua', label: tr(lang, 'nav.all') },
+    { id: 'musik', label: tr(lang, 'nav.music') },
+    { id: 'artis', label: tr(lang, 'nav.artists') },
+    { id: 'album', label: tr(lang, 'nav.albums') }
+  ] as const);
 
   const pillHeading = $derived(
     activeFilterPill === 'musik'
-      ? 'Musik YouTube Music'
+      ? tr(lang, 'nav.music')
       : activeFilterPill === 'artis'
-        ? 'Artis'
+        ? tr(lang, 'nav.artists')
         : activeFilterPill === 'album'
-          ? 'Album YouTube Music'
+          ? tr(lang, 'nav.albums')
           : activeFilterPill === 'playlist'
-            ? 'Playlist YouTube Music'
+            ? tr(lang, 'nav.playlists')
             : activeFilterPill === 'podcast'
               ? 'Podcast'
               : 'Buku Audio'
@@ -430,7 +439,7 @@
         <section class="min-w-0 space-y-3" use:svelteMotionEnter={{ delay: 0.03 }}>
           <div class="flex items-center justify-between gap-2">
             <h2 class="text-xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-              Playlist Tersimpan
+              {tr(lang, 'nav.playlists')}
             </h2>
             {#if playlists.length > 4}
               <button
@@ -439,7 +448,7 @@
                 class="text-xs font-bold hover:underline cursor-pointer"
                 style="color: var(--md-sys-color-on-surface-variant);"
               >
-                {plExpanded ? 'Tampilkan lebih sedikit' : 'Tampilkan semua'}
+                {plExpanded ? tr(lang, 'nav.seeLess') : tr(lang, 'nav.seeMore')}
               </button>
             {/if}
           </div>

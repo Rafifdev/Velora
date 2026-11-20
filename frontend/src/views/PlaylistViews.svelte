@@ -2,6 +2,7 @@
   import { extractDominantColor, formatDuration, formatTotalMinutes, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
   import { svelteMotionEnter } from '../lib/motion';
   import type { Playlist, PlaylistDetail, Track, YTMusicTrack } from '../lib/types';
+  import { tr, type LangCode } from '../lib/i18n';
   import Icon from '../components/Icon.svelte';
 
   interface Props {
@@ -39,6 +40,7 @@
     onExportM3U: (playlistId: number) => void;
     onImportM3U: () => void;
     onImportSpotify?: (url: string) => Promise<void>;
+    lang?: LangCode;
   }
 
   let {
@@ -75,7 +77,8 @@
     onOpenTrackAlbum,
     onExportM3U,
     onImportM3U,
-    onImportSpotify
+    onImportSpotify,
+    lang = 'en'
   }: Props = $props();
 
   let editing = $state(false);
@@ -893,7 +896,7 @@
               Collection • Playlists
             </div>
             <h1 class="text-3xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-              Playlists
+              {tr(lang, 'nav.playlists')}
             </h1>
             <p class="text-xs tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
               {playlists.length} playlist • Local (.m3u) & YouTube Music
@@ -918,7 +921,7 @@
             onclick={onCreatePlaylist}
             class="h-9 px-4 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] text-xs font-bold flex items-center gap-1.5 cursor-pointer hover:brightness-105"
           >
-            <Icon name="plus" weight="bold" size={14} /> Buat Playlist
+            <Icon name="plus" weight="bold" size={14} /> {tr(lang, 'nav.createPlaylist')}
           </button>
         </div>
       </div>
@@ -930,8 +933,8 @@
     >
       <div class="flex flex-wrap items-center gap-2">
         {#each [
-          { id: 'all', label: 'Semua' },
-          { id: 'local', label: 'Local Playlists' },
+          { id: 'all', label: tr(lang, 'nav.all') },
+          { id: 'local', label: tr(lang, 'nav.localPlaylists') },
           { id: 'ytmusic', label: 'YouTube Music' }
         ] as tab (tab.id)}
           <button
@@ -963,10 +966,10 @@
             <Icon name="playlist" weight="fill" size={38} />
           </div>
           <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-            Belum ada playlist
+            {tr(lang, 'nav.noPlaylists')}
           </h2>
           <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-            Buat playlist baru untuk mengumpulkan lagu favoritmu.
+            {tr(lang, 'nav.noPlaylistsDesc')}
           </p>
           <button
             type="button"
@@ -974,7 +977,7 @@
             class="mt-6 h-10 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
             style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
           >
-            Buat playlist
+            {tr(lang, 'nav.createPlaylist')}
           </button>
         </div>
       {:else}

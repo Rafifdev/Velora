@@ -36,6 +36,8 @@ export class VeloraAudioEngine {
   private limiter: DynamicsCompressorNode | null = null;
   private fadeGain: GainNode | null = null;
   private masterGain: GainNode | null = null;
+  private analyser: AnalyserNode | null = null;
+  private analyserBuf: Float32Array<ArrayBuffer> | null = null;
 
   private currentVolume = 80;
   private currentMuted = false;
@@ -99,6 +101,9 @@ export class VeloraAudioEngine {
 
     const masterGain = ctx.createGain();
 
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+
     // Wire graph: source -> highpass -> lowpass -> eq0..4 -> makeup -> leveler -> limiter -> fade -> master -> out
     let prev: AudioNode = source;
     prev.connect(highpass);
@@ -111,6 +116,7 @@ export class VeloraAudioEngine {
     prev.connect(makeupGain);
     makeupGain.connect(leveler);
     leveler.connect(limiter);
+    limiter.connect(analyser);
     limiter.connect(fadeGain);
     fadeGain.connect(masterGain);
     masterGain.connect(ctx.destination);
@@ -130,6 +136,8 @@ export class VeloraAudioEngine {
     this.limiter = limiter;
     this.fadeGain = fadeGain;
     this.masterGain = masterGain;
+    this.analyser = analyser;
+    this.analyserBuf = new Float32Array(new ArrayBuffer(analyser.fftSize * 4));
 
     this.applyPreset();
     this.applyNormalize();
@@ -170,6 +178,23 @@ export class VeloraAudioEngine {
     this.fadeGain.gain.cancelScheduledValues(now);
     this.fadeGain.gain.setValueAtTime(0.001, now);
     this.fadeGain.gain.exponentialRampToValueAtTime(1.0, now + durationSec);
+  }
+
+  setFadeLevel(level: number): void {
+    if (!this.ctx || !this.fadeGain) return;
+    const clamped = Math.max(0.001, Math.min(1.0, level));
+    this.fadeGain.gain.setTargetAtTime(clamped, this.ctx.currentTime, 0.04);
+  }
+
+  getRmsLevel(): number {
+    if (!this.analyser || !this.analyserBuf) return 1;
+    this.analyser.getFloatTimeDomainData(this.analyserBuf);
+    let sum = 0;
+    for (let i = 0; i < this.analyserBuf.length; i++) {
+      const s = this.analyserBuf[i];
+      sum += s * s;
+    }
+    return Math.sqrt(sum / this.analyserBuf.length);
   }
 
   private applyVolume(): void {

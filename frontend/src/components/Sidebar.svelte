@@ -1,6 +1,7 @@
 <script lang="ts">
   import { animate } from 'motion';
   import type { ViewRoute } from '../lib/types';
+  import { tr, type LangCode } from '../lib/i18n';
   import Icon from './Icon.svelte';
   import PreferencesSidebar from './PreferencesSidebar.svelte';
 
@@ -8,6 +9,7 @@
     currentRoute: ViewRoute;
     width: number;
     collapsed: boolean;
+    lockedCollapsed?: boolean;
     accentColor: string;
     favoriteAlbumsCount?: number;
     favoriteTracksCount?: number;
@@ -19,6 +21,7 @@
     activePrefTab?: string;
     prefSearch?: string;
     prefSavedToast?: string;
+    lang?: LangCode;
     onBackFromPreferences?: () => void;
     onClearCache?: () => void;
     onNavigate: (route: ViewRoute) => void;
@@ -31,6 +34,7 @@
     currentRoute,
     width,
     collapsed,
+    lockedCollapsed = false,
     favoriteAlbumsCount = 0,
     favoriteTracksCount = 0,
     favoriteArtistsCount = 0,
@@ -41,6 +45,7 @@
     activePrefTab = $bindable('appearance'),
     prefSearch = $bindable(''),
     prefSavedToast = '',
+    lang = 'en',
     onBackFromPreferences,
     onClearCache,
     onNavigate,
@@ -62,13 +67,13 @@
   type MenuEntry = { id: ViewRoute['name']; label: string; icon: string; count?: number };
 
   const flatMenuItems = $derived<MenuEntry[]>([
-    { id: 'home', label: 'Home', icon: 'house' },
-    { id: 'favorite-albums', label: 'Favorite albums', icon: 'vinyl-record' },
-    { id: 'liked-songs', label: 'Favorite music', icon: 'music-note' },
-    { id: 'favorite-artists', label: 'Favorite artists', icon: 'user' },
-    { id: 'playlists', label: 'Playlists', icon: 'playlist', count: playlistsCount },
-    { id: 'downloaded', label: 'Downloaded', icon: 'download', count: downloadedCount },
-    { id: 'history', label: 'History', icon: 'clock-counter-clockwise' }
+    { id: 'home', label: tr(lang, 'nav.home'), icon: 'house' },
+    { id: 'favorite-albums', label: tr(lang, 'nav.favoriteAlbums'), icon: 'vinyl-record' },
+    { id: 'liked-songs', label: tr(lang, 'nav.favoriteMusic'), icon: 'music-note' },
+    { id: 'favorite-artists', label: tr(lang, 'nav.favoriteArtists'), icon: 'user' },
+    { id: 'playlists', label: tr(lang, 'nav.playlists'), icon: 'playlist', count: playlistsCount },
+    { id: 'downloaded', label: tr(lang, 'nav.downloaded'), icon: 'download', count: downloadedCount },
+    { id: 'history', label: tr(lang, 'nav.history'), icon: 'clock-counter-clockwise' }
   ]);
 
   function isActive(name: string): boolean {
@@ -152,6 +157,7 @@
         bind:activeTab={activePrefTab}
         bind:search={prefSearch}
         savedToast={prefSavedToast}
+        {lang}
         onBack={() => onBackFromPreferences?.()}
       />
     </div>
@@ -165,23 +171,25 @@
           : 'max-w-[140px] opacity-100 translate-x-0 pl-2'}"
         style="color: var(--md-sys-color-on-surface-variant);"
       >
-        Library
+        {tr(lang, 'nav.library')}
       </span>
-      <button
-        type="button"
-        onclick={onToggleCollapse}
-        title={collapsed ? 'Expand Menu' : 'Collapse Menu'}
-        aria-label={collapsed ? 'Expand Left Menu' : 'Collapse Menu'}
-        class="m3-icon-btn w-9 h-9 shrink-0 flex items-center justify-center cursor-pointer transition-transform duration-200 active:scale-90"
-      >
-        <span
-          bind:this={collapseIconEl}
-          class="inline-flex items-center justify-center"
-          style="transform: scaleX({collapsed ? -1 : 1});"
+      {#if !lockedCollapsed}
+        <button
+          type="button"
+          onclick={onToggleCollapse}
+          title={collapsed ? 'Expand Menu' : 'Collapse Menu'}
+          aria-label={collapsed ? 'Expand Left Menu' : 'Collapse Menu'}
+          class="m3-icon-btn w-9 h-9 shrink-0 flex items-center justify-center cursor-pointer transition-transform duration-200 active:scale-90"
         >
-          <Icon name="sidebar-simple" size={18} />
-        </span>
-      </button>
+          <span
+            bind:this={collapseIconEl}
+            class="inline-flex items-center justify-center"
+            style="transform: scaleX({collapsed ? -1 : 1});"
+          >
+            <Icon name="sidebar-simple" size={18} />
+          </span>
+        </button>
+      {/if}
     </div>
 
     <div class="flex-1 min-h-0 flex flex-col justify-between w-full">
@@ -218,13 +226,13 @@
         {/each}
       </nav>
 
-      <!-- Bottom Pinned Preferences Item -->
+      <!-- Bottom Pinned Settings Item -->
       <div class="pt-3 shrink-0">
         <button
           type="button"
           onclick={() => onNavigate({ name: 'preferences' })}
-          title={collapsed ? 'Preferences' : undefined}
-          aria-label="Preferences"
+          title={collapsed ? tr(lang, 'nav.settings') : undefined}
+          aria-label={tr(lang, 'nav.settings')}
           class="group relative w-full h-10 flex items-center justify-start px-3 rounded-md text-[13px] transition-colors duration-200 cursor-pointer text-left {prefActive
             ? 'font-semibold'
             : 'font-medium hover:bg-[var(--md-sys-color-state-hover)]'}"
@@ -243,7 +251,7 @@
               ? 'max-w-0 opacity-0 -translate-x-2 ml-0'
               : 'max-w-[150px] opacity-100 translate-x-0 ml-2.5'}"
           >
-            Preferences
+            {tr(lang, 'nav.settings')}
           </span>
         </button>
       </div>

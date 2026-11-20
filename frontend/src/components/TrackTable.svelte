@@ -96,7 +96,7 @@
       {@const active = isTrackActive(tr)}
       {@const cover = resolveCoverUrl(tr.coverUrl, mediaBaseUrl)}
       <div
-        class="group grid grid-cols-[28px_minmax(0,1fr)_auto] sm:grid-cols-[36px_1.4fr_1fr_92px_96px] gap-2 sm:gap-3 px-2 sm:px-3.5 py-2 items-center rounded-lg transition-colors duration-150 {active
+        class="velora-track-row group grid grid-cols-[28px_minmax(0,1fr)_auto] sm:grid-cols-[36px_1.4fr_1fr_92px_96px] gap-2 sm:gap-3 px-2 sm:px-3.5 py-2 items-center rounded-lg transition-colors duration-150 {active
           ? 'bg-[var(--md-sys-color-state-hover)]'
           : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
         style="color: var(--md-sys-color-on-surface);"

@@ -52,6 +52,7 @@ const (
 	d2dAlphaModeIgnore          = 3
 
 	d2dTextAAModeClearType    = 1
+	d2dTextAAModeGrayscale    = 2
 	d2dAAModePerPrimitive     = 0
 	d2dDrawTextOptNoSnap      = 0x00000001
 	d2dDrawTextOptClip        = 0x00000002
@@ -542,6 +543,8 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 	qItems []DynamicIslandQueueItem,
 	pal veloraBrandPalette,
 	marqueeElapsed float64,
+	diLang string,
+	isScrolling bool,
 ) bool {
 	if c.d2dDCRT == 0 || c.dwFactory == 0 || c.d2dBrush == 0 {
 		return false
@@ -549,6 +552,7 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 	if contentOp <= 0.02 {
 		return true
 	}
+	diStr := getDIStrings(diLang)
 
 	// Preserve existing alpha mask inside pix because D2D1_ALPHA_MODE_IGNORE
 	// may zero alpha bytes on the bound DIB rect during EndDraw.
@@ -571,6 +575,11 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 		return false
 	}
 
+	if isScrolling {
+		comVtblCall(c.d2dDCRT, 34, d2dTextAAModeGrayscale)
+	} else {
+		comVtblCall(c.d2dDCRT, 34, d2dTextAAModeClearType)
+	}
 	comVtblCall(c.d2dDCRT, 48) // BeginDraw
 	defer func() {
 		var t1, t2 uint64
@@ -591,7 +600,7 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 	f15Semi := c.getDWriteTextFormat(1, 15.0*u, dwTextAlignLeading, dwParaAlignNear, false, true)
 	f145Bold := c.getDWriteTextFormat(2, 14.5*u, dwTextAlignLeading, dwParaAlignNear, false, true)
 	f135Semi := c.getDWriteTextFormat(1, 13.5*u, dwTextAlignLeading, dwParaAlignNear, false, true)
-	f128Semi := c.getDWriteTextFormat(1, 12.8*u, dwTextAlignLeading, dwParaAlignNear, false, true)
+	f135Bold := c.getDWriteTextFormat(2, 13.5*u, dwTextAlignLeading, dwParaAlignNear, false, true)
 	f135SemiCenter := c.getDWriteTextFormat(1, 13.5*u, dwTextAlignCenter, dwParaAlignNear, false, true)
 	f15SemiCenter := c.getDWriteTextFormat(1, 15.0*u, dwTextAlignCenter, dwParaAlignNear, false, true)
 	f115Reg := c.getDWriteTextFormat(0, 11.5*u, dwTextAlignLeading, dwParaAlignNear, false, true)
@@ -716,9 +725,9 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 			}
 		}
 		c.drawD2DStr(activeDev.Name, f15Semi, pal.TextMain, contentOp, mapX(68), mapY(37), mapW(290), 24*u, false)
-		subTxt := "Terhubung"
+		subTxt := diStr.Connected
 		if activeDev.BatPct >= 0 && activeDev.BatPct <= 100 {
-			subTxt = fmt.Sprintf("Terhubung · %d%%", activeDev.BatPct)
+			subTxt = fmt.Sprintf("%s · %d%%", diStr.Connected, activeDev.BatPct)
 		}
 		c.drawD2DStr(subTxt, f115Reg, pal.TextVariant, 0.85*contentOp, mapX(68), mapY(60), mapW(290), 18*u, false)
 
@@ -738,9 +747,9 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 				cy := 68.0 + float64(idx+1)*56.0 + slideY
 
 				c.drawD2DStr(dev.Name, f15Semi, pal.TextVariant, 0.75*rowOp, mapX(68), mapY(cy-21), mapW(290), 24*u, true)
-				subRow := "Tersedia"
+				subRow := diStr.Available
 				if dev.BatPct >= 0 && dev.BatPct <= 100 {
-					subRow = fmt.Sprintf("Tersedia · %d%%", dev.BatPct)
+					subRow = fmt.Sprintf("%s · %d%%", diStr.Available, dev.BatPct)
 				}
 				c.drawD2DStr(subRow, f115Reg, pal.TextVariant, 0.52*rowOp, mapX(68), mapY(cy+2), mapW(290), 18*u, true)
 			}
@@ -759,9 +768,9 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 
 		onPrimCont := color.RGBA{R: 0xD8, G: 0xF3, B: 0xFF, A: 255}
 		if len(lyrics) == 0 {
-			msgTitle := "Lirik tidak ditemukan."
+			msgTitle := diStr.NoLyrics
 			if lyricsLoading {
-				msgTitle = "Memuat lirik…"
+				msgTitle = diStr.LoadingLyrics
 			}
 			c.drawD2DStr(msgTitle, f135Semi, onPrimCont, 0.78*contentOp, mapX(262), mapY(82), mapW(230), 22*u, false)
 			return true
@@ -843,13 +852,13 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 		c.drawD2DStr(timeStr, f135Semi, pal.TextMain, contentOp, mapXStatic(22), mapY(8), mapW(140), 22*u, false)
 
 		hdrTitle := qTitle
-		if hdrTitle == "" {
-			hdrTitle = "Queue"
+		if hdrTitle == "" || strings.EqualFold(hdrTitle, "Queue") || strings.EqualFold(hdrTitle, "Antrean") {
+			hdrTitle = diStr.QueueTitle
 		}
 		c.drawD2DStr(hdrTitle, f15SemiCenter, pal.TextMain, contentOp, mapX(72), mapY(42), mapW(276), 24*u, false)
 
 		if len(qItems) == 0 {
-			c.drawD2DStr("Antrean lagu kosong", f135SemiCenter, pal.TextVariant, 0.85*contentOp, mapX(40), mapY(136), mapW(340), 22*u, false)
+			c.drawD2DStr(diStr.EmptyQueue, f135SemiCenter, pal.TextVariant, 0.85*contentOp, mapX(40), mapY(136), mapW(340), 22*u, false)
 			return true
 		}
 
@@ -865,7 +874,7 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 			if itemIdx == qIndex {
 				titleCol = pal.Accent
 			}
-			c.drawD2DStr(item.Title, f128Semi, titleCol, contentOp, mapX(74), mapY(cy-18), mapW(278), 22*u, true)
+			c.drawD2DStr(item.Title, f135Bold, titleCol, contentOp, mapX(74), mapY(cy-18), mapW(278), 22*u, true)
 			drawMarquee(item.Artist, f11Reg, fNoTrim11Reg, pal.TextVariant, 0.85*contentOp, mapX(74), mapY(cy+2), mapW(278), 18*u)
 		}
 		c.popD2DClip()

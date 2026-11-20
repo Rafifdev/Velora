@@ -8,8 +8,10 @@
     PREFERENCE_SETTINGS,
     getPrefBool,
     getPrefValue,
+    localizeItem,
     type PreferenceItemDef
   } from '../lib/preferences';
+  import { getPrefLang, tr } from '../lib/i18n';
   import type { FireStreakStatus, ListeningStats, PlayHistoryItem, Track, ViewRoute } from '../lib/types';
   import Icon from '../components/Icon.svelte';
 
@@ -40,7 +42,7 @@
     tracks,
     mediaBaseUrl,
     accentColor: _accentColor,
-    activePrefTab = $bindable('general'),
+    activePrefTab = $bindable('appearance'),
     prefSearch = $bindable(''),
     onPlayTrack,
     onClearHistory,
@@ -50,6 +52,7 @@
   }: Props = $props();
 
   let savedToast = $state('');
+  let draftChanges = $state<Record<string, string>>({});
   let copiedKey = $state('');
   let openSelectId = $state<string | null>(null);
   let openSelectFlipUp = $state(false);
@@ -68,22 +71,30 @@
     );
   });
 
+  const effectivePrefs = $derived({ ...preferences, ...draftChanges });
+  const hasUnsavedChanges = $derived(Object.keys(draftChanges).length > 0);
+  const lang = $derived(getPrefLang(effectivePrefs));
+
   const visibleSettingsForCategory = $derived.by(() => {
     const q = prefSearch.trim().toLowerCase();
     return PREFERENCE_SETTINGS.filter((s) => {
-      if (s.visibleWhen && getPrefValue(preferences, s.visibleWhen.id) !== s.visibleWhen.equals) {
+      if (s.visibleWhen && getPrefValue(effectivePrefs, s.visibleWhen.id) !== s.visibleWhen.equals) {
         return false;
       }
-      if (q) {
-        return (
-          s.title.toLowerCase().includes(q) ||
-          s.description.toLowerCase().includes(q) ||
-          s.group.toLowerCase().includes(q) ||
-          s.category.toLowerCase().includes(q)
-        );
-      }
-      return s.category === activePrefTab;
-    });
+      return true;
+    })
+      .map((s) => localizeItem(s, lang))
+      .filter((s) => {
+        if (q) {
+          return (
+            s.title.toLowerCase().includes(q) ||
+            s.description.toLowerCase().includes(q) ||
+            s.group.toLowerCase().includes(q) ||
+            s.category.toLowerCase().includes(q)
+          );
+        }
+        return s.category === activePrefTab;
+      });
   });
 
   const groupedVisibleSettings = $derived.by(() => {
@@ -99,9 +110,10 @@
     return groups;
   });
 
-  const activeCategoryTitle = $derived(
-    PREFERENCE_CATEGORIES.find((c) => c.id === activePrefTab)?.title ?? activePrefTab
-  );
+  const activeCategoryTitle = $derived.by(() => {
+    const cat = PREFERENCE_CATEGORIES.find((c) => c.id === activePrefTab);
+    return cat ? tr(lang, cat.titleKey, cat.title) : activePrefTab;
+  });
 
   const maxHourMinutes = $derived(
     Math.max(1, ...listeningStats.timeOfDay.map((b) => b.minutes))
@@ -118,16 +130,46 @@
   }
 
   function updateSetting(key: string, value: string) {
-    onSavePreferences({ [key]: value });
-    showSavedToast('Pengaturan disimpan');
+    const savedVal = getPrefValue(preferences, key);
+    if (value === savedVal) {
+      if (key in draftChanges) {
+        const next = { ...draftChanges };
+        delete next[key];
+        draftChanges = next;
+      }
+    } else {
+      draftChanges = { ...draftChanges, [key]: value };
+    }
   }
 
-  async function handleClearCacheClick() {
+  function resetDraftChanges() {
+    draftChanges = {};
+  }
+
+  function commitDraftChanges() {
+    if (!hasUnsavedChanges) return;
+    const toSave = { ...draftChanges };
+    draftChanges = {};
+    onSavePreferences(toSave);
+  }
+
+  async function handleActionClick(itemId: string) {
+    if (itemId === 'dynamicIsland.reset') {
+      const resetPatch: Record<string, string> = {};
+      for (const s of PREFERENCE_SETTINGS) {
+        if (s.category === 'dynamic-island' && s.id !== 'dynamicIsland.enabled' && s.widget !== 'action') {
+          resetPatch[s.id] = s.defaultValue;
+        }
+      }
+      onSavePreferences(resetPatch);
+      showSavedToast(tr(lang, 'nav.islandResetToast'));
+      return;
+    }
     if (clearingCache) return;
     clearingCache = true;
     try {
       await onClearCache();
-      showSavedToast('Cache berhasil dibersihkan');
+      showSavedToast(tr(lang, 'nav.cacheCleared'));
     } finally {
       clearingCache = false;
     }
@@ -210,10 +252,10 @@
 {/snippet}
 
 {#snippet settingControl(item: PreferenceItemDef)}
-  {@const val = getPrefValue(preferences, item.id)}
+  {@const val = getPrefValue(effectivePrefs, item.id)}
   {@const checked = val === 'true'}
   {@const isOpen = openSelectId === item.id}
-  <div class="m3-card p-4 rounded-lg flex flex-wrap items-center justify-between gap-4 relative {isOpen ? 'z-30' : ''}">
+  <div class="py-3.5 first:pt-2 px-1 flex flex-wrap items-center justify-between gap-4 relative {isOpen ? 'z-30' : ''}">
     <div class="min-w-0 flex-1 space-y-0.5">
       <div class="text-sm font-semibold" style="color: var(--md-sys-color-on-surface);">{item.title}</div>
       <div class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
@@ -240,7 +282,7 @@
               onclick={() => updateSetting(item.id, opt.value)}
               class="px-3.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-all duration-150 {isActive ? 'font-semibold shadow-xs' : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
               style={isActive
-                ? 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'
+                ? 'background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);'
                 : 'color: var(--md-sys-color-on-surface-variant);'}
             >
               {opt.label}
@@ -295,11 +337,11 @@
       {:else if item.widget === 'action'}
         <button
           type="button"
-          disabled={clearingCache}
-          onclick={handleClearCacheClick}
+          disabled={item.id === 'storage.clearCache' && clearingCache}
+          onclick={() => handleActionClick(item.id)}
           class="m3-btn-tonal px-4 h-9 text-xs font-semibold cursor-pointer disabled:opacity-50"
         >
-          {clearingCache ? 'Membersihkan...' : item.actionLabel || 'Jalankan'}
+          {item.id === 'storage.clearCache' && clearingCache ? tr(lang, 'nav.clearing') : item.actionLabel || tr(lang, 'nav.run')}
         </button>
       {:else if item.widget === 'select'}
         {@const activeOpt = (item.options || []).find((o) => o.value === val) ?? item.options?.[0]}
@@ -332,7 +374,7 @@
               role="listbox"
               aria-label={item.title}
               in:fly={{ y: openSelectFlipUp ? 6 : -6, duration: 150 }}
-              class="absolute right-0 {openSelectFlipUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'} min-w-[196px] py-1.5 rounded-xl shadow-xl z-40 overflow-hidden"
+              class="absolute right-0 {openSelectFlipUp ? 'bottom-full mb-1.5' : 'top-full mt-1.5'} min-w-[196px] max-h-64 overflow-y-auto py-1.5 rounded-xl shadow-xl z-40"
               style="background-color: var(--md-sys-color-surface-container-high); border: 1px solid var(--md-sys-color-outline-variant);"
             >
               {#each item.options || [] as opt (opt.value)}
@@ -348,7 +390,7 @@
                   }}
                   class="w-full px-3.5 py-2.5 text-xs font-medium flex items-center justify-between gap-3 text-left cursor-pointer transition-colors duration-150 {isSelected ? 'font-semibold' : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
                   style={isSelected
-                    ? 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'
+                    ? 'background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);'
                     : 'color: var(--md-sys-color-on-surface);'}
                 >
                   <span class="truncate">{opt.label}</span>
@@ -445,9 +487,9 @@
             <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--md-sys-color-secondary)]">
               Playback Archive
             </div>
-            <h1 class="text-3xl font-bold tracking-tight text-[var(--md-sys-color-on-surface)]">History</h1>
+            <h1 class="text-3xl font-bold tracking-tight text-[var(--md-sys-color-on-surface)]">{tr(lang, 'nav.history')}</h1>
             <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] tabular-nums">
-              {history.length} recent streams • {listeningStats.totalMinutes} min listened
+              {history.length} recent streams • {listeningStats.totalMinutes} min
             </p>
           </div>
         </div>
@@ -461,7 +503,7 @@
             class="h-9 px-4 rounded-full text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-transform active:scale-95 disabled:opacity-40"
             style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
           >
-            <Icon name="play" weight="fill" size={14} /> Play All
+            <Icon name="play" weight="fill" size={14} /> {tr(lang, 'nav.playAll')}
           </button>
           {#if history.length > 0}
             <button
@@ -470,7 +512,7 @@
               class="h-9 px-3.5 rounded-full text-xs font-medium text-rose-300 flex items-center gap-1.5 cursor-pointer transition-colors hover:bg-rose-500/20"
               style="background-color: rgba(244, 63, 94, 0.14);"
             >
-              <Icon name="trash" size={14} /> Clear
+              <Icon name="trash" size={14} /> {tr(lang, 'nav.clear')}
             </button>
           {/if}
         </div>
@@ -488,10 +530,10 @@
             <Icon name="music-note" weight="bold" size={38} />
           </div>
           <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-            Belum ada riwayat putar
+            {tr(lang, 'nav.noHistoryTitle')}
           </h2>
           <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-            Lagu yang kamu putar akan muncul di sini.
+            {tr(lang, 'nav.noHistoryDesc')}
           </p>
           <button
             type="button"
@@ -499,7 +541,7 @@
             class="mt-6 h-10 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
             style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
           >
-            Mulai dengarkan
+            {tr(lang, 'nav.exploreSongs')}
           </button>
         </div>
       {:else}
@@ -707,61 +749,95 @@
 {:else}
   <!-- VELORA PREFERENCES MAIN PAGE (Matched with Home & M3 Design Tokens) -->
   <div class="h-full min-h-0 flex flex-col overflow-hidden relative" use:svelteMotionEnter={{ y: 8 }}>
-    <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-6 space-y-5">
+    <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-6 pb-20">
+      {#key prefSearch.trim() ? '__search__' : activePrefTab}
+        <div in:fly={{ y: 10, duration: 200 }} class="space-y-5">
       {#if !prefSearch.trim() && isAppTab(activePrefTab)}
         <div class="w-full">
           <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-            Tentang Velora
+            {tr(lang, 'nav.aboutTitle')}
           </h2>
-          <p class="text-xs mt-1" style="color: var(--md-sys-color-on-surface-variant);">Catatan Rilis dan Fitur</p>
+          <p class="text-xs mt-1" style="color: var(--md-sys-color-on-surface-variant);">{tr(lang, 'nav.aboutSubtitle')}</p>
         </div>
         <div class="w-full m3-card p-5 rounded-lg space-y-2.5 text-xs leading-relaxed">
           <div class="text-sm font-semibold" style="color: var(--md-sys-color-on-surface);">
-            Velora v2.0 — Studio Musik Material Design 3
+            {tr(lang, 'nav.aboutHeadline')}
           </div>
           <ul class="list-disc pl-5 space-y-1" style="color: var(--md-sys-color-on-surface-variant);">
-            <li>Antarmuka Material Design 3 dengan tema gelap terpadu, kartu modern, dan navigasi responsif.</li>
-            <li>Dynamic Island native Windows dengan kontrol pemutaran, lirik sinkron, antrean, dan pemilih perangkat audio.</li>
-            <li>Mesin audio lima band Equalizer, normalisasi kenyaringan, serta pemutaran dan unduhan musik offline.</li>
-            <li>Velora Jam untuk kendali jarak jauh pemutar musik melalui jaringan Wi-Fi lokal.</li>
+            <li>{tr(lang, 'nav.aboutBullet1')}</li>
+            <li>{tr(lang, 'nav.aboutBullet2')}</li>
+            <li>{tr(lang, 'nav.aboutBullet3')}</li>
+            <li>{tr(lang, 'nav.aboutBullet4')}</li>
           </ul>
         </div>
       {:else}
         <div class="w-full flex items-center justify-between">
           <div>
             <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-              {prefSearch.trim() ? `Hasil pencarian "${prefSearch}"` : activeCategoryTitle}
+              {prefSearch.trim() ? `${tr(lang, 'nav.searchResults')} "${prefSearch}"` : activeCategoryTitle}
             </h2>
             <p class="text-xs mt-1" style="color: var(--md-sys-color-on-surface-variant);">
-              Perubahan diterapkan dan disimpan secara otomatis
+              {tr(lang, 'nav.autoSaveHint')}
             </p>
           </div>
         </div>
 
-        <div class="w-full space-y-5">
+        <div class="w-full space-y-4">
           {#if groupedVisibleSettings.length === 0}
             <div class="m3-card p-6 rounded-lg text-xs text-center" style="color: var(--md-sys-color-on-surface-variant);">
-              Tidak ada pengaturan yang cocok.
+              {tr(lang, 'nav.noMatchingSettings')}
             </div>
           {:else}
             {#each groupedVisibleSettings as grp (grp.name)}
-              <div class="space-y-2.5">
+              <div class="space-y-0.5">
                 <div
                   class="px-1 text-[11px] font-semibold uppercase tracking-wider"
                   style="color: var(--md-sys-color-on-surface-variant); opacity: 0.78;"
                 >
                   {grp.name}
                 </div>
-                {#each grp.items as item (item.id)}
-                  {@render settingControl(item)}
-                {/each}
+                <div class="divide-y divide-[var(--md-sys-color-outline-variant)]">
+                  {#each grp.items as item (item.id)}
+                    {@render settingControl(item)}
+                  {/each}
+                </div>
               </div>
             {/each}
           {/if}
         </div>
       {/if}
+        </div>
+      {/key}
     </div>
-    {#if savedToast}
+    {#if hasUnsavedChanges}
+      <div
+        in:fly={{ y: 16, duration: 180 }}
+        out:fly={{ y: 16, duration: 140 }}
+        class="absolute bottom-5 left-1/2 -translate-x-1/2 w-max max-w-[calc(100%-2rem)] pl-4 pr-2 py-2 rounded-full shadow-2xl flex items-center gap-3 z-40"
+        style="background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface);"
+      >
+        <span class="text-xs font-medium whitespace-nowrap">
+          {tr(lang, 'nav.unsavedChanges')}
+        </span>
+        <div class="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onclick={resetDraftChanges}
+            class="px-3.5 py-1.5 rounded-full text-xs font-semibold cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+            style="color: var(--md-sys-color-on-surface-variant);"
+          >
+            {tr(lang, 'nav.reset')}
+          </button>
+          <button
+            type="button"
+            onclick={commitDraftChanges}
+            class="m3-btn-filled px-4 h-8 text-xs font-semibold cursor-pointer"
+          >
+            {tr(lang, 'nav.saveChanges')}
+          </button>
+        </div>
+      </div>
+    {:else if savedToast}
       <div
         in:fly={{ y: 12, duration: 160 }}
         class="absolute bottom-5 right-6 px-4 py-2 rounded-full text-xs font-semibold shadow-lg pointer-events-none flex items-center gap-2"
