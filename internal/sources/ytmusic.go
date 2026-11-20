@@ -1908,6 +1908,12 @@ func (c *YTMusicClient) InvalidateStreamCache(videoID string) {
 	c.mu.Unlock()
 }
 
+func (c *YTMusicClient) ClearAllStreamCache() {
+	c.mu.Lock()
+	clear(c.cache)
+	c.mu.Unlock()
+}
+
 func (c *YTMusicClient) ResolveStreamURL(ctx context.Context, videoID, quality string) (string, string, error) {
 	info, err := c.ResolveStreamWindow(ctx, videoID, quality, 0)
 	return info.URL, info.MimeType, err
@@ -2127,8 +2133,11 @@ func (c *YTMusicClient) resolveViaInnerTube(ctx context.Context, videoID, qualit
 			score := f.Bitrate
 			if quality == "low" && f.Bitrate > 0 {
 				score = 1_000_000 - f.Bitrate
-			} else if quality == "normal" && f.Bitrate >= 96000 && f.Bitrate <= 160000 {
+			} else if quality == "normal" && f.Bitrate >= 64000 && f.Bitrate <= 135000 {
 				score += 500_000
+				if f.Itag == 140 {
+					score += 40_000
+				}
 			} else {
 				// High quality: prioritize Opus (itag 251 / ~160kbps VBR 48kHz) or high-bitrate AAC (itag 141)
 				// Opus at 160kbps VBR provides superior high-frequency clarity & stereo imaging over 128kbps AAC.

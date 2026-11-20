@@ -10,12 +10,12 @@ const EQ_BANDS: ReadonlyArray<{ freq: number; type: BiquadFilterType; q: number 
 ];
 
 const EQ_PRESETS: Record<EqPresetId, readonly [number, number, number, number, number]> = {
-  // Spotify Studio: clean separation, zero ear-piercing 3.5kHz harshness, gentle silky air, warm low-end
-  spotify: [0.6, -1.0, 0.3, -1.4, 0.5],
+  // Studio: warm sub-bass, clean mids, gentle ear-fatigue cut at 3.5kHz, crisp air
+  spotify: [1.5, -1.5, 0.5, -1.8, 1.8],
   flat: [0, 0, 0, 0, 0],
-  bass: [3.4, 0.8, 0, -1.0, 0.4],
-  vocal: [-0.8, -1.2, 2.0, 0.4, 0.3],
-  electronic: [2.5, -0.8, 0, -0.6, 1.4]
+  bass: [6.5, 2.5, -1.0, -1.5, 0.5],
+  vocal: [-3.0, -2.0, 4.5, 2.5, 1.0],
+  electronic: [5.0, -2.0, 0.5, 1.5, 4.5]
 };
 
 /**

@@ -572,7 +572,8 @@ input[type='range'].velora-seekbar:hover::-webkit-slider-thumb {
 }
 
 .velora-wave-svg {
-  animation: velora-wave-scroll 0.85s linear infinite;
+  animation: velora-wave-scroll 1.8s linear infinite;
+  will-change: transform;
 }
 
 input[type='search']::-webkit-search-cancel-button {

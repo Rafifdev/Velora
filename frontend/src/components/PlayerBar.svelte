@@ -73,8 +73,31 @@
   const effectiveDuration = $derived(
     durationSec > 0 ? durationSec : currentTrack?.durationSec || 0
   );
+  let smoothPositionSec = $state(0);
+  let lastSyncedPos = 0;
+  let lastSyncedAt = 0;
+
+  $effect(() => {
+    lastSyncedPos = positionSec;
+    lastSyncedAt = performance.now();
+    smoothPositionSec = positionSec;
+  });
+
+  $effect(() => {
+    if (!isPlaying || effectiveDuration <= 0) return;
+    let rafId = 0;
+    const tick = () => {
+      const elapsed = (performance.now() - lastSyncedAt) / 1000;
+      // Cap extrapolation at +0.6s past last audio timeupdate so buffering never drifts ahead
+      smoothPositionSec = Math.min(effectiveDuration, lastSyncedPos + Math.min(elapsed, 0.6));
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  });
+
   const progressPct = $derived(
-    effectiveDuration > 0 ? Math.min(100, (positionSec / effectiveDuration) * 100) : 0
+    effectiveDuration > 0 ? Math.min(100, (smoothPositionSec / effectiveDuration) * 100) : 0
   );
   const remainingSec = $derived(Math.max(0, effectiveDuration - positionSec));
   const displayVolume = $derived(muted ? 0 : volume);
@@ -170,7 +193,7 @@
     >
       {#if waveBar && isPlaying}
         <div
-          class="pointer-events-none absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[9px] flex items-center"
+          class="pointer-events-none absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[8px] flex items-center"
           aria-hidden="true"
         >
           <div
@@ -183,21 +206,21 @@
               style="color: var(--md-sys-color-primary);"
             >
               <defs>
-                <pattern id="velora-wave-pat" width="24" height="9" patternUnits="userSpaceOnUse">
+                <pattern id="velora-wave-pat" width="24" height="8" patternUnits="userSpaceOnUse">
                   <path
-                    d="M0 4.5 Q6 1 12 4.5 T24 4.5"
+                    d="M0 4 Q6 2.2 12 4 T24 4"
                     fill="none"
                     stroke="currentColor"
-                    stroke-width="2.5"
+                    stroke-width="4.2"
                     stroke-linecap="round"
                   />
                 </pattern>
               </defs>
-              <rect width="100%" height="9" fill="url(#velora-wave-pat)" />
+              <rect width="100%" height="8" fill="url(#velora-wave-pat)" />
             </svg>
           </div>
           <div
-            class="h-[4px] flex-1"
+            class="h-[4.5px] flex-1"
             style="background-color: var(--md-sys-color-surface-container-highest);"
           ></div>
         </div>
@@ -206,8 +229,8 @@
         type="range"
         min="0"
         max={Math.max(1, effectiveDuration)}
-        step="0.5"
-        value={Math.min(positionSec, Math.max(1, effectiveDuration))}
+        step="any"
+        value={Math.min(smoothPositionSec, Math.max(1, effectiveDuration))}
         oninput={(e) => onSeek(Number((e.target as HTMLInputElement).value))}
         aria-label="Seekbar durasi lagu"
         class="velora-seekbar w-full block relative z-10"
