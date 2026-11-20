@@ -84,6 +84,8 @@ export function ImportSpotifyPlaylist(arg1:string):Promise<db.Playlist>;
 
 export function NotifyDynamicIslandAudioDevice(arg1:string):Promise<void>;
 
+export function OpenDataFolder():Promise<void>;
+
 export function PlayYTMusicCollection(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<Array<db.Track>>;
 
 export function PlayYTMusicTrack(arg1:sources.YTMusicTrack):Promise<db.Track>;
@@ -114,15 +116,37 @@ export function SearchYouTubeMusicArtists(arg1:string):Promise<Array<sources.YTM
 
 export function SearchYouTubeMusicPlaylists(arg1:string):Promise<Array<sources.YTMusicCard>>;
 
+export function SetDynamicIslandAnimSpeed(arg1:string):Promise<void>;
+
 export function SetDynamicIslandEnabled(arg1:boolean):Promise<void>;
 
+export function SetDynamicIslandHideInFullscreen(arg1:boolean):Promise<void>;
+
+export function SetDynamicIslandHideWhenAppActive(arg1:boolean):Promise<void>;
+
+export function SetDynamicIslandIdleHideSeconds(arg1:number):Promise<void>;
+
 export function SetDynamicIslandLanguage(arg1:string):Promise<void>;
+
+export function SetDynamicIslandOnlyPlaying(arg1:boolean):Promise<void>;
+
+export function SetDynamicIslandOpenTrigger(arg1:string):Promise<void>;
+
+export function SetDynamicIslandPauseHideSeconds(arg1:number):Promise<void>;
+
+export function SetDynamicIslandScreen(arg1:string):Promise<void>;
+
+export function SetDynamicIslandShapeSize(arg1:string,arg2:string,arg3:number):Promise<void>;
 
 export function SetDynamicIslandStyle(arg1:string):Promise<void>;
 
 export function SetFrontendFS(arg1:fs.FS):Promise<void>;
 
+export function SetKeepAwake(arg1:boolean):Promise<void>;
+
 export function SetTrayIcon(arg1:Array<number>):Promise<void>;
+
+export function SetWindowTitle(arg1:string):Promise<void>;
 
 export function StartJam():Promise<jam.Status>;
 

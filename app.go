@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	goruntime "runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -107,6 +109,7 @@ func (a *App) startup(ctx context.Context) {
 	a.deezerClient = sources.NewDeezerClient()
 	if prefs, pErr := a.store.GetPreferences(); pErr == nil {
 		a.spotifyClient.SetCredentials(prefs["integrations.spotify.clientId"], prefs["integrations.spotify.clientSecret"])
+		a.applyContentRegions(prefs["content.country"])
 	}
 	a.downloader = sources.NewDownloadManager(store, a.ytClient, a.downloadsDir, func(eventName string, data any) {
 		if a.ctx != nil {
@@ -376,7 +379,26 @@ func (a *App) domReady(ctx context.Context) {
 }
 
 func (a *App) beforeClose(ctx context.Context) (prevent bool) {
-	if !a.quitting && a.jamSrv != nil && a.jamSrv.Status().Running {
+	if a.quitting {
+		return false
+	}
+	closeToTray := false
+	if a.store != nil {
+		if prefs, err := a.store.GetPreferences(); err == nil {
+			closeToTray = prefs["system.closeToTray"] == "true"
+		}
+	}
+	if closeToTray || (a.jamSrv != nil && a.jamSrv.Status().Running) {
+		if a.trayCtrl != nil {
+			remoteURL := ""
+			running := false
+			if a.jamSrv != nil {
+				st := a.jamSrv.Status()
+				running = st.Running
+				remoteURL = st.RemoteURL
+			}
+			a.trayCtrl.EnsureStarted(running, remoteURL)
+		}
 		runtime.WindowHide(ctx)
 		return true
 	}
@@ -384,6 +406,7 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 }
 
 func (a *App) shutdown(ctx context.Context) {
+	setSystemKeepAwake(false)
 	a.shutdownTaskbar()
 	a.shutdownDynamicIsland()
 	if a.trayCtrl != nil {
@@ -1192,10 +1215,40 @@ func (a *App) SavePreferences(prefs map[string]string) error {
 	if lang, ok := prefs["content.language"]; ok && lang != "" {
 		a.SetDynamicIslandLanguage(lang)
 	}
+	if v, ok := prefs["dynamicIsland.hideApp"]; ok {
+		a.SetDynamicIslandHideWhenAppActive(v != "false")
+	}
+	if v, ok := prefs["dynamicIsland.hideFull"]; ok {
+		a.SetDynamicIslandHideInFullscreen(v != "false")
+	}
+	if v, ok := prefs["dynamicIsland.idleHideSec"]; ok {
+		sec, _ := strconv.Atoi(strings.TrimSpace(v))
+		a.SetDynamicIslandIdleHideSeconds(sec)
+	}
+	if v, ok := prefs["dynamicIsland.screen"]; ok {
+		a.SetDynamicIslandScreen(v)
+	}
+	if v, ok := prefs["dynamicIsland.animSpeed"]; ok {
+		a.SetDynamicIslandAnimSpeed(v)
+	}
+	if v, ok := prefs["dynamicIsland.openTrigger"]; ok {
+		a.SetDynamicIslandOpenTrigger(v)
+	}
+	if v, ok := prefs["dynamicIsland.onlyPlaying"]; ok {
+		a.SetDynamicIslandOnlyPlaying(strings.EqualFold(strings.TrimSpace(v), "true"))
+	}
+	if v, ok := prefs["dynamicIsland.pauseHide"]; ok {
+		sec, _ := strconv.Atoi(strings.TrimSpace(v))
+		a.SetDynamicIslandPauseHideSeconds(sec)
+	}
 	if daysStr, ok := prefs["privacy.historyDays"]; ok {
 		if d, err := strconv.Atoi(daysStr); err == nil && d > 0 {
 			_ = a.store.PrunePlayHistory(d)
 		}
+	}
+	if countryVal, ok := prefs["content.country"]; ok {
+		a.applyContentRegions(countryVal)
+		a.invalidateHomeCache()
 	}
 	_, hasID := prefs["integrations.spotify.clientId"]
 	_, hasSecret := prefs["integrations.spotify.clientSecret"]
@@ -1208,6 +1261,52 @@ func (a *App) SavePreferences(prefs map[string]string) error {
 		a.invalidateHomeCache()
 	}
 	return nil
+}
+
+func parseContentRegions(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	seen := map[string]struct{}{}
+	for _, p := range parts {
+		code := strings.ToUpper(strings.TrimSpace(p))
+		if len(code) != 2 {
+			continue
+		}
+		if _, dup := seen[code]; dup {
+			continue
+		}
+		seen[code] = struct{}{}
+		out = append(out, code)
+	}
+	if len(out) == 0 {
+		out = []string{"ID"}
+	}
+	return out
+}
+
+func (a *App) applyContentRegions(raw string) {
+	regions := parseContentRegions(raw)
+	if a.ytClient != nil {
+		a.ytClient.SetRegions(regions)
+	}
+	if a.spotifyClient != nil {
+		a.spotifyClient.SetRegion(regions[0])
+	}
+}
+
+func (a *App) OpenDataFolder() error {
+	if a.dataDir == "" {
+		return fmt.Errorf("data folder not initialized")
+	}
+	_ = os.MkdirAll(a.dataDir, 0o755)
+	switch goruntime.GOOS {
+	case "windows":
+		return exec.Command("explorer.exe", a.dataDir).Start()
+	case "darwin":
+		return exec.Command("open", a.dataDir).Start()
+	default:
+		return exec.Command("xdg-open", a.dataDir).Start()
+	}
 }
 
 func (a *App) ClearCache() (int64, error) {
@@ -1249,6 +1348,21 @@ func (a *App) ClearCache() (int64, error) {
 
 func (a *App) WindowMinimize() {
 	runtime.WindowMinimise(a.ctx)
+}
+
+func (a *App) SetWindowTitle(title string) {
+	if a.ctx == nil {
+		return
+	}
+	t := strings.TrimSpace(title)
+	if t == "" {
+		t = "Velora"
+	}
+	runtime.WindowSetTitle(a.ctx, t)
+}
+
+func (a *App) SetKeepAwake(enabled bool) {
+	setSystemKeepAwake(enabled)
 }
 
 func (a *App) WindowMaximize() {
