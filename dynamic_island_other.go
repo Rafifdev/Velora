@@ -46,6 +46,15 @@ func (a *App) UpdateDynamicIslandProgress(_ float64, _ float64)          {}
 func (a *App) updateDynamicIslandLyrics(_ []sources.LyricLine, _ string) {}
 func (a *App) SetDynamicIslandEnabled(_ bool)                            {}
 func (a *App) SetDynamicIslandStyle(_ string)                            {}
+func (a *App) SetDynamicIslandShapeSize(_, _ string, _ int)              {}
+func (a *App) SetDynamicIslandHideWhenAppActive(_ bool)                  {}
+func (a *App) SetDynamicIslandHideInFullscreen(_ bool)                   {}
+func (a *App) SetDynamicIslandIdleHideSeconds(_ int)                     {}
+func (a *App) SetDynamicIslandScreen(_ string)                           {}
+func (a *App) SetDynamicIslandAnimSpeed(_ string)                        {}
+func (a *App) SetDynamicIslandOpenTrigger(_ string)                      {}
+func (a *App) SetDynamicIslandOnlyPlaying(_ bool)                        {}
+func (a *App) SetDynamicIslandPauseHideSeconds(_ int)                    {}
 func (a *App) SetDynamicIslandLanguage(_ string)                         {}
 func (a *App) SyncDynamicIsland(_ DynamicIslandSyncPayload)              {}
 func (a *App) NotifyDynamicIslandAudioDevice(_ string)                   {}
