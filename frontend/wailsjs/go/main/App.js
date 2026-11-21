@@ -46,6 +46,10 @@ export function ExportLocalPlaylistM3U(arg1) {
   return window['go']['main']['App']['ExportLocalPlaylistM3U'](arg1);
 }
 
+export function GenerateQRDataURL(arg1) {
+  return window['go']['main']['App']['GenerateQRDataURL'](arg1);
+}
+
 export function GetAlbumTracks(arg1) {
   return window['go']['main']['App']['GetAlbumTracks'](arg1);
 }
@@ -88,6 +92,10 @@ export function GetJamStatus() {
 
 export function GetListeningStats() {
   return window['go']['main']['App']['GetListeningStats']();
+}
+
+export function GetMonthlyStreak(arg1, arg2) {
+  return window['go']['main']['App']['GetMonthlyStreak'](arg1, arg2);
 }
 
 export function GetMoreArtists(arg1, arg2) {
@@ -236,6 +244,10 @@ export function SetDynamicIslandAnimSpeed(arg1) {
 
 export function SetDynamicIslandContent(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
   return window['go']['main']['App']['SetDynamicIslandContent'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
+}
+
+export function SetDynamicIslandCoverOptions(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetDynamicIslandCoverOptions'](arg1, arg2, arg3);
 }
 
 export function SetDynamicIslandEnabled(arg1) {

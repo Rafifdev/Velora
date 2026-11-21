@@ -305,6 +305,11 @@ export const api = {
   async getFireStreak(): Promise<FireStreakStatus> {
     return appBridge().GetFireStreak();
   },
+  async getMonthlyStreak(year: number, month: number): Promise<import('./types').DailyStreakRow[]> {
+    const fn = appBridge()?.GetMonthlyStreak;
+    if (!fn) return [];
+    return (await fn(year, month)) ?? [];
+  },
   async savePreferences(prefs: Record<string, string>): Promise<void> {
     return appBridge().SavePreferences(prefs);
   },
@@ -321,6 +326,9 @@ export const api = {
     } else if (typeof window !== 'undefined') {
       window.open(url, '_blank', 'noopener,noreferrer');
     }
+  },
+  async generateQRDataURL(content: string): Promise<string> {
+    return (await appBridge()?.GenerateQRDataURL?.(content)) ?? '';
   },
   async checkForUpdates(): Promise<import('./types').UpdateCheckResult> {
     const fn = appBridge()?.CheckForUpdates;
@@ -414,6 +422,10 @@ export const api = {
     if (isJamRemote) return;
     appBridge()?.SetDynamicIslandEnabled?.(enabled);
   },
+  setDynamicIslandLanguage(lang: string): void {
+    if (isJamRemote) return;
+    appBridge()?.SetDynamicIslandLanguage?.(lang);
+  },
 
   setDynamicIslandStyle(style: string): void {
     if (isJamRemote) return;
@@ -478,6 +490,14 @@ export const api = {
       showProgress,
       progressStyle
     );
+  },
+  setDynamicIslandCoverOptions(
+    coverStyle: string,
+    coverSpin: boolean,
+    closedCoverSpin: boolean
+  ): void {
+    if (isJamRemote) return;
+    appBridge()?.SetDynamicIslandCoverOptions?.(coverStyle, coverSpin, closedCoverSpin);
   },
   syncDynamicIsland(payload: {
     title: string;

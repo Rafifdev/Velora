@@ -288,11 +288,15 @@
   });
   let queue = $state<Track[]>([]);
   let queueSourceTitle = $state('');
+  let queueSourceKey = $state('');
   let playedAlgoKeys = new Set<string>();
   let algoBatchRound = 0;
   let currentTrack = $state<Track | null>(null);
   let currentLyrics = $state<TrackLyrics | null>(null);
   let lyricsLoading = $state(false);
+  let lyricsLoadedTrackKey = '';
+  let lyricsLoadedForDur = 0;
+  let lyricsRequestSeq = 0;
   let isPlaying = $state(false);
   let positionSec = $state(0);
   let durationSec = $state(0);
@@ -796,6 +800,7 @@
     if (preferences['dynamicIsland.enabled'] !== undefined) {
       api.setDynamicIslandEnabled(preferences['dynamicIsland.enabled'] !== 'false');
     }
+    api.setDynamicIslandLanguage(getPrefValue(preferences, 'content.language') || 'id');
     if (preferences['dynamicIsland.style'] !== undefined) {
       api.setDynamicIslandStyle(preferences['dynamicIsland.style']);
     }
@@ -822,6 +827,11 @@
       getPrefValue(preferences, 'dynamicIsland.showDots') !== 'false',
       getPrefValue(preferences, 'dynamicIsland.showProgress') !== 'false',
       getPrefValue(preferences, 'dynamicIsland.progressStyle') || 'thin'
+    );
+    api.setDynamicIslandCoverOptions(
+      getPrefValue(preferences, 'dynamicIsland.coverStyle') || 'square',
+      getPrefValue(preferences, 'dynamicIsland.coverSpin') !== 'false',
+      getPrefValue(preferences, 'dynamicIsland.closedCoverSpin') === 'true'
     );
     if (preferences['general.zoomLevel']) {
       const z = Number(preferences['general.zoomLevel']);
@@ -883,7 +893,14 @@
   async function patchPrefs(patch: Record<string, string>) {
     preferences = { ...preferences, ...patch };
     await api.savePreferences(patch);
-    if (patch['content.country'] !== undefined || patch['content.hideExplicit'] !== undefined) {
+    if (patch['content.language'] !== undefined) {
+      api.setDynamicIslandLanguage(patch['content.language']);
+    }
+    if (
+      patch['content.country'] !== undefined ||
+      patch['content.hideExplicit'] !== undefined ||
+      patch['content.language'] !== undefined
+    ) {
       void loadYTMusicHome();
     }
     if (patch['layout.leftCollapsed'] !== undefined) {
@@ -986,19 +1003,27 @@
         getPrefValue(preferences, 'dynamicIsland.progressStyle') || 'thin'
       );
     }
+    if (
+      patch['dynamicIsland.coverStyle'] !== undefined ||
+      patch['dynamicIsland.coverSpin'] !== undefined ||
+      patch['dynamicIsland.closedCoverSpin'] !== undefined
+    ) {
+      api.setDynamicIslandCoverOptions(
+        getPrefValue(preferences, 'dynamicIsland.coverStyle') || 'square',
+        getPrefValue(preferences, 'dynamicIsland.coverSpin') !== 'false',
+        getPrefValue(preferences, 'dynamicIsland.closedCoverSpin') === 'true'
+      );
+    }
     if (patch['general.zoomLevel'] !== undefined) {
       const z = Number(patch['general.zoomLevel']);
       if (Number.isFinite(z)) applyZoom(z, true);
     }
     if (patch['integrations.jam.enabled'] !== undefined) {
-      if (patch['integrations.jam.enabled'] === 'true') {
-        jamStatus = await api.startJam();
-        preferences = {
-          ...preferences,
-          'integrations.jam.remoteUrl': jamStatus.remoteUrl
-        };
-      } else {
-        jamStatus = await api.stopJam();
+      if (patch['integrations.jam.enabled'] !== 'true') {
+        jamModalOpen = false;
+        if (jamStatus.running) {
+          jamStatus = await api.stopJam();
+        }
         preferences = {
           ...preferences,
           'integrations.jam.remoteUrl': ''
@@ -1008,16 +1033,19 @@
   }
 
   async function toggleJamServer() {
+    if (!getPrefBool(preferences, 'integrations.jam.enabled')) return;
     jamLoading = true;
     try {
       if (jamStatus.running) {
         jamStatus = await api.stopJam();
-        preferences = { ...preferences, 'integrations.jam.enabled': 'false' };
+        preferences = {
+          ...preferences,
+          'integrations.jam.remoteUrl': ''
+        };
       } else {
         jamStatus = await api.startJam();
         preferences = {
           ...preferences,
-          'integrations.jam.enabled': 'true',
           'integrations.jam.remoteUrl': jamStatus.remoteUrl
         };
       }
@@ -1160,7 +1188,12 @@
     });
   });
 
-  async function loadLyricsForTrack(tr: Track) {
+  async function loadLyricsForTrack(tr: Track, overrideDurSec?: number) {
+    const targetKey = trackQueueKey(tr);
+    const effDur = Math.round(overrideDurSec ?? tr.durationSec ?? 0);
+    lyricsLoadedTrackKey = targetKey;
+    lyricsLoadedForDur = effDur;
+    const reqSeq = ++lyricsRequestSeq;
     lyricsLoading = true;
     try {
       const res = await api.getTrackLyrics(
@@ -1168,17 +1201,17 @@
         tr.title,
         tr.artistName,
         tr.albumTitle,
-        tr.durationSec
+        effDur
       );
-      if (currentTrack?.id === tr.id) {
+      if (reqSeq === lyricsRequestSeq && currentTrack && trackQueueKey(currentTrack) === targetKey) {
         currentLyrics = res;
       }
     } catch {
-      if (currentTrack?.id === tr.id) {
+      if (reqSeq === lyricsRequestSeq && currentTrack && trackQueueKey(currentTrack) === targetKey) {
         currentLyrics = null;
       }
     } finally {
-      if (currentTrack?.id === tr.id) {
+      if (reqSeq === lyricsRequestSeq && currentTrack && trackQueueKey(currentTrack) === targetKey) {
         lyricsLoading = false;
       }
     }
@@ -2013,7 +2046,7 @@
         card.coverUrl
       );
       if (colTracks && colTracks.length > 0) {
-        await playTrack(colTracks[0], colTracks, card.title);
+        await playTrack(colTracks[0], colTracks, card.title, card.browseId || card.playlistId || card.id);
         void refreshAll();
       } else if (card.videoId) {
         const ytTrack: YTMusicTrack = {
@@ -2089,7 +2122,7 @@
     }
   }
 
-  async function playTrack(tr: Track, list: Track[] = [], sourceTitle?: string) {
+  async function playTrack(tr: Track, list: Track[] = [], sourceTitle?: string, sourceKey?: string) {
     if (isJamRemote) {
       await sendJamCommand('play-track', {
         trackId: tr.id,
@@ -2102,20 +2135,33 @@
       });
       return;
     }
+    if (sourceKey !== undefined) {
+      queueSourceKey = sourceKey;
+    } else if (sourceTitle !== undefined) {
+      queueSourceKey = '';
+    }
     if (sourceTitle !== undefined) {
       queueSourceTitle = sourceTitle;
     } else if (list.length > 0) {
       if (currentRoute.name === 'playlist-detail') {
         queueSourceTitle = selectedPlaylistDetail?.playlist?.name || 'Playlist';
+        queueSourceKey = `local-playlist:${currentRoute.playlistId}`;
       } else if (currentRoute.name === 'album-detail') {
         queueSourceTitle = albums.find((a) => a.id === currentRoute.albumId)?.title || 'Album';
+        queueSourceKey = `local-album:${currentRoute.albumId}`;
       } else if (currentRoute.name === 'artist-detail') {
         queueSourceTitle = artists.find((a) => a.id === currentRoute.artistId)?.name || 'Artis';
+        queueSourceKey = currentRoute.browseId || `local-artist:${currentRoute.artistId ?? ''}`;
       } else if (currentRoute.name === 'liked-songs') {
         queueSourceTitle = 'Favorite music';
+        queueSourceKey = 'liked-songs';
+      } else if (currentRoute.name === 'yt-album-detail') {
+        queueSourceTitle = currentRoute.albumTitle || currentRoute.title || 'Album';
+        queueSourceKey = currentRoute.browseId || currentRoute.videoId || '';
       }
     } else {
       queueSourceTitle = '';
+      queueSourceKey = '';
     }
 
     if (list.length > 0) {
@@ -2209,6 +2255,11 @@
     positionSec = audioEl.currentTime || 0;
     if (Number.isFinite(audioEl.duration) && audioEl.duration > 0) {
       durationSec = audioEl.duration;
+      const realDur = Math.round(audioEl.duration);
+      const curKey = trackQueueKey(currentTrack);
+      if (realDur > 0 && lyricsLoadedTrackKey === curKey && Math.abs(realDur - lyricsLoadedForDur) >= 3) {
+        void loadLyricsForTrack(currentTrack, realDur);
+      }
     }
     api.updateDynamicIslandProgress(positionSec, durationSec);
     if (isPlaying) {
@@ -2656,7 +2707,7 @@
     }}
     onToggleFavoriteArtist={handleToggleFavoriteArtist}
     onToggleFavoriteYTMusicArtist={handleToggleFavoriteYTMusicArtist}
-    onOpenStreakModal={() => (showStreakModal = true)}
+    onOpenStreakModal={() => void navigate({ name: 'listening-stats' })}
     onResetZoom={() => applyZoom(1)}
   />
 
@@ -2740,6 +2791,7 @@
           currentTrackArtist={currentTrack?.artistName ?? null}
           currentAlbumTitle={currentTrack?.albumTitle ?? null}
           {queueSourceTitle}
+          {queueSourceKey}
           {isPlaying}
           onTogglePlay={togglePlay}
           {mediaBaseUrl}
@@ -2985,6 +3037,7 @@
                   ? [detailTrack]
                   : []}
         <TrackDetailView
+          lang={appLang}
           track={detailTrack ?? albumTrackList[0] ?? null}
           album={detailAlbum}
           albumTracks={albumTrackList}
@@ -3025,6 +3078,7 @@
           track={currentTrack}
           lyrics={currentLyrics}
           {lyricsLoading}
+          {isPlaying}
           {positionSec}
           {mediaBaseUrl}
           {preferences}
@@ -3237,6 +3291,7 @@
               { label: tr(appLang, 'nav.playlists'), icon: 'playlist', route: { name: 'playlists' } as ViewRoute },
               { label: tr(appLang, 'nav.downloaded'), icon: 'download', route: { name: 'downloaded' } as ViewRoute },
               { label: tr(appLang, 'nav.history'), icon: 'clock-counter-clockwise', route: { name: 'history' } as ViewRoute },
+              { label: tr(appLang, 'nav.stats'), icon: 'chart-bar', route: { name: 'listening-stats' } as ViewRoute },
               { label: tr(appLang, 'nav.settings'), icon: 'gear', route: { name: 'preferences' } as ViewRoute }
             ] as entry (entry.icon)}
               <button
@@ -3280,7 +3335,7 @@
           weight={!mobileShowQueue && !mobileMenuOpen && currentRoute.name === 'home' ? 'fill' : 'regular'}
           size={20}
         />
-        <span class="text-[10px] font-semibold">Home</span>
+        <span class="text-[10px] font-semibold">{tr(appLang, 'nav.home')}</span>
       </button>
 
       <button
@@ -3302,7 +3357,7 @@
           weight={!mobileShowQueue && !mobileMenuOpen && currentRoute.name === 'search' ? 'bold' : 'regular'}
           size={20}
         />
-        <span class="text-[10px] font-semibold">Search</span>
+        <span class="text-[10px] font-semibold">{tr(appLang, 'nav.search')}</span>
       </button>
 
       <button
@@ -3314,7 +3369,7 @@
           : 'var(--md-sys-color-on-surface-variant)'};"
       >
         <Icon name="books" weight={mobileMenuOpen ? 'fill' : 'regular'} size={20} />
-        <span class="text-[10px] font-semibold">Your Library</span>
+        <span class="text-[10px] font-semibold">{tr(appLang, 'nav.library')}</span>
       </button>
 
       <button
@@ -3329,12 +3384,13 @@
           : 'var(--md-sys-color-on-surface-variant)'};"
       >
         <Icon name="queue" weight={mobileShowQueue ? 'fill' : 'regular'} size={20} />
-        <span class="text-[10px] font-semibold">Queue</span>
+        <span class="text-[10px] font-semibold">{tr(appLang, 'nav.queue')}</span>
       </button>
     </nav>
 
     <MobileNowPlaying
       open={mobileNowPlayingOpen}
+      lang={appLang}
       {currentTrack}
       lyrics={currentLyrics}
       {queue}
@@ -3377,13 +3433,15 @@
 <StreakModal
   open={showStreakModal}
   {fireStreak}
+  lang={appLang}
   onClose={() => (showStreakModal = false)}
-  onOpenFullPage={() => navigate({ name: 'fire-streak' })}
+  onOpenFullPage={() => navigate({ name: 'listening-stats' })}
 />
 
 <CreatePlaylistModal
   open={showCreatePlaylistModal}
   initialIsLocal={createPlaylistIsLocal}
+  lang={appLang}
   onClose={() => (showCreatePlaylistModal = false)}
   onSubmit={handleCreatePlaylist}
 />

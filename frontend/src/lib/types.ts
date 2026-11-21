@@ -188,6 +188,7 @@ export interface DayBucket {
 export interface TopStatItem {
   name: string;
   subText: string;
+  imageUrl?: string;
   plays: number;
   minutes: number;
 }
