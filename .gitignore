@@ -14,14 +14,7 @@ build/bin/
 *.sqlite
 *.sqlite3
 graphify-out/
-.graphifyignore
-.agents/
-AGENTS.md
-THEME_PALETTES.md
-implementation_plan.md
 Auralys-1.9.7-Settings.md
-scripts/query_graphify.py
-scripts/run_graphify.py
 
 # Environment & Secrets
 .env
