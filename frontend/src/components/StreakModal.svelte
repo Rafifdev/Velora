@@ -1,23 +1,26 @@
 <script lang="ts">
   import type { FireStreakStatus } from '../lib/types';
+  import { tr, type LangCode } from '../lib/i18n';
   import Icon from './Icon.svelte';
   import ModalDialog from './ModalDialog.svelte';
 
   interface Props {
     open: boolean;
     fireStreak: FireStreakStatus;
+    lang?: LangCode;
     onClose: () => void;
     onOpenFullPage: () => void;
   }
 
-  let { open, fireStreak, onClose, onOpenFullPage }: Props = $props();
+  let { open, fireStreak, lang = 'en', onClose, onOpenFullPage }: Props = $props();
 </script>
 
 <ModalDialog
   {open}
   {onClose}
   ariaLabelledby="streak-dialog-title"
-  class="m-auto w-full max-w-lg rounded-lg shadow-2xl p-6"
+  maxWidthClass="max-w-lg"
+  class="p-6"
 >
   <div class="space-y-5">
     <div class="flex items-start justify-between gap-4">
@@ -29,9 +32,9 @@
           <Icon name="flame" weight="fill" size={26} />
         </div>
         <div>
-          <h2 id="streak-dialog-title" class="text-xl font-semibold">Fire Streak Harian</h2>
+          <h2 id="streak-dialog-title" class="text-xl font-semibold">{tr(lang, 'nav.dailyStreak')}</h2>
           <p class="text-xs" style="color: var(--md-sys-color-on-surface-variant);">
-            Dengarkan musik tiap hari untuk menjaga streak tetap aktif
+            {tr(lang, 'nav.streakSubtitle')}
           </p>
         </div>
       </div>
@@ -40,19 +43,19 @@
     <div class="grid grid-cols-3 gap-3">
       <div class="m3-card p-3.5">
         <div class="text-xs flex items-center gap-1" style="color: var(--md-sys-color-on-surface-variant);">
-          <Icon name="flame" weight="fill" size={14} class="text-orange-400" /> Streak
+          <Icon name="flame" weight="fill" size={14} class="text-orange-400" /> {tr(lang, 'nav.streak')}
         </div>
-        <div class="text-2xl font-semibold text-orange-400 mt-1 tabular-nums">{fireStreak.currentStreak} Hari</div>
+        <div class="text-2xl font-semibold text-orange-400 mt-1 tabular-nums">{fireStreak.currentStreak} {tr(lang, 'nav.days')}</div>
       </div>
       <div class="m3-card p-3.5">
         <div class="text-xs flex items-center gap-1" style="color: var(--md-sys-color-on-surface-variant);">
-          <Icon name="trophy" weight="fill" size={14} class="text-amber-400" /> Rekor
+          <Icon name="trophy" weight="fill" size={14} class="text-amber-400" /> {tr(lang, 'nav.record')}
         </div>
-        <div class="text-2xl font-semibold mt-1 tabular-nums">{fireStreak.longestStreak} Hari</div>
+        <div class="text-2xl font-semibold mt-1 tabular-nums">{fireStreak.longestStreak} {tr(lang, 'nav.days')}</div>
       </div>
       <div class="m3-card p-3.5">
         <div class="text-xs flex items-center gap-1" style="color: var(--md-sys-color-on-surface-variant);">
-          <Icon name="calendar" weight="fill" size={14} style="color: var(--md-sys-color-primary);" /> Hari Ini
+          <Icon name="calendar" weight="fill" size={14} style="color: var(--md-sys-color-primary);" /> {tr(lang, 'nav.today')}
         </div>
         <div class="text-2xl font-semibold mt-1 tabular-nums" style="color: var(--md-sys-color-primary);">
           {fireStreak.progressPercent}%
@@ -63,8 +66,8 @@
     <div class="m3-card p-4 space-y-3">
       <div>
         <div class="flex justify-between text-xs mb-1.5">
-          <span style="color: var(--md-sys-color-on-surface-variant);">Target Menit Harian</span>
-          <span class="font-semibold tabular-nums">{fireStreak.todayMinutes} / {fireStreak.goalMinutes} menit</span>
+          <span style="color: var(--md-sys-color-on-surface-variant);">{tr(lang, 'nav.dailyMinutesGoal')}</span>
+          <span class="font-semibold tabular-nums">{fireStreak.todayMinutes} / {fireStreak.goalMinutes} {tr(lang, 'nav.minutes')}</span>
         </div>
         <div
           class="h-2 rounded-full overflow-hidden"
@@ -79,8 +82,8 @@
 
       <div>
         <div class="flex justify-between text-xs mb-1.5">
-          <span style="color: var(--md-sys-color-on-surface-variant);">Target Lagu Harian</span>
-          <span class="font-semibold tabular-nums">{fireStreak.todayTracks} / {fireStreak.goalTracks} lagu</span>
+          <span style="color: var(--md-sys-color-on-surface-variant);">{tr(lang, 'nav.dailyTracksGoal')}</span>
+          <span class="font-semibold tabular-nums">{fireStreak.todayTracks} / {fireStreak.goalTracks} {tr(lang, 'nav.songs').toLowerCase()}</span>
         </div>
         <div
           class="h-2 rounded-full overflow-hidden"
@@ -100,7 +103,7 @@
         onclick={onClose}
         class="m3-btn-outlined px-5 py-2 text-xs cursor-pointer"
       >
-        Tutup
+        {tr(lang, 'nav.close')}
       </button>
       <button
         type="button"
@@ -110,7 +113,7 @@
         }}
         class="m3-btn-filled px-5 py-2 text-xs cursor-pointer"
       >
-        Detail Statistik
+        {tr(lang, 'nav.statsDetail')}
       </button>
     </div>
   </div>

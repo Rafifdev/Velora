@@ -26,10 +26,11 @@ type DayBucket struct {
 }
 
 type TopStatItem struct {
-	Name    string  `json:"name"`
-	SubText string  `json:"subText"`
-	Plays   int     `json:"plays"`
-	Minutes float64 `json:"minutes"`
+	Name     string  `json:"name"`
+	SubText  string  `json:"subText"`
+	ImageURL string  `json:"imageUrl"`
+	Plays    int     `json:"plays"`
+	Minutes  float64 `json:"minutes"`
 }
 
 type ListeningStats struct {
@@ -251,6 +252,54 @@ func (s *Service) GetFireStreak(now time.Time) (FireStreakStatus, error) {
 	}, nil
 }
 
+func (s *Service) GetMonthlyStreak(year int, month int, now time.Time) ([]db.DailyStreakRow, error) {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	if year <= 0 || month < 1 || month > 12 {
+		year = now.Year()
+		month = int(now.Month())
+	}
+	if year > now.Year() || (year == now.Year() && month > int(now.Month())) {
+		year = now.Year()
+		month = int(now.Month())
+	}
+
+	prefix := fmt.Sprintf("%04d-%02d-", year, month)
+	rows, err := s.store.DB().Query(
+		`SELECT date_str, seconds_listened, tracks_count, streak_met FROM daily_streaks WHERE date_str LIKE ? ORDER BY date_str ASC`,
+		prefix+"%",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	byDate := map[string]db.DailyStreakRow{}
+	for rows.Next() {
+		var r db.DailyStreakRow
+		var met int
+		if err := rows.Scan(&r.DateStr, &r.SecondsListened, &r.TracksCount, &met); err != nil {
+			return nil, err
+		}
+		r.StreakMet = met == 1
+		byDate[r.DateStr] = r
+	}
+
+	firstOfMonth := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, now.Location())
+	daysInMonth := firstOfMonth.AddDate(0, 1, -1).Day()
+	out := make([]db.DailyStreakRow, 0, daysInMonth)
+	for day := 1; day <= daysInMonth; day++ {
+		key := fmt.Sprintf("%04d-%02d-%02d", year, month, day)
+		if row, ok := byDate[key]; ok {
+			out = append(out, row)
+		} else {
+			out = append(out, db.DailyStreakRow{DateStr: key})
+		}
+	}
+	return out, nil
+}
+
 func (s *Service) GetListeningStats() (ListeningStats, error) {
 	hours := make([]HourBucket, 24)
 	for h := 0; h < 24; h++ {
@@ -359,7 +408,7 @@ func (s *Service) GetListeningStats() (ListeningStats, error) {
 
 	topTracks := []TopStatItem{}
 	tRows, err := s.store.DB().Query(`
-		SELECT t.title, t.artist_name, COUNT(h.id) AS plays, COALESCE(SUM(h.duration_listened_sec), 0) AS secs
+		SELECT t.title, t.artist_name, COALESCE(t.cover_url, ''), COUNT(h.id) AS plays, COALESCE(SUM(h.duration_listened_sec), 0) AS secs
 		FROM play_history h
 		JOIN tracks t ON t.id = h.track_id
 		GROUP BY h.track_id
@@ -370,7 +419,7 @@ func (s *Service) GetListeningStats() (ListeningStats, error) {
 		for tRows.Next() {
 			var it TopStatItem
 			var secs int
-			if err := tRows.Scan(&it.Name, &it.SubText, &it.Plays, &secs); err == nil {
+			if err := tRows.Scan(&it.Name, &it.SubText, &it.ImageURL, &it.Plays, &secs); err == nil {
 				it.Minutes = math.Round((float64(secs)/60.0)*10) / 10
 				topTracks = append(topTracks, it)
 			}
@@ -379,9 +428,10 @@ func (s *Service) GetListeningStats() (ListeningStats, error) {
 
 	topArtists := []TopStatItem{}
 	aRows, err := s.store.DB().Query(`
-		SELECT t.artist_name, COUNT(h.id) AS plays, COALESCE(SUM(h.duration_listened_sec), 0) AS secs
+		SELECT t.artist_name, COALESCE(MAX(NULLIF(a.avatar_url, '')), MAX(NULLIF(t.cover_url, '')), ''), COUNT(h.id) AS plays, COALESCE(SUM(h.duration_listened_sec), 0) AS secs
 		FROM play_history h
 		JOIN tracks t ON t.id = h.track_id
+		LEFT JOIN artists a ON a.id = t.artist_id
 		GROUP BY t.artist_name
 		ORDER BY plays DESC, secs DESC
 		LIMIT 5`)
@@ -390,7 +440,7 @@ func (s *Service) GetListeningStats() (ListeningStats, error) {
 		for aRows.Next() {
 			var it TopStatItem
 			var secs int
-			if err := aRows.Scan(&it.Name, &it.Plays, &secs); err == nil {
+			if err := aRows.Scan(&it.Name, &it.ImageURL, &it.Plays, &secs); err == nil {
 				it.SubText = fmt.Sprintf("%d putar", it.Plays)
 				it.Minutes = math.Round((float64(secs)/60.0)*10) / 10
 				topArtists = append(topArtists, it)
