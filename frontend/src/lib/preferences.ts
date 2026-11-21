@@ -267,21 +267,9 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
     en: ['Position', 'Choose docked at screen edge/notch or floating pill.'],
     id: ['Posisi', 'Pilih tampilan menempel di tepi atas layar atau melayang berbentuk pil.']
   },
-  'dynamicIsland.accent': {
-    en: ['Accent color', 'For progress bar, equalizer, active lyric line, and heart button.'],
-    id: ['Warna aksen', 'Untuk bilah progres, equalizer, lirik yang sedang dinyanyikan, dan hati.']
-  },
-  'dynamicIsland.coverShape': {
-    en: ['Cover shape', 'Choose square, circle, or vinyl cover style.'],
-    id: ['Bentuk sampul', 'Pilih bentuk sampul persegi, lingkaran, atau piringan.']
-  },
-  'dynamicIsland.spinSpeed': {
-    en: ['Vinyl spin speed', 'Spins during playback and pauses when paused.'],
-    id: ['Putaran piringan', 'Berputar saat lagu diputar, berhenti saat dijeda.']
-  },
   'dynamicIsland.compactStyle': {
-    en: ['Compact style', 'Closed Dynamic Island appearance.'],
-    id: ['Gaya ringkas', 'Tampilan Dynamic Island saat tertutup.']
+    en: ['Dynamic Island style', 'Closed Dynamic Island appearance.'],
+    id: ['Gaya dynamic island', 'Tampilan Dynamic Island saat tertutup.']
   },
   'dynamicIsland.size': {
     en: ['Size', 'Overall Dynamic Island scale preset.'],
@@ -291,17 +279,25 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
     en: ['Opacity', 'Below 100%, the screen behind becomes slightly visible.'],
     id: ['Kepekatan', 'Di bawah 100% layar di belakang terlihat sedikit.']
   },
+  'dynamicIsland.showStatus': {
+    en: ['Clock & system status', 'Display clock and Wi-Fi, GPS, Bluetooth icons at the top.'],
+    id: ['Jam & status sistem', 'Tampilkan jam serta ikon Wi-Fi, GPS, dan Bluetooth di baris atas.']
+  },
   'dynamicIsland.showCover': {
     en: ['Show cover art', 'Display album artwork inside Dynamic Island.'],
     id: ['Sampul album', 'Tampilkan sampul album di Dynamic Island.']
+  },
+  'dynamicIsland.showClosedCover': {
+    en: ['Show cover when closed', 'Display small album art on the left side when Dynamic Island is closed.'],
+    id: ['Sampul saat tertutup', 'Tampilkan gambar album kecil di sisi kiri saat Dynamic Island tertutup.']
   },
   'dynamicIsland.showArtist': {
     en: ['Show artist name', 'Display artist subtitle below track title.'],
     id: ['Nama artis', 'Tampilkan nama artis di bawah judul lagu.']
   },
   'dynamicIsland.showLyric': {
-    en: ['Show lyric line', 'Active lyric line below artist and in one-line pill.'],
-    id: ['Baris lirik', 'Baris yang sedang dinyanyikan, di bawah artis dan di pil satu baris.']
+    en: ['Lyric', 'Lyric button and active lyric line in one-line pill.'],
+    id: ['Lirik', 'Tombol lirik dan baris lirik aktif pada pil satu baris.']
   },
   'dynamicIsland.showHeart': {
     en: ['Show heart button', 'Quick favorite toggle inside Dynamic Island.'],
@@ -316,16 +312,8 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
     id: ['Bilah progres', 'Indikator progres pemutaran lagu.']
   },
   'dynamicIsland.progressStyle': {
-    en: ['Progress bar style', 'Choose thin, thick, or dotted progress bar.'],
-    id: ['Gaya progres', 'Pilih gaya bilah progres tipis, tebal, atau titik.']
-  },
-  'dynamicIsland.showBars': {
-    en: ['Show equalizer', 'Live audio visualizer bars.'],
-    id: ['Equalizer', 'Tampilkan batang equalizer animasi.']
-  },
-  'dynamicIsland.barsStyle': {
-    en: ['Equalizer style', 'Choose the visual style for the audio equalizer indicator.'],
-    id: ['Gaya equalizer', 'Pilih gaya visual indikator equalizer audio.']
+    en: ['Progress bar style', 'Choose thin, thick, dotted, or wave progress bar.'],
+    id: ['Gaya progres', 'Pilih gaya bilah progres tipis, tebal, titik, atau gelombang.']
   },
   'dynamicIsland.animSpeed': {
     en: ['Animation speed', 'Adjust transition smoothness when Dynamic Island resizes.'],
@@ -950,48 +938,13 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
   },
   {
-    id: 'dynamicIsland.accent',
+    id: 'dynamicIsland.showStatus',
     category: 'dynamic-island',
-    group: 'grp.islandColorCover',
-    title: 'Accent color',
-    description: 'Progress bar, equalizer, lyrics, and heart color.',
-    widget: 'segmented',
-    defaultValue: 'pink',
-    options: [
-      { value: 'neutral', label: 'opt.neutral' },
-      { value: 'pink', label: 'opt.pink' },
-      { value: 'blue', label: 'opt.blue' }
-    ],
-    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
-  },
-  {
-    id: 'dynamicIsland.coverShape',
-    category: 'dynamic-island',
-    group: 'grp.islandColorCover',
-    title: 'Cover shape',
-    description: 'Album art shape.',
-    widget: 'segmented',
-    defaultValue: 'square',
-    options: [
-      { value: 'square', label: 'opt.square' },
-      { value: 'circle', label: 'opt.circle' },
-      { value: 'vinyl', label: 'opt.vinyl' }
-    ],
-    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
-  },
-  {
-    id: 'dynamicIsland.spinSpeed',
-    category: 'dynamic-island',
-    group: 'grp.islandColorCover',
-    title: 'Vinyl spin speed',
-    description: 'Spins while playing.',
-    widget: 'segmented',
-    defaultValue: 'normal',
-    options: [
-      { value: 'slow', label: 'opt.slow' },
-      { value: 'normal', label: 'opt.normal' },
-      { value: 'fast', label: 'opt.fast' }
-    ],
+    group: 'grp.islandContent',
+    title: 'Clock & system status',
+    description: 'Top-row clock and connectivity icons.',
+    widget: 'toggle',
+    defaultValue: 'true',
     visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
   },
   {
@@ -1000,6 +953,16 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     group: 'grp.islandContent',
     title: 'Show cover art',
     description: 'Display album cover.',
+    widget: 'toggle',
+    defaultValue: 'true',
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.showClosedCover',
+    category: 'dynamic-island',
+    group: 'grp.islandContent',
+    title: 'Show cover when closed',
+    description: 'Album art on the left when closed.',
     widget: 'toggle',
     defaultValue: 'true',
     visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
@@ -1065,32 +1028,8 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     options: [
       { value: 'thin', label: 'opt.thin' },
       { value: 'thick', label: 'opt.thick' },
-      { value: 'dots', label: 'opt.dots' }
-    ],
-    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
-  },
-  {
-    id: 'dynamicIsland.showBars',
-    category: 'dynamic-island',
-    group: 'grp.islandContent',
-    title: 'Show equalizer',
-    description: 'Live visualizer bars.',
-    widget: 'toggle',
-    defaultValue: 'true',
-    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
-  },
-  {
-    id: 'dynamicIsland.barsStyle',
-    category: 'dynamic-island',
-    group: 'grp.islandContent',
-    title: 'Equalizer style',
-    description: 'Static: bars do not move.',
-    widget: 'segmented',
-    defaultValue: 'bars',
-    options: [
-      { value: 'bars', label: 'opt.bars' },
-      { value: 'wave', label: 'opt.wave' },
-      { value: 'static', label: 'opt.static' }
+      { value: 'dots', label: 'opt.dots' },
+      { value: 'wave', label: 'opt.wave' }
     ],
     visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
   },
@@ -1214,16 +1153,6 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     defaultValue: '',
     actionLabel: 'nav.reset',
     visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
-  },
-  {
-    id: 'about.shortcuts',
-    category: 'about',
-    group: 'nav.aboutTitle',
-    title: 'Keyboard shortcuts',
-    description: 'View all available keyboard shortcuts in Velora.',
-    widget: 'action',
-    defaultValue: '',
-    actionLabel: 'nav.view'
   },
   {
     id: 'about.dataFolder',
