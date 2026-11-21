@@ -17,14 +17,15 @@ import (
 )
 
 type YTMusicTrack struct {
-	VideoID     string `json:"videoId"`
-	Title       string `json:"title"`
-	Artist      string `json:"artist"`
-	Album       string `json:"album"`
-	DurationSec int    `json:"durationSec"`
+	VideoID       string `json:"videoId"`
+	Title         string `json:"title"`
+	Artist        string `json:"artist"`
+	Album         string `json:"album"`
+	DurationSec   int    `json:"durationSec"`
 	CoverURL      string `json:"coverUrl"`
 	Format        string `json:"format"`
 	PlayCountText string `json:"playCountText,omitempty"`
+	Explicit      bool   `json:"explicit,omitempty"`
 }
 
 type YTMusicCard struct {
@@ -39,6 +40,7 @@ type YTMusicCard struct {
 	Artist      string `json:"artist"`
 	Album       string `json:"album"`
 	DurationSec int    `json:"durationSec"`
+	Explicit    bool   `json:"explicit,omitempty"`
 }
 
 type YTMusicShelf struct {

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { formatDuration, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
   import { svelteMotionEnter } from '../lib/motion';
-  import type { Album, Artist, DownloadProgress, Playlist, Track, ViewRoute, YTMusicArtistView, YTMusicTrack } from '../lib/types';
+  import type { Album, Artist, DownloadProgress, Playlist, Track, ViewRoute, YTMusicArtistView, YTMusicCard, YTMusicTrack } from '../lib/types';
   import { tr, type LangCode } from '../lib/i18n';
   import Icon from '../components/Icon.svelte';
   import TrackTable from '../components/TrackTable.svelte';
@@ -26,7 +26,11 @@
     ytArtistLoading?: boolean;
     detailTracks?: Track[];
     ytResults: YTMusicTrack[];
+    ytPlaylistResults?: YTMusicCard[];
+    ytAlbumResults?: YTMusicCard[];
+    ytArtistResults?: YTMusicCard[];
     ytLoading: boolean;
+    searchStart?: 'song' | 'album' | 'artist' | 'playlist' | 'video';
     playlists: Playlist[];
     downloadStates?: Record<number, DownloadProgress>;
     currentTrackId: number | null;
@@ -43,6 +47,11 @@
     onPlayYTMusic: (yt: YTMusicTrack) => void;
     onSaveYTMusic: (yt: YTMusicTrack) => void;
     onSearchYTMusic: (q: string) => void;
+    onSearchYTMusicPlaylists?: (q: string) => void;
+    onSearchYTMusicAlbums?: (q: string) => void;
+    onSearchYTMusicArtists?: (q: string) => void;
+    onOpenYTCard?: (card: YTMusicCard) => void;
+    onPlayYTCollection?: (card: YTMusicCard) => void;
     onToggleFavoriteTrack: (id: number) => void;
     onToggleFavoriteAlbum: (id: number) => void;
     onToggleFavoriteArtist: (id: number) => void;
@@ -74,7 +83,11 @@
     ytArtistLoading = false,
     detailTracks = [],
     ytResults,
+    ytPlaylistResults = [],
+    ytAlbumResults = [],
+    ytArtistResults = [],
     ytLoading,
+    searchStart = 'song',
     playlists,
     downloadStates = {},
     currentTrackId,
@@ -91,6 +104,11 @@
     onPlayYTMusic,
     onSaveYTMusic,
     onSearchYTMusic,
+    onSearchYTMusicPlaylists,
+    onSearchYTMusicAlbums,
+    onSearchYTMusicArtists,
+    onOpenYTCard,
+    onPlayYTCollection,
     onToggleFavoriteTrack,
     onToggleFavoriteAlbum,
     onToggleFavoriteArtist,
@@ -142,8 +160,19 @@
     }
   });
 
+  type SearchFilterTab = 'song' | 'album' | 'artist' | 'playlist' | 'video';
+  const SEARCH_TABS: { id: SearchFilterTab; label: string }[] = [
+    { id: 'song', label: 'Lagu' },
+    { id: 'album', label: 'Album' },
+    { id: 'artist', label: 'Artis' },
+    { id: 'playlist', label: 'Playlist' },
+    { id: 'video', label: 'Video' }
+  ];
+
   let artistFilterText = $state('');
   let ytQuery = $state('');
+  let activeSearchTab = $state<SearchFilterTab>('song');
+  let prevSearchMode = false;
   let albumsScrolled = $state(false);
   let artistsScrolled = $state(false);
   const downloadedTracks = $derived(tracks.filter((t) => t.isDownloaded));
@@ -154,10 +183,35 @@
   );
 
   $effect(() => {
-    if (mode === 'search' && searchQuery) {
+    const inSearch = mode === 'search';
+    if (inSearch && !prevSearchMode) {
+      activeSearchTab = searchStart || 'song';
+    }
+    prevSearchMode = inSearch;
+    if (inSearch && searchQuery) {
       ytQuery = searchQuery;
     }
   });
+
+  function runActiveSearch(q: string, tab: SearchFilterTab = activeSearchTab) {
+    if (tab === 'album') {
+      onSearchYTMusicAlbums?.(q);
+    } else if (tab === 'artist') {
+      onSearchYTMusicArtists?.(q);
+    } else if (tab === 'playlist') {
+      onSearchYTMusicPlaylists?.(q);
+    } else {
+      onSearchYTMusic(q);
+    }
+  }
+
+  function selectSearchTab(tab: SearchFilterTab) {
+    activeSearchTab = tab;
+    const q = (ytQuery || searchQuery).trim();
+    if (q) {
+      runActiveSearch(q, tab);
+    }
+  }
 
   const likedTracks = $derived(tracks.filter((t) => t.isFavorite));
 
@@ -1047,7 +1101,7 @@
     <form
       onsubmit={(e) => {
         e.preventDefault();
-        onSearchYTMusic(ytQuery);
+        runActiveSearch(ytQuery);
       }}
       class="sm:hidden sticky top-0 z-20 -mx-3 -mt-3 px-3 pt-3 pb-2 border-0 outline-none"
       style="background: linear-gradient(to bottom, var(--md-sys-color-surface) 0%, var(--md-sys-color-surface) 68%, color-mix(in srgb, var(--md-sys-color-surface) 78%, transparent) 86%, transparent 100%);"
@@ -1062,7 +1116,7 @@
           bind:this={mobileSearchInputEl}
           type="search"
           bind:value={ytQuery}
-          oninput={() => onSearchYTMusic(ytQuery)}
+          oninput={() => runActiveSearch(ytQuery)}
           placeholder="Apa yang ingin kamu putar?"
           class="flex-1 min-w-0 bg-transparent border-0 outline-none ring-0 text-sm"
           style="color: var(--md-sys-color-on-surface);"
@@ -1165,7 +1219,177 @@
     </div>
 
     <section class="hidden sm:block space-y-3">
-      {#if ytLoading && !topYTMatch}
+      <div class="flex flex-wrap items-center gap-2 pb-1">
+        {#each SEARCH_TABS as tab (tab.id)}
+          {@const selected = activeSearchTab === tab.id}
+          <button
+            type="button"
+            onclick={() => selectSearchTab(tab.id)}
+            class="px-3.5 py-1.5 rounded-full text-xs font-semibold transition-colors cursor-pointer"
+            style={selected
+              ? 'background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);'
+              : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant);'}
+          >
+            {tab.label}
+          </button>
+        {/each}
+      </div>
+
+      {#if activeSearchTab === 'album'}
+        {#if ytLoading && ytAlbumResults.length === 0}
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 animate-pulse">
+            {#each [0, 1, 2, 3, 4] as idx (idx)}
+              <div class="p-3 rounded-xl space-y-2.5 bg-[var(--md-sys-color-surface-container-high)]">
+                <div class="aspect-square rounded-lg bg-[var(--md-sys-color-surface-container-highest)]"></div>
+                <div class="h-3.5 w-3/4 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+                <div class="h-3 w-1/2 rounded bg-[var(--md-sys-color-surface-container)]"></div>
+              </div>
+            {/each}
+          </div>
+        {:else if ytAlbumResults.length === 0}
+          <div
+            class="p-6 rounded-xl text-xs flex items-center gap-2"
+            style="background-color: var(--md-sys-color-surface-container-low); color: var(--md-sys-color-on-surface-variant);"
+          >
+            <Icon name="disc" size={16} /> Tidak ada hasil album. Ketik kata kunci di kolom pencarian atas.
+          </div>
+        {:else}
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {#each ytAlbumResults as card (card.id)}
+              {@const cardCover = resolveCoverUrl(card.coverUrl, mediaBaseUrl)}
+              <div class="group p-3 rounded-xl bg-[var(--md-sys-color-surface-container-low)] hover:bg-[var(--md-sys-color-surface-container-high)] transition-colors space-y-2.5">
+                <div class="relative aspect-square rounded-lg overflow-hidden bg-[var(--md-sys-color-surface-container-highest)]">
+                  <button
+                    type="button"
+                    onclick={() => (onOpenYTCard ? onOpenYTCard(card) : onPlayYTCollection?.(card))}
+                    class="w-full h-full block cursor-pointer"
+                  >
+                    {#if cardCover}
+                      <img src={cardCover} alt={card.title} class="w-full h-full object-cover" />
+                    {:else}
+                      <div class="w-full h-full flex items-center justify-center"><Icon name="disc" size={28} /></div>
+                    {/if}
+                  </button>
+                  {#if onPlayYTCollection}
+                    <button
+                      type="button"
+                      onclick={() => onPlayYTCollection(card)}
+                      aria-label={`Putar ${card.title}`}
+                      class="absolute right-2 bottom-2 w-9 h-9 rounded-full bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer shadow"
+                    >
+                      <Icon name="play" weight="fill" size={15} />
+                    </button>
+                  {/if}
+                </div>
+                <button
+                  type="button"
+                  onclick={() => (onOpenYTCard ? onOpenYTCard(card) : onPlayYTCollection?.(card))}
+                  class="block w-full text-left cursor-pointer"
+                >
+                  <div class="text-sm font-semibold truncate" style="color: var(--md-sys-color-on-surface);">{card.title}</div>
+                  <div class="text-xs truncate" style="color: var(--md-sys-color-on-surface-variant);">{card.artist || card.subtitle || 'Album'}</div>
+                </button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      {:else if activeSearchTab === 'artist'}
+        {#if ytLoading && ytArtistResults.length === 0}
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 animate-pulse">
+            {#each [0, 1, 2, 3, 4] as idx (idx)}
+              <div class="p-3 rounded-xl space-y-2.5 bg-[var(--md-sys-color-surface-container-high)]">
+                <div class="aspect-square rounded-full bg-[var(--md-sys-color-surface-container-highest)]"></div>
+                <div class="h-3.5 w-3/4 mx-auto rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+              </div>
+            {/each}
+          </div>
+        {:else if ytArtistResults.length === 0}
+          <div
+            class="p-6 rounded-xl text-xs flex items-center gap-2"
+            style="background-color: var(--md-sys-color-surface-container-low); color: var(--md-sys-color-on-surface-variant);"
+          >
+            <Icon name="user" size={16} /> Tidak ada hasil artis. Ketik kata kunci di kolom pencarian atas.
+          </div>
+        {:else}
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {#each ytArtistResults as card (card.id)}
+              {@const cardCover = resolveCoverUrl(card.coverUrl, mediaBaseUrl)}
+              <button
+                type="button"
+                onclick={() => onOpenYTCard?.(card)}
+                class="group p-3 rounded-xl bg-[var(--md-sys-color-surface-container-low)] hover:bg-[var(--md-sys-color-surface-container-high)] transition-colors space-y-2.5 text-center cursor-pointer"
+              >
+                <div class="aspect-square rounded-full overflow-hidden bg-[var(--md-sys-color-surface-container-highest)] mx-auto">
+                  {#if cardCover}
+                    <img src={cardCover} alt={card.title} class="w-full h-full object-cover" />
+                  {:else}
+                    <div class="w-full h-full flex items-center justify-center"><Icon name="user" size={28} /></div>
+                  {/if}
+                </div>
+                <div class="text-sm font-semibold truncate" style="color: var(--md-sys-color-on-surface);">{card.title}</div>
+                <div class="text-xs truncate" style="color: var(--md-sys-color-on-surface-variant);">{card.subtitle || 'Artis'}</div>
+              </button>
+            {/each}
+          </div>
+        {/if}
+      {:else if activeSearchTab === 'playlist'}
+        {#if ytLoading && ytPlaylistResults.length === 0}
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 animate-pulse">
+            {#each [0, 1, 2, 3, 4] as idx (idx)}
+              <div class="p-3 rounded-xl space-y-2.5 bg-[var(--md-sys-color-surface-container-high)]">
+                <div class="aspect-square rounded-lg bg-[var(--md-sys-color-surface-container-highest)]"></div>
+                <div class="h-3.5 w-3/4 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+              </div>
+            {/each}
+          </div>
+        {:else if ytPlaylistResults.length === 0}
+          <div
+            class="p-6 rounded-xl text-xs flex items-center gap-2"
+            style="background-color: var(--md-sys-color-surface-container-low); color: var(--md-sys-color-on-surface-variant);"
+          >
+            <Icon name="playlist" size={16} /> Tidak ada hasil playlist. Ketik kata kunci di kolom pencarian atas.
+          </div>
+        {:else}
+          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {#each ytPlaylistResults as card (card.id)}
+              {@const cardCover = resolveCoverUrl(card.coverUrl, mediaBaseUrl)}
+              <div class="group p-3 rounded-xl bg-[var(--md-sys-color-surface-container-low)] hover:bg-[var(--md-sys-color-surface-container-high)] transition-colors space-y-2.5">
+                <div class="relative aspect-square rounded-lg overflow-hidden bg-[var(--md-sys-color-surface-container-highest)]">
+                  <button
+                    type="button"
+                    onclick={() => (onOpenYTCard ? onOpenYTCard(card) : onPlayYTCollection?.(card))}
+                    class="w-full h-full block cursor-pointer"
+                  >
+                    {#if cardCover}
+                      <img src={cardCover} alt={card.title} class="w-full h-full object-cover" />
+                    {:else}
+                      <div class="w-full h-full flex items-center justify-center"><Icon name="playlist" size={28} /></div>
+                    {/if}
+                  </button>
+                  {#if onPlayYTCollection}
+                    <button
+                      type="button"
+                      onclick={() => onPlayYTCollection(card)}
+                      aria-label={`Putar ${card.title}`}
+                      class="absolute right-2 bottom-2 w-9 h-9 rounded-full bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer shadow"
+                    >
+                      <Icon name="play" weight="fill" size={15} />
+                    </button>
+                  {/if}
+                </div>
+                <button
+                  type="button"
+                  onclick={() => (onOpenYTCard ? onOpenYTCard(card) : onPlayYTCollection?.(card))}
+                  class="block w-full text-left cursor-pointer"
+                >
+                  <div class="text-sm font-semibold truncate" style="color: var(--md-sys-color-on-surface);">{card.title}</div>
+                  <div class="text-xs truncate" style="color: var(--md-sys-color-on-surface-variant);">{card.subtitle || 'Playlist'}</div>
+                </button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      {:else if ytLoading && !topYTMatch}
         <div
           class="rounded-xl p-4 flex items-center gap-4 animate-pulse"
           style="background-color: var(--md-sys-color-surface-container-high);"
