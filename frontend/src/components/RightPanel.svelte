@@ -3,6 +3,11 @@
   import { animate } from 'motion';
   import { fade, fly, slide } from 'svelte/transition';
   import { isYTVideoThumb, resolveCoverUrl } from '../lib/api';
+  import {
+    computeLineSweepProgress,
+    computeWordProgressList,
+    wordSweepBackground
+  } from '../lib/lyricsSweep';
   import { svelteMotionEnter } from '../lib/motion';
   import { getPrefBool, getPrefValue } from '../lib/preferences';
   import { getPrefLang, tr } from '../lib/i18n';
@@ -47,7 +52,7 @@
     currentTrack,
     queue,
     queueSourceTitle = '',
-    isPlaying: _isPlaying,
+    isPlaying,
     positionSec,
     lyrics,
     lyricsLoading,
@@ -129,11 +134,36 @@
     return [];
   });
 
+  let smoothPosSec = $state(0);
+  let anchorPos = 0;
+  let anchorAt = 0;
+
+  $effect(() => {
+    anchorPos = positionSec;
+    anchorAt = performance.now();
+    smoothPosSec = positionSec;
+  });
+
+  $effect(() => {
+    if (collapsed || !isPlaying || !lyricsSweep || (lyrics?.syncedLyrics?.length ?? 0) === 0) {
+      smoothPosSec = positionSec;
+      return;
+    }
+    let rafId = 0;
+    const step = (now: number) => {
+      const dtSec = Math.max(0, Math.min(0.35, (now - anchorAt) / 1000));
+      smoothPosSec = anchorPos + dtSec;
+      rafId = requestAnimationFrame(step);
+    };
+    rafId = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(rafId);
+  });
+
   const activeSyncedIndex = $derived.by(() => {
     if (!lyrics?.syncedLyrics || lyrics.syncedLyrics.length === 0) return -1;
     let active = -1;
     for (let i = 0; i < lyrics.syncedLyrics.length; i++) {
-      if (positionSec + 0.25 >= lyrics.syncedLyrics[i].timeSec) {
+      if (smoothPosSec + 0.05 >= lyrics.syncedLyrics[i].timeSec) {
         active = i;
       } else {
         break;
@@ -142,15 +172,12 @@
     return active;
   });
 
-  function getRightLineSweepPct(idx: number): number {
-    if (!lyricsSweep || idx !== activeSyncedIndex || !lyrics?.syncedLyrics) return 100;
+  function getRightLineSweepProgress(idx: number): number {
+    if (!lyricsSweep || idx !== activeSyncedIndex || !lyrics?.syncedLyrics) return 1;
     const cur = lyrics.syncedLyrics[idx];
     const next = lyrics.syncedLyrics[idx + 1];
-    if (!cur) return 100;
-    const start = cur.timeSec;
-    const end = next ? Math.max(start + 0.6, next.timeSec) : start + 4.0;
-    const pct = (((positionSec + 0.25) - start) / (end - start)) * 100;
-    return Math.max(8, Math.min(100, pct));
+    if (!cur) return 1;
+    return computeLineSweepProgress(cur.text || '♪', cur.timeSec, next?.timeSec, smoothPosSec);
   }
 
   const previewLines = $derived.by(() => {
@@ -319,8 +346,8 @@
         <button
           type="button"
           onclick={onToggleCollapse}
-          title="Collapse Right Panel"
-          aria-label="Collapse Right Panel"
+          title={tr(lang, 'nav.collapseRightPanel')}
+          aria-label={tr(lang, 'nav.collapseRightPanel')}
           class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer shrink-0"
         >
           <span
@@ -339,8 +366,8 @@
         <button
           type="button"
           onclick={() => onChangeMode('now-playing')}
-          title="Kembali ke Sedang Diputar"
-          aria-label="Kembali ke Sedang Diputar"
+          title={tr(lang, 'nav.backToNowPlaying')}
+          aria-label={tr(lang, 'nav.backToNowPlaying')}
           class="m3-icon-btn w-7 h-7 flex items-center justify-center cursor-pointer shrink-0"
         >
           <Icon name="x" size={15} />
@@ -359,9 +386,7 @@
           <EmptyState
             icon="queue"
             title={tr(lang, 'nav.emptyQueue')}
-            description={lang === 'id'
-              ? 'Putar lagu atau tambahkan ke antrean untuk melihat daftar berikutnya.'
-              : 'Play a track or add songs to your queue to see what is up next.'}
+            description={tr(lang, 'nav.emptyQueueDesc')}
             titleClass="text-lg font-bold tracking-tight"
             descClass="mt-1.5 text-[13px] max-w-[230px] mx-auto"
           />
@@ -402,7 +427,7 @@
               </div>
             {:else}
               <p class="px-1.5 text-xs" style="color: var(--md-sys-color-on-surface-variant);">
-                {lang === 'id' ? 'Belum ada lagu yang diputar.' : 'No song is currently playing.'}
+                {tr(lang, 'nav.noSongPlaying')}
               </p>
             {/if}
           </section>
@@ -461,7 +486,7 @@
       {:else if !currentTrack}
         <EmptyState
           icon="music-note"
-          title={lang === 'id' ? 'Belum ada lagu diputar' : 'No song playing'}
+          title={tr(lang, 'nav.noSongPlaying')}
           description={tr(lang, 'nav.playSongForLyrics')}
           titleClass="text-lg font-bold tracking-tight"
           descClass="mt-1.5 text-[13px] max-w-[230px] mx-auto"
@@ -496,7 +521,7 @@
                 type="button"
                 onclick={() => onOpenTrackDetail?.(currentTrack)}
                 class="w-full text-left text-[16px] font-bold leading-snug truncate hover:underline cursor-pointer"
-                title="Lihat Detail Musik"
+                title={tr(lang, 'nav.viewTrackDetails')}
               >
                 {currentTrack.title}
               </button>
@@ -504,7 +529,7 @@
                 type="button"
                 onclick={() => onOpenArtistDetail?.(currentTrack)}
                 class="w-full text-left text-[13px] font-medium text-[var(--md-sys-color-on-surface-variant)] truncate mt-0.5 hover:underline cursor-pointer"
-                title="Lihat Halaman Artis"
+                title={tr(lang, 'nav.viewArtistPage')}
               >
                 {currentTrack.artistName}
               </button>
@@ -513,7 +538,7 @@
             <button
               type="button"
               onclick={() => onToggleFavorite(currentTrack.id)}
-              aria-label="Favorite track"
+              aria-label={tr(lang, 'nav.likeSong')}
               class="w-8 h-8 rounded-full flex items-center justify-center shrink-0 cursor-pointer hover:bg-[var(--md-sys-color-state-hover)] transition-colors"
             >
               <Icon
@@ -528,7 +553,7 @@
           <div class="py-8 px-4 text-center space-y-2">
             <Icon name="disc" size={28} class="text-[var(--md-sys-color-on-surface-variant)] opacity-35" />
             <div class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)]">
-              Belum ada lagu diputar
+              {tr(lang, 'nav.noSongPlaying')}
             </div>
           </div>
         {/if}
@@ -569,12 +594,11 @@
               </div>
             {:else if !lyricsExpanded && !lyricsMiniLyrics}
               <p class="text-[13px] font-medium opacity-75 py-2">
-                Klik tombol perluas untuk melihat lirik.
+                {tr(lang, 'nav.clickExpandLyrics')}
               </p>
             {:else if lyricLines.length > 0}
               {#each lyricLines as line, idx (idx + '-' + line.text)}
                 {@const active = idx === activeSyncedIndex}
-                {@const sweepPct = getRightLineSweepPct(idx)}
                 <button
                   type="button"
                   data-lyric-idx={idx}
@@ -586,10 +610,12 @@
                       : 'opacity-35 scale-[0.93] hover:opacity-100'}"
                 >
                   {#if active && line.isSynced && lyricsSweep}
-                    {@const words = (line.text || '♪').split(' ')}
-                    {#each words as word, wIdx (wIdx)}
-                      {@const wordLit = sweepPct >= (wIdx / Math.max(1, words.length)) * 100}
-                      <span class="transition-opacity duration-150 {wordLit ? 'opacity-100' : 'opacity-40'}">{word}{wIdx < words.length - 1 ? ' ' : ''}</span>
+                    {@const words = computeWordProgressList(line.text || '♪', getRightLineSweepProgress(idx))}
+                    {#each words as item, wIdx (wIdx)}
+                      <span
+                        class="inline-block will-change-transform"
+                        style="background-image: {wordSweepBackground(item.prog, 'var(--md-sys-color-on-primary-container)', 'color-mix(in srgb, var(--md-sys-color-on-primary-container) 34%, transparent)')}; -webkit-background-clip: text; background-clip: text; color: transparent; transform: translate3d(0, {(-1.0 * item.prog).toFixed(2)}px, 0);"
+                      >{item.word}</span>{wIdx < words.length - 1 ? ' ' : ''}
                     {/each}
                   {:else}
                     {line.text}
@@ -733,8 +759,8 @@
         type="button"
         onclick={onToggleCollapse}
         tabindex={collapsed ? 0 : -1}
-        title="Expand Right Panel"
-        aria-label="Expand Right Panel"
+        title={tr(lang, 'nav.expandRightPanel')}
+        aria-label={tr(lang, 'nav.expandRightPanel')}
         class="relative z-10 w-full h-full flex items-center justify-center cursor-pointer transition-colors {collapsedHover
           ? 'text-white'
           : 'text-[var(--md-sys-color-on-surface-variant)]'} active:scale-95"

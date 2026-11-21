@@ -526,7 +526,12 @@ type dynamicIslandController struct {
 	opacityPct           int
 	showStatus           bool
 	showCover            bool
+	coverStyle           string
+	coverSpin            bool
 	showClosedCover      bool
+	closedCoverSpin      bool
+	coverSpinRad         float64
+	closedSpinRad        float64
 	showArtist           bool
 	showLyric            bool
 	showHeart            bool
@@ -573,10 +578,12 @@ type dynamicIslandController struct {
 
 	rawCover       image.Image
 	coverImg       *image.RGBA
+	coverImgCircle *image.RGBA
 	coverImgMini   *image.RGBA
 	coverLoading   bool
 	lastCoverRetry time.Time
 	defaultArt     *image.RGBA
+	defaultArtCirc *image.RGBA
 	defaultArtSm   *image.RGBA
 	defaultArtMini *image.RGBA
 	coverAccent    color.RGBA
@@ -695,7 +702,10 @@ func (a *App) initDynamicIsland(ctx context.Context) {
 	pauseHideSec := 0
 	showStatus := true
 	showCover := true
+	coverStyle := "square"
+	coverSpin := true
 	showClosedCover := true
+	closedCoverSpin := false
 	showArtist := true
 	showLyric := true
 	showHeart := true
@@ -705,8 +715,12 @@ func (a *App) initDynamicIsland(ctx context.Context) {
 	themeSeed := "monolith"
 	accentHex := "#F6847E"
 	eqPreset := "spotify"
+	lang := "id"
 	if a.store != nil {
 		if prefs, err := a.store.GetPreferences(); err == nil {
+			if v := strings.ToLower(strings.TrimSpace(prefs["content.language"])); v != "" {
+				lang = v
+			}
 			if v, ok := prefs["ui.dynamicIsland"]; ok && v == "false" {
 				enabled = false
 			}
@@ -745,8 +759,17 @@ func (a *App) initDynamicIsland(ctx context.Context) {
 			if v, ok := prefs["dynamicIsland.showCover"]; ok && v == "false" {
 				showCover = false
 			}
+			if v := strings.ToLower(strings.TrimSpace(prefs["dynamicIsland.coverStyle"])); v == "circle" || v == "square" {
+				coverStyle = v
+			}
+			if v, ok := prefs["dynamicIsland.coverSpin"]; ok && v == "false" {
+				coverSpin = false
+			}
 			if v, ok := prefs["dynamicIsland.showClosedCover"]; ok && v == "false" {
 				showClosedCover = false
+			}
+			if v, ok := prefs["dynamicIsland.closedCoverSpin"]; ok && v == "true" {
+				closedCoverSpin = true
 			}
 			if v, ok := prefs["dynamicIsland.showArtist"]; ok && v == "false" {
 				showArtist = false
@@ -817,7 +840,10 @@ func (a *App) initDynamicIsland(ctx context.Context) {
 		pauseHideSec:      pauseHideSec,
 		showStatus:        showStatus,
 		showCover:         showCover,
+		coverStyle:        coverStyle,
+		coverSpin:         coverSpin,
 		showClosedCover:   showClosedCover,
+		closedCoverSpin:   closedCoverSpin,
 		showArtist:        showArtist,
 		showLyric:         showLyric,
 		showHeart:         showHeart,
@@ -829,6 +855,7 @@ func (a *App) initDynamicIsland(ctx context.Context) {
 		eqPreset:        eqPreset,
 		themeSeed:       themeSeed,
 		accentHex:       accentHex,
+		lang:            lang,
 		streakDays:      streakDays,
 		audioDeviceName: "Velora Audio Output",
 		btBatteryPct:    -1,
@@ -884,6 +911,9 @@ func (a *App) SetDynamicIslandLanguage(lang string) {
 	ctrl.mu.Lock()
 	ctrl.lang = strings.ToLower(strings.TrimSpace(lang))
 	ctrl.mu.Unlock()
+	if ctrl.hwnd != 0 {
+		_, _, _ = procPostMessageW.Call(ctrl.hwnd, diWmAppSync, 0, 0)
+	}
 }
 
 type diLocalizedStrings struct {
@@ -1231,6 +1261,27 @@ func (a *App) SetDynamicIslandContent(showStatus, showCover, showClosedCover, sh
 	}
 }
 
+func (a *App) SetDynamicIslandCoverOptions(coverStyle string, coverSpin, closedCoverSpin bool) {
+	cs := strings.ToLower(strings.TrimSpace(coverStyle))
+	if cs != "circle" {
+		cs = "square"
+	}
+	globalIslandMu.Lock()
+	ctrl := globalIsland
+	globalIslandMu.Unlock()
+	if ctrl == nil {
+		return
+	}
+	ctrl.mu.Lock()
+	ctrl.coverStyle = cs
+	ctrl.coverSpin = coverSpin
+	ctrl.closedCoverSpin = closedCoverSpin
+	ctrl.mu.Unlock()
+	if ctrl.hwnd != 0 {
+		_, _, _ = procPostMessageW.Call(ctrl.hwnd, diWmAppSync, 0, 0)
+	}
+}
+
 func (a *App) SetDynamicIslandStyle(style string) {
 	globalIslandMu.Lock()
 	ctrl := globalIsland
@@ -1363,6 +1414,7 @@ func (a *App) SyncDynamicIsland(p DynamicIslandSyncPayload) {
 
 	if cleanTitle == "" {
 		ctrl.coverImg = nil
+		ctrl.coverImgCircle = nil
 		ctrl.rawCover = nil
 		ctrl.hasCoverAcc = false
 	}
@@ -1372,6 +1424,8 @@ func (a *App) SyncDynamicIsland(p DynamicIslandSyncPayload) {
 		ctrl.lyricToY = 0
 		ctrl.lyricCurY = 0
 		ctrl.marqueeStart = time.Now()
+		ctrl.coverSpinRad = 0
+		ctrl.closedSpinRad = 0
 	}
 	needCoverFetch := p.CoverURL != "" && (coverChanged || (ctrl.coverImg == nil && !ctrl.coverLoading))
 	if needCoverFetch {
@@ -1403,7 +1457,7 @@ func (a *App) UpdateDynamicIslandProgress(positionSec float64, durationSec float
 	ctrl.mu.Unlock()
 }
 
-func (a *App) updateDynamicIslandLyrics(synced []sources.LyricLine, plain string) {
+func (a *App) updateDynamicIslandLyrics(synced []sources.LyricLine, _ string) {
 	globalIslandMu.Lock()
 	ctrl := globalIsland
 	globalIslandMu.Unlock()
@@ -1419,19 +1473,17 @@ func (a *App) updateDynamicIslandLyrics(synced []sources.LyricLine, plain string
 				list = append(list, sources.LyricLine{TimeSec: l.TimeSec, Text: txt})
 			}
 		}
-	} else if strings.TrimSpace(plain) != "" {
-		rawLines := strings.Split(plain, "\n")
-		for i, rl := range rawLines {
-			txt := strings.TrimSpace(rl)
-			if txt != "" {
-				list = append(list, sources.LyricLine{TimeSec: float64(i * 4), Text: txt})
-			}
-		}
 	}
 	ctrl.mu.Lock()
 	ctrl.lyrics = list
 	ctrl.lyricsLoading = false
 	ctrl.lyricIdx = -1
+	ctrl.prevLyricIdx = -1
+	ctrl.lyricFromY = 0
+	ctrl.lyricToY = 0
+	ctrl.lyricCurY = 0
+	ctrl.closedLyricFrom = ""
+	ctrl.closedLyricTo = ""
 	ctrl.mu.Unlock()
 }
 
@@ -1454,6 +1506,7 @@ func (a *App) updateDynamicIslandState(title, artist, coverURL string, isPlaying
 	ctrl.isPlaying = isPlaying
 	if cleanTitle == "" {
 		ctrl.coverImg = nil
+		ctrl.coverImgCircle = nil
 		ctrl.rawCover = nil
 		ctrl.hasCoverAcc = false
 	}
@@ -1463,6 +1516,8 @@ func (a *App) updateDynamicIslandState(title, artist, coverURL string, isPlaying
 		ctrl.lyricToY = 0
 		ctrl.lyricCurY = 0
 		ctrl.marqueeStart = time.Now()
+		ctrl.coverSpinRad = 0
+		ctrl.closedSpinRad = 0
 	}
 	ctrl.mu.Unlock()
 
@@ -1982,6 +2037,7 @@ func (c *dynamicIslandController) loadCoverAsync(rawURL string) {
 	c.mu.Unlock()
 	artPx := maxInt(46, int(math.Round(46.0*u)))
 	art := resizeCoverBilinear(img, artPx, artPx, 8.0*u)
+	artCirc := resizeCoverBilinear(img, artPx, artPx, float64(artPx)/2.0)
 	miniPx := maxInt(21, int(math.Round(20.8*u)))
 	artMini := resizeCoverBilinear(img, miniPx, miniPx, float64(miniPx)/2.0)
 	dom, hasDom := extractCoverAccentColor(img)
@@ -1990,6 +2046,7 @@ func (c *dynamicIslandController) loadCoverAsync(rawURL string) {
 	if c.coverURL == rawURL {
 		c.rawCover = img
 		c.coverImg = art
+		c.coverImgCircle = artCirc
 		c.coverImgMini = artMini
 		c.coverAccent = dom
 		c.hasCoverAcc = hasDom
@@ -2071,6 +2128,7 @@ func (c *dynamicIslandController) loadQueueArtAsync(rawURL string) {
 		if needMain {
 			artPx := maxInt(46, int(math.Round(46.0*u)))
 			mainArt := resizeCoverBilinear(img, artPx, artPx, 8.0*u)
+			mainArtCirc := resizeCoverBilinear(img, artPx, artPx, float64(artPx)/2.0)
 			miniPx := maxInt(21, int(math.Round(20.8*u)))
 			miniArt := resizeCoverBilinear(img, miniPx, miniPx, float64(miniPx)/2.0)
 			dom, hasDom := extractCoverAccentColor(img)
@@ -2078,6 +2136,7 @@ func (c *dynamicIslandController) loadQueueArtAsync(rawURL string) {
 			if c.coverURL == rawURL && c.coverImg == nil {
 				c.rawCover = img
 				c.coverImg = mainArt
+				c.coverImgCircle = mainArtCirc
 				c.coverImgMini = miniArt
 				c.coverAccent = dom
 				c.hasCoverAcc = hasDom
@@ -2197,12 +2256,14 @@ func (c *dynamicIslandController) runWindowLoop() {
 	c.physH = physH
 	pal := c.resolvePaletteLocked()
 	c.defaultArt = buildVeloraFallbackArt(artPx, artPx, 8.0*u, pal)
+	c.defaultArtCirc = buildVeloraFallbackArt(artPx, artPx, float64(artPx)/2.0, pal)
 	smPx := int(math.Round(38.0 * u))
 	c.defaultArtSm = buildVeloraFallbackArt(smPx, smPx, 6.0*u, pal)
 	miniPx := maxInt(21, int(math.Round(20.8*u)))
 	c.defaultArtMini = buildVeloraFallbackArt(miniPx, miniPx, float64(miniPx)/2.0, pal)
 	if c.rawCover != nil {
 		c.coverImg = resizeCoverBilinear(c.rawCover, artPx, artPx, 8.0*u)
+		c.coverImgCircle = resizeCoverBilinear(c.rawCover, artPx, artPx, float64(artPx)/2.0)
 		c.coverImgMini = resizeCoverBilinear(c.rawCover, miniPx, miniPx, float64(miniPx)/2.0)
 	}
 	c.mu.Unlock()
@@ -3244,6 +3305,9 @@ func (c *dynamicIslandController) hitTestLocked(mxPhys, myPhys int) (int, float6
 		}
 		if rx >= 254 && rx <= 502 && ry >= 39 && ry <= 146 && len(c.lyrics) > 0 {
 			activeIdx := c.currentLyricIndexLocked()
+			if activeIdx < 0 {
+				activeIdx = 0
+			}
 			lineOffset := int(math.Round((ry + c.lyricManualOffsetDp - 92.0) / 28.0))
 			targetIdx := activeIdx + lineOffset
 			if targetIdx >= 0 && targetIdx < len(c.lyrics) {
@@ -3257,17 +3321,25 @@ func (c *dynamicIslandController) hitTestLocked(mxPhys, myPhys int) (int, float6
 
 func (c *dynamicIslandController) currentLyricIndexLocked() int {
 	if len(c.lyrics) == 0 {
-		return 0
+		return -1
 	}
-	idx := 0
+	idx := -1
 	for i, l := range c.lyrics {
-		if c.posSec+0.15 >= l.TimeSec {
+		if c.posSec+0.05 >= l.TimeSec {
 			idx = i
 		} else {
 			break
 		}
 	}
 	return idx
+}
+
+func (c *dynamicIslandController) isClosedLyricActiveLocked() bool {
+	return c.isPlaying && c.showLyric && (c.lyricsOpen || c.compactStyle == "SATU_BARIS") && len(c.lyrics) > 0
+}
+
+func (c *dynamicIslandController) isLyricPlaybackModeActiveLocked() bool {
+	return c.isPlaying && c.showLyric && (c.lyricsOpen || c.compactStyle == "SATU_BARIS") && (len(c.lyrics) > 0 || c.lyricsLoading)
 }
 
 func (c *dynamicIslandController) resolveTargetModeLocked() string {
@@ -3297,14 +3369,13 @@ func (c *dynamicIslandController) resolveTargetModeLocked() string {
 	if !c.onlyPlaying && c.pauseHideSec > 0 && !c.isPlaying && c.title != "" && !c.pausedAt.IsZero() && now.Sub(c.pausedAt) >= time.Duration(c.pauseHideSec)*time.Second {
 		return diModeFullscreenHide
 	}
-	if c.hideInFullscreen && c.fullscreenActive {
-		return diModeFullscreenHide
-	}
-	if !c.hideInFullscreen && c.idleHideSec > 0 && !c.lastActivityAt.IsZero() && now.Sub(c.lastActivityAt) >= time.Duration(c.idleHideSec)*time.Second {
-		return diModeFullscreenHide
-	}
-	if c.compactStyle == "TERSEMBUNYI" {
-		return diModeFullscreenHide
+	if !c.isLyricPlaybackModeActiveLocked() {
+		if c.idleHideSec > 0 && !c.lastActivityAt.IsZero() && now.Sub(c.lastActivityAt) >= time.Duration(c.idleHideSec)*time.Second {
+			return diModeFullscreenHide
+		}
+		if c.compactStyle == "TERSEMBUNYI" {
+			return diModeFullscreenHide
+		}
 	}
 	return diModeClosed
 }
@@ -3344,24 +3415,27 @@ func (c *dynamicIslandController) measureTextWidthDp(fam uintptr, txt string, he
 }
 
 func (c *dynamicIslandController) resolveClosedWidthLocked() float64 {
-	if c.isPlaying && c.lyricsOpen && len(c.lyrics) > 0 {
+	if c.isClosedLyricActiveLocked() {
+		txt := ""
 		idx := c.currentLyricIndexLocked()
 		if idx >= 0 && idx < len(c.lyrics) {
-			txt := strings.TrimSpace(c.lyrics[idx].Text)
-			if txt != "" {
-				fam := c.famSemiBold
-				if fam == 0 {
-					fam = c.famRegular
-				}
-				tw := c.measureTextWidthDp(fam, txt, 13.0)
-				w := tw + 86.0
-				if w < 216.0 {
-					w = 216.0
-				} else if w > 560.0 {
-					w = 560.0
-				}
-				return w
+			txt = strings.TrimSpace(c.lyrics[idx].Text)
+		} else if len(c.lyrics) > 0 {
+			txt = "♪  • • •"
+		}
+		if txt != "" {
+			fam := c.famSemiBold
+			if fam == 0 {
+				fam = c.famRegular
 			}
+			tw := c.measureTextWidthDp(fam, txt, 13.0)
+			w := tw + 86.0
+			if w < 216.0 {
+				w = 216.0
+			} else if w > 560.0 {
+				w = 560.0
+			}
+			return w
 		}
 	}
 	return 216.0
@@ -3392,10 +3466,11 @@ func (c *dynamicIslandController) tickAndRender() {
 		c.lastActivityAt = now
 	}
 	targetMode := c.resolveTargetModeLocked()
-	if !showAllowed && c.activeMode == diModeFullscreenHide {
+	hiddenByFullscreen := c.hideInFullscreen && c.fullscreenActive
+	if (!showAllowed || hiddenByFullscreen) && c.activeMode == diModeFullscreenHide {
 		targetMode = diModeFullscreenHide
 	}
-	shouldAppear := c.enabled && showAllowed
+	shouldAppear := c.enabled && showAllowed && !hiddenByFullscreen
 	if targetMode != c.activeMode {
 		tw, th, tr, te := nusaModeDims(targetMode)
 		if targetMode == diModeClosed {
@@ -3445,6 +3520,15 @@ func (c *dynamicIslandController) tickAndRender() {
 		}
 	}
 	c.lastTickAt = now
+	if c.isPlaying {
+		const spinOmega = (2.0 * math.Pi) / 9.0
+		if c.coverStyle == "circle" && c.coverSpin {
+			c.coverSpinRad = math.Mod(c.coverSpinRad+dt*spinOmega, 2.0*math.Pi)
+		}
+		if c.closedCoverSpin {
+			c.closedSpinRad = math.Mod(c.closedSpinRad+dt*spinOmega, 2.0*math.Pi)
+		}
+	}
 
 	if targetMode == diModeHeadphones {
 		wantH := 106.0
@@ -3599,7 +3683,7 @@ func (c *dynamicIslandController) tickAndRender() {
 				c.pinnedMode = ""
 			}
 		}
-	} else if !c.hovered && !transientSwitcher && c.openTrigger != "click" && c.activeMode == diModeFullscreenHide && c.winShown {
+	} else if !c.hovered && !transientSwitcher && c.openTrigger != "click" && c.activeMode == diModeFullscreenHide && c.winShown && !hiddenByFullscreen {
 		var ptHover diPoint
 		_, _, _ = diProcGetCursorPos.Call(uintptr(unsafe.Pointer(&ptHover)))
 		nxH := (float64(diLogicalW) - c.curW) / 2.0
@@ -3642,9 +3726,13 @@ func (c *dynamicIslandController) tickAndRender() {
 	}
 
 	if shouldAppear {
-		c.appearProg = math.Min(1.0, c.appearProg+dt/(0.24*spd))
+		c.appearProg = math.Min(1.0, c.appearProg+dt/(0.26*spd))
 	} else {
-		c.appearProg = math.Max(0.0, c.appearProg-dt/(0.20*spd))
+		hideDur := 0.20 * spd
+		if c.activeMode == diModeFullscreenHide {
+			hideDur = 0.28 * spd
+		}
+		c.appearProg = math.Max(0.0, c.appearProg-dt/hideDur)
 	}
 
 	if c.activeMode == diModeFullscreenHide && c.curH <= 10.0 {
@@ -3659,7 +3747,11 @@ func (c *dynamicIslandController) tickAndRender() {
 			c.prevLyricIdx = c.lyricIdx
 			c.lyricIdx = actIdx
 			c.lyricFromY = c.lyricCurY
-			c.lyricToY = float64(actIdx) * 29.0
+			if actIdx >= 0 {
+				c.lyricToY = float64(actIdx) * 29.0
+			} else {
+				c.lyricToY = 0
+			}
 			c.lyricStart = now
 		}
 		lel := now.Sub(c.lyricStart).Seconds()
@@ -3678,10 +3770,12 @@ func (c *dynamicIslandController) tickAndRender() {
 		}
 	} else if c.activeMode == diModeClosed {
 		curClosedTxt := ""
-		if c.isPlaying && c.lyricsOpen && len(c.lyrics) > 0 {
+		if c.isClosedLyricActiveLocked() {
 			act := c.currentLyricIndexLocked()
 			if act >= 0 && act < len(c.lyrics) {
 				curClosedTxt = strings.TrimSpace(c.lyrics[act].Text)
+			} else if len(c.lyrics) > 0 {
+				curClosedTxt = "♪  • • •"
 			}
 		}
 		if curClosedTxt != c.closedLyricTo {
@@ -3824,7 +3918,13 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	hoverRatio := c.hoverRatio
 	hoverLyric := c.hoverLyric
 	coverImg := c.coverImg
+	coverImgCircle := c.coverImgCircle
 	coverImgMini := c.coverImgMini
+	coverStyle := c.coverStyle
+	coverSpin := c.coverSpin
+	closedCoverSpin := c.closedCoverSpin
+	coverSpinRad := c.coverSpinRad
+	closedSpinRad := c.closedSpinRad
 	lazyCoverURL := ""
 	if coverImg == nil && c.coverURL != "" && !c.coverLoading && now.Sub(c.lastCoverRetry) > 700*time.Millisecond {
 		c.coverLoading = true
@@ -3832,6 +3932,7 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 		lazyCoverURL = c.coverURL
 	}
 	defaultArt := c.defaultArt
+	defaultArtCirc := c.defaultArtCirc
 	defaultArtSm := c.defaultArtSm
 	defaultArtMini := c.defaultArtMini
 	lyrics := c.lyrics
@@ -3926,7 +4027,7 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	pix := unsafe.Slice((*byte)(c.dibBits), bufLen)
 	clear(pix)
 
-	if h < 1.0 {
+	if (mode != diModeFullscreenHide && h < 1.0) || easeAppear < 0.01 {
 		sizeDst := diSize{Cx: int32(physW), Cy: int32(physH)}
 		ptSrc := diPoint{}
 		blend := diBlendFunction{
@@ -3950,26 +4051,27 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	eBotR := e * dockRightProg
 
 	if mode == diModeFullscreenHide {
-		maxAlpha := 255.0 * clamp01(float64(opacityPct)/100.0)
-		if easeAppear < 0.45 {
-			maxAlpha *= clamp01(easeAppear / 0.45)
-		}
+		maxAlpha := 255.0 * clamp01(float64(opacityPct)/100.0) * easeAppear
 		if h > 10.0 {
 			drawVeloraNotchShapePhys(pix, physW, physH, nx*u, w*u, h*u, rL*u, eL*u, eBotL*u, rR*u, eR*u, eBotR*u, pillMode, pal)
 			maxAlpha *= clamp01((h - 10.0) / 22.0)
 		} else {
-			lineEase := nusaCssEase(clamp01(hideLineProg))
-			lineOp := lineEase * 0.90
-			lineW := w * (0.62 + 0.38*lineEase)
+			inEase := nusaCssEase(clamp01(hideLineProg))
+			visEase := inEase * easeAppear
+			lineOp := visEase * 0.90
+			lineW := w * (0.18 + 0.82*visEase)
 			lineX := nx + (w-lineW)/2.0
-			var gBar uintptr
-			_, _, _ = diProcGdipCreateFromHDC.Call(c.memDC, uintptr(unsafe.Pointer(&gBar)))
-			if gBar != 0 {
-				_, _, _ = diProcGdipSetSmoothingMode.Call(gBar, 2)
-				_, _, _ = diProcGdipSetPixelOffsetMode.Call(gBar, 2)
-				barH := 3.5 * u
-				drawFilledPillGdip(gBar, lineX*u, 1.5*u, lineW*u, barH, barH/2.0, rgbaToARGB(pal.Accent, lineOp))
-				_, _, _ = diProcGdipDeleteGraphics.Call(gBar)
+			barH := math.Max(0.8, 3.5*visEase) * u
+			barY := 1.5 * visEase * u
+			if lineOp > 0.005 {
+				var gBar uintptr
+				_, _, _ = diProcGdipCreateFromHDC.Call(c.memDC, uintptr(unsafe.Pointer(&gBar)))
+				if gBar != 0 {
+					_, _, _ = diProcGdipSetSmoothingMode.Call(gBar, 2)
+					_, _, _ = diProcGdipSetPixelOffsetMode.Call(gBar, 2)
+					drawFilledPillGdip(gBar, lineX*u, barY, lineW*u, barH, barH/2.0, rgbaToARGB(pal.Accent, lineOp))
+					_, _, _ = diProcGdipDeleteGraphics.Call(gBar)
+				}
 			}
 		}
 		sizeDst := diSize{Cx: int32(physW), Cy: int32(physH)}
@@ -4040,7 +4142,11 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 			isFallbackMini = true
 		}
 		if showCover && showClosedCover && miniArt != nil {
-			blitPremulRGBAWithOp(pix, physW, physH, miniArt, leftCov, topCov, 1.0)
+			if closedCoverSpin && closedSpinRad != 0 {
+				blitRotatedPremulRGBAWithOp(pix, physW, physH, miniArt, leftCov, topCov, closedSpinRad, 1.0)
+			} else {
+				blitPremulRGBAWithOp(pix, physW, physH, miniArt, leftCov, topCov, 1.0)
+			}
 			if isFallbackMini {
 				c.drawPhosphorGlyphGdip(g, false, 0xE33C, (nx+20.0)*u, cyExact, 11.0*u, rgbaToARGB(pal.TextVariant, 0.55))
 			}
@@ -4188,18 +4294,36 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 				c.drawSystemStatusIconsGdip(g, mapXStatic(344), mapXStatic(368), mapXStatic(392), mapY(18), u, wifiOn, gpsOn, btOn, hoverZone, contentOp, pal)
 			}
 
+			isCircleCover := coverStyle == "circle"
 			art := coverImg
+			if isCircleCover && coverImgCircle != nil {
+				art = coverImgCircle
+			}
 			isFallbackArt := false
 			if art == nil {
-				art = defaultArt
+				if isCircleCover && defaultArtCirc != nil {
+					art = defaultArtCirc
+				} else {
+					art = defaultArt
+				}
 				isFallbackArt = true
 			}
 			if showCover && art != nil {
-				blitPremulRGBAWithOp(pix, physW, physH, art, int(math.Round(mapX(22))), int(math.Round(mapY(33))), contentOp)
+				artLeft := int(math.Round(mapX(22)))
+				artTop := int(math.Round(mapY(33)))
+				if isCircleCover && coverSpin && coverSpinRad != 0 {
+					blitRotatedPremulRGBAWithOp(pix, physW, physH, art, artLeft, artTop, coverSpinRad, contentOp)
+				} else {
+					blitPremulRGBAWithOp(pix, physW, physH, art, artLeft, artTop, contentOp)
+				}
 				if isFallbackArt {
 					c.drawPhosphorGlyphGdip(g, false, 0xE33C, mapX(45), mapY(56), 20.0*u, rgbaToARGB(pal.TextVariant, 0.50*contentOp))
 				}
-				drawRoundedRectStrokeGdip(g, mapX(22), mapY(33), mapW(46), mapH(46), 8.0*u, 1.0*u, rgbaToARGB(pal.TextMain, 0.14*contentOp))
+				borderRad := 8.0 * u
+				if isCircleCover {
+					borderRad = mapW(23)
+				}
+				drawRoundedRectStrokeGdip(g, mapX(22), mapY(33), mapW(46), mapH(46), borderRad, 1.0*u, rgbaToARGB(pal.TextMain, 0.14*contentOp))
 			}
 
 			if showHeart {
@@ -4277,18 +4401,36 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 				c.drawSystemStatusIconsGdip(g, mapXStatic(w-76), mapXStatic(w-52), mapXStatic(w-28), mapY(18), u, wifiOn, gpsOn, btOn, hoverZone, contentOp, pal)
 			}
 
+			isCircleCoverL := coverStyle == "circle"
 			art := coverImg
+			if isCircleCoverL && coverImgCircle != nil {
+				art = coverImgCircle
+			}
 			isFallbackArtL := false
 			if art == nil {
-				art = defaultArt
+				if isCircleCoverL && defaultArtCirc != nil {
+					art = defaultArtCirc
+				} else {
+					art = defaultArt
+				}
 				isFallbackArtL = true
 			}
 			if showCover && art != nil {
-				blitPremulRGBAWithOp(pix, physW, physH, art, int(math.Round(mapX(22))), int(math.Round(mapY(33))), contentOp)
+				artLeftL := int(math.Round(mapX(22)))
+				artTopL := int(math.Round(mapY(33)))
+				if isCircleCoverL && coverSpin && coverSpinRad != 0 {
+					blitRotatedPremulRGBAWithOp(pix, physW, physH, art, artLeftL, artTopL, coverSpinRad, contentOp)
+				} else {
+					blitPremulRGBAWithOp(pix, physW, physH, art, artLeftL, artTopL, contentOp)
+				}
 				if isFallbackArtL {
 					c.drawPhosphorGlyphGdip(g, false, 0xE33C, mapX(45), mapY(56), 20.0*u, rgbaToARGB(pal.TextVariant, 0.50*contentOp))
 				}
-				drawRoundedRectStrokeGdip(g, mapX(22), mapY(33), mapW(46), mapH(46), 8.0*u, 1.0*u, rgbaToARGB(pal.TextMain, 0.14*contentOp))
+				borderRadL := 8.0 * u
+				if isCircleCoverL {
+					borderRadL = mapW(23)
+				}
+				drawRoundedRectStrokeGdip(g, mapX(22), mapY(33), mapW(46), mapH(46), borderRadL, 1.0*u, rgbaToARGB(pal.TextMain, 0.14*contentOp))
 			}
 
 			if showProgress {
@@ -6247,7 +6389,7 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 		miniPx := maxInt(21, int(math.Round(20.8*u)))
 		topCov := int(math.Round((h/2.0)*u - float64(miniPx)/2.0))
 		cyExact := float64(topCov) + float64(miniPx)/2.0
-		if showLyric && c.compactStyle == "SATU_BARIS" && playing && lyricsOpen && len(lyrics) > 0 {
+		if showLyric && playing && (lyricsOpen || c.compactStyle == "SATU_BARIS") && len(lyrics) > 0 {
 			txtHeightPx := float64(miniPx) * 0.60
 			_, _, _ = diProcGdipSetClipRect.Call(
 				g,
@@ -6273,6 +6415,8 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 				act := c.currentLyricIndexLocked()
 				if act >= 0 && act < len(lyrics) {
 					inTxt = strings.TrimSpace(lyrics[act].Text)
+				} else if len(lyrics) > 0 {
+					inTxt = "♪  • • •"
 				}
 			}
 			if inTxt != "" {
@@ -6886,6 +7030,75 @@ func blendPremulPixel(pix []byte, cw, x, y int, col color.RGBA, cov float64) {
 
 func blitPremulRGBAWithOp(pix []byte, cw, ch int, src *image.RGBA, dx, dy int, op float64) {
 	blitPremulRGBAWithOpClip(pix, cw, ch, src, dx, dy, 0, ch, op)
+}
+
+func blitRotatedPremulRGBAWithOp(pix []byte, cw, ch int, src *image.RGBA, dx, dy int, angleRad, op float64) {
+	b := src.Bounds()
+	w := b.Dx()
+	h := b.Dy()
+	if w <= 0 || h <= 0 {
+		return
+	}
+	cx := float64(w) / 2.0
+	cy := float64(h) / 2.0
+	rad := math.Min(cx, cy) - 0.5
+	cosA := math.Cos(-angleRad)
+	sinA := math.Sin(-angleRad)
+
+	for sy := 0; sy < h; sy++ {
+		ty := dy + sy
+		if ty < 0 || ty >= ch {
+			continue
+		}
+		vy := float64(sy) + 0.5 - cy
+		for sx := 0; sx < w; sx++ {
+			tx := dx + sx
+			if tx < 0 || tx >= cw {
+				continue
+			}
+			vx := float64(sx) + 0.5 - cx
+			dist := math.Hypot(vx, vy) - rad
+			if dist > 0.75 {
+				continue
+			}
+			maskCov := clamp01(0.5 - dist/1.5)
+			if maskCov <= 0 {
+				continue
+			}
+			rx := vx*cosA - vy*sinA + cx - 0.5
+			ry := vx*sinA + vy*cosA + cy - 0.5
+			x0 := int(math.Floor(rx))
+			y0 := int(math.Floor(ry))
+			wx := rx - float64(x0)
+			wy := ry - float64(y0)
+			x1 := x0 + 1
+			y1 := y0 + 1
+			x0 = maxInt(0, minInt(w-1, x0))
+			x1 = maxInt(0, minInt(w-1, x1))
+			y0 = maxInt(0, minInt(h-1, y0))
+			y1 = maxInt(0, minInt(h-1, y1))
+
+			c00 := src.RGBAAt(b.Min.X+x0, b.Min.Y+y0)
+			c10 := src.RGBAAt(b.Min.X+x1, b.Min.Y+y0)
+			c01 := src.RGBAAt(b.Min.X+x0, b.Min.Y+y1)
+			c11 := src.RGBAAt(b.Min.X+x1, b.Min.Y+y1)
+
+			rF := (float64(c00.R)*(1-wx)+float64(c10.R)*wx)*(1-wy) + (float64(c01.R)*(1-wx)+float64(c11.R)*wx)*wy
+			gF := (float64(c00.G)*(1-wx)+float64(c10.G)*wx)*(1-wy) + (float64(c01.G)*(1-wx)+float64(c11.G)*wx)*wy
+			bF := (float64(c00.B)*(1-wx)+float64(c10.B)*wx)*(1-wy) + (float64(c01.B)*(1-wx)+float64(c11.B)*wx)*wy
+			aF := (float64(c00.A)*(1-wx)+float64(c10.A)*wx)*(1-wy) + (float64(c01.A)*(1-wx)+float64(c11.A)*wx)*wy
+			if aF < 1 {
+				continue
+			}
+			col := color.RGBA{
+				R: uint8(minInt(255, int(math.Round(rF)))),
+				G: uint8(minInt(255, int(math.Round(gF)))),
+				B: uint8(minInt(255, int(math.Round(bF)))),
+				A: uint8(minInt(255, int(math.Round(aF*maskCov)))),
+			}
+			blendPremulPixel(pix, cw, tx, ty, col, op)
+		}
+	}
 }
 
 func blitPremulRGBAWithOpClip(pix []byte, cw, ch int, src *image.RGBA, dx, dy, clipTop, clipBot int, op float64) {

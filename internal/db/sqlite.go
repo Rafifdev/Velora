@@ -316,6 +316,14 @@ func (s *Store) UpdateTrackExternalID(trackID int64, externalID string) error {
 	return err
 }
 
+func (s *Store) UpdateTrackDuration(trackID int64, durationSec int) error {
+	if trackID <= 0 || durationSec <= 0 {
+		return nil
+	}
+	_, err := s.db.Exec(`UPDATE tracks SET duration_sec = ? WHERE id = ?`, durationSec, trackID)
+	return err
+}
+
 func (s *Store) GetTracks(filter, query string) ([]Track, error) {
 	base := `SELECT id, title, artist_id, artist_name, album_id, album_title, duration_sec, format, bitrate, source_type, file_path, external_id, cover_url, is_favorite, play_count, is_downloaded, downloaded_at, created_at FROM tracks`
 	var where []string

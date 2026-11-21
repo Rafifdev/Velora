@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/rand"
 	"net/http"
 	"os/exec"
@@ -212,6 +213,44 @@ func ytWebRemixContextFor(gl string) map[string]any {
 
 func ytWebRemixContext() map[string]any {
 	return ytWebRemixContextFor("ID")
+}
+
+func PickBestYTMusicVideoID(hits []YTMusicTrack, title, artist string, targetDurationSec int) string {
+	bestID := ""
+	bestScore := -1e9
+	reqTitle := strings.ToLower(strings.TrimSpace(title))
+	reqArtist := strings.ToLower(strings.TrimSpace(primaryLyricArtist(artist)))
+	for _, h := range hits {
+		vid := strings.TrimSpace(h.VideoID)
+		if vid == "" {
+			continue
+		}
+		score := 0.0
+		if targetDurationSec > 0 && h.DurationSec > 0 {
+			diff := math.Abs(float64(h.DurationSec - targetDurationSec))
+			score += 250.0 - diff*20.0
+		}
+		if h.Album != "" && !strings.EqualFold(strings.TrimSpace(h.Album), "YouTube Music") {
+			score += 80.0
+		}
+		hitTitle := strings.ToLower(strings.TrimSpace(h.Title))
+		for _, tag := range []string{"official video", "music video", "lyric video", "mv", "live", "extended"} {
+			if strings.Contains(hitTitle, tag) && !strings.Contains(reqTitle, tag) {
+				score -= 150.0
+			}
+		}
+		if reqTitle != "" && (strings.Contains(hitTitle, reqTitle) || strings.Contains(reqTitle, hitTitle)) {
+			score += 30.0
+		}
+		if reqArtist != "" && strings.Contains(strings.ToLower(h.Artist), reqArtist) {
+			score += 20.0
+		}
+		if bestID == "" || score > bestScore {
+			bestScore = score
+			bestID = vid
+		}
+	}
+	return bestID
 }
 
 func (c *YTMusicClient) Search(ctx context.Context, query string) ([]YTMusicTrack, error) {

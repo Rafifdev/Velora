@@ -945,7 +945,7 @@ func (c *SpotifyClient) GetCollectionTracks(ctx context.Context, spBrowseID stri
 	return nil, fmt.Errorf("unsupported spotify browseId: %s", raw)
 }
 
-func (c *SpotifyClient) ResolveTrackToYTMusic(ctx context.Context, yt *YTMusicClient, spTrackID, title, artist string) (string, error) {
+func (c *SpotifyClient) ResolveTrackToYTMusic(ctx context.Context, yt *YTMusicClient, spTrackID, title, artist string, targetDurationSec int) (string, error) {
 	if yt == nil {
 		return "", fmt.Errorf("youtube music client unavailable")
 	}
@@ -964,13 +964,13 @@ func (c *SpotifyClient) ResolveTrackToYTMusic(ctx context.Context, yt *YTMusicCl
 		return "", fmt.Errorf("judul lagu kosong untuk resolve audio")
 	}
 	hits, err := yt.Search(ctx, q)
-	if err != nil || len(hits) == 0 || strings.TrimSpace(hits[0].VideoID) == "" {
-		if err != nil {
-			return "", err
-		}
+	if err != nil {
+		return "", err
+	}
+	vid := PickBestYTMusicVideoID(hits, title, artist, targetDurationSec)
+	if vid == "" {
 		return "", fmt.Errorf("audio YouTube Music tidak ditemukan untuk %s", q)
 	}
-	vid := strings.TrimSpace(hits[0].VideoID)
 	if key != "" {
 		c.mu.Lock()
 		c.resolvedCache[key] = vid

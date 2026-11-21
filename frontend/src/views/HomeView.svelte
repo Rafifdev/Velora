@@ -30,6 +30,7 @@
     currentTrackArtist?: string | null;
     currentAlbumTitle?: string | null;
     queueSourceTitle?: string | null;
+    queueSourceKey?: string | null;
     isPlaying?: boolean;
     onTogglePlay?: () => void;
     mediaBaseUrl: string;
@@ -81,6 +82,7 @@
     currentTrackArtist = null,
     currentAlbumTitle = null,
     queueSourceTitle = null,
+    queueSourceKey = null,
     isPlaying = false,
     onTogglePlay,
     mediaBaseUrl,
@@ -199,8 +201,8 @@
           : activeFilterPill === 'playlist'
             ? tr(lang, 'nav.playlists')
             : activeFilterPill === 'podcast'
-              ? 'Podcast'
-              : 'Buku Audio'
+              ? tr(lang, 'nav.podcasts')
+              : tr(lang, 'nav.audiobooks')
   );
 
   interface HomeArtistCard {
@@ -250,7 +252,7 @@
           id: dbMatch ? dbMatch.id : null,
           browseId: ytAr.browseId || dbMatch?.externalId || '',
           name: rawName,
-          subtitle: 'Artis',
+          subtitle: tr(lang, 'nav.artist'),
           rawAvatar: ytAr.coverUrl || dbMatch?.avatarUrl || '',
           isFavorite: dbMatch ? dbMatch.isFavorite : false,
           trackCount: dbMatch ? dbMatch.trackCount : 0
@@ -273,7 +275,7 @@
           id: ar.id,
           browseId: ar.externalId || '',
           name: rawName,
-          subtitle: 'Artis',
+          subtitle: tr(lang, 'nav.artist'),
           rawAvatar: ar.avatarUrl,
           isFavorite: ar.isFavorite,
           trackCount: ar.trackCount
@@ -341,6 +343,11 @@
     if (item.kind === 'song') {
       return isTrackCardActive(item.videoId, item.title, item.artist);
     }
+    const itemKey = (item.browseId || item.playlistId || item.id || '').trim().toLowerCase();
+    const activeKey = (queueSourceKey || '').trim().toLowerCase();
+    if (activeKey) {
+      return Boolean(itemKey && activeKey === itemKey);
+    }
     const itemTitle = (item.title || '').trim().toLowerCase();
     if (!itemTitle) return false;
     if (item.kind === 'album') {
@@ -359,6 +366,21 @@
       ...expandedShelves,
       [key]: !expandedShelves[key]
     };
+  }
+
+  function localizeShelfTitle(title: string): string {
+    if (title === 'Album Populer' || title === 'Popular Albums') return tr(lang, 'nav.shelfPopularAlbums');
+    if (title === 'Playlist Pilihan' || title === 'Featured Playlists') return tr(lang, 'nav.shelfFeaturedPlaylists');
+    if (title === 'Artis Populer' || title === 'Popular Artists') return tr(lang, 'nav.shelfPopularArtists');
+    if (title === 'Lagu Lainnya untuk Anda' || title === 'More Songs for You') return tr(lang, 'nav.shelfMoreSongs');
+    return title;
+  }
+
+  function localizeItemSubtitle(item: YTMusicCard): string {
+    if (item.kind === 'artist' && (!item.subtitle || item.subtitle === 'Artis' || item.subtitle === 'Artist')) {
+      return tr(lang, 'nav.artist');
+    }
+    return item.subtitle || 'YouTube Music';
   }
 
   function shelfEdgeFade(node: HTMLElement) {
@@ -527,7 +549,7 @@
                     {pl.name}
                   </div>
                   <div class="text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-                    {pl.description || `${pl.trackCount} lagu`}
+                    {pl.description || `${pl.trackCount} ${tr(lang, 'nav.songs').toLowerCase()}`}
                   </div>
                 </button>
               </div>
@@ -541,10 +563,10 @@
           <Icon name="wifi-slash" size={40} class="opacity-60" />
           <div class="space-y-1 max-w-md">
             <h2 class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
-              Gagal memuat beranda musik
+              {tr(lang, 'nav.homeLoadFailedTitle')}
             </h2>
             <p class="text-xs" style="color: var(--md-sys-color-on-surface-variant);">
-              Periksa koneksi internet kamu lalu muat ulang untuk mengambil playlist dan musik terbaru.
+              {tr(lang, 'nav.homeLoadFailedDesc')}
             </p>
           </div>
           <button
@@ -552,7 +574,7 @@
             onclick={onRefreshYTMusicHome}
             class="h-9 px-5 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] text-xs font-bold cursor-pointer hover:brightness-105 transition"
           >
-            Muat Ulang
+            {tr(lang, 'nav.refresh')}
           </button>
         </div>
       {:else}
@@ -563,7 +585,7 @@
           <section class="min-w-0 space-y-3" use:svelteMotionEnter={{ delay: Math.min(0.18, sIdx * 0.04) }}>
             <div class="flex items-center justify-between gap-2">
               <h2 class="text-xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-                {shelf.title}
+                {localizeShelfTitle(shelf.title)}
               </h2>
               {#if !isAlwaysFull && shelf.items.length > 4}
                 <button
@@ -572,7 +594,7 @@
                   class="text-xs font-bold hover:underline cursor-pointer"
                   style="color: var(--md-sys-color-on-surface-variant);"
                 >
-                  {isExpanded ? 'Tampilkan lebih sedikit' : 'Tampilkan semua'}
+                  {isExpanded ? tr(lang, 'nav.showLess') : tr(lang, 'nav.showAll')}
                 </button>
               {/if}
             </div>
@@ -645,7 +667,7 @@
                     {item.title}
                   </div>
                   <div class="text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-                    {item.subtitle || 'YouTube Music'}
+                    {localizeItemSubtitle(item)}
                   </div>
                 </button>
               {/each}
@@ -659,7 +681,7 @@
                   class="h-9 min-w-[164px] px-5 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] text-xs font-bold flex items-center justify-center cursor-pointer transition-all duration-200 active:scale-95 disabled:opacity-80 disabled:cursor-wait"
                   style="color: var(--md-sys-color-on-surface);"
                 >
-                  {ytLoadingMorePopularArtists ? 'Memuat...' : 'Muat lebih banyak artis'}
+                  {ytLoadingMorePopularArtists ? tr(lang, 'nav.loading') : tr(lang, 'nav.loadMoreArtists')}
                 </button>
               </div>
             {/if}
@@ -687,8 +709,8 @@
           {#if displayedHomeArtists.length === 0}
             <EmptyState
               icon="users"
-              title="Belum ada artis"
-              description="Artis untuk kategori ini belum tersedia."
+              title={tr(lang, 'nav.noArtistsTitle')}
+              description={tr(lang, 'nav.noArtistsDesc')}
               class="flex flex-col items-center justify-center text-center py-14 px-4"
             >
               <button
@@ -697,7 +719,7 @@
                 class="mt-6 h-10 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
                 style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
               >
-                Muat ulang
+                {tr(lang, 'nav.refresh')}
               </button>
             </EmptyState>
           {:else}
@@ -751,8 +773,8 @@
                           });
                         }
                       }}
-                      title={ar.isFavorite ? 'Hapus dari Favorit' : 'Tambahkan ke Favorit'}
-                      aria-label={ar.isFavorite ? 'Hapus dari Favorit' : 'Tambahkan ke Favorit'}
+                      title={ar.isFavorite ? tr(lang, 'nav.removeFromFavorites') : tr(lang, 'nav.addToFavorites')}
+                      aria-label={ar.isFavorite ? tr(lang, 'nav.removeFromFavorites') : tr(lang, 'nav.addToFavorites')}
                       class="border-0 shadow-md absolute z-20 bottom-1 right-1 w-8 h-8 rounded-full backdrop-blur-xs flex items-center justify-center cursor-pointer transition-opacity {ar.isFavorite
                         ? 'opacity-100'
                         : 'opacity-0 group-hover:opacity-100'}"
@@ -791,8 +813,8 @@
           {#if ytAlbumResults.length === 0}
             <EmptyState
               icon="vinyl-record"
-              title="Belum ada album"
-              description="Album untuk kategori ini belum tersedia."
+              title={tr(lang, 'nav.noAlbumsTitle')}
+              description={tr(lang, 'nav.noAlbumsDesc')}
               class="flex flex-col items-center justify-center text-center py-14 px-4"
             >
               <button
@@ -801,7 +823,7 @@
                 class="mt-6 h-10 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
                 style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
               >
-                Muat ulang
+                {tr(lang, 'nav.refresh')}
               </button>
             </EmptyState>
           {:else}
@@ -878,8 +900,8 @@
           {#if ytPlaylistResults.length === 0}
             <EmptyState
               icon="playlist"
-              title="Belum ada playlist"
-              description="Playlist untuk kategori ini belum tersedia."
+              title={tr(lang, 'nav.noPlaylists')}
+              description={tr(lang, 'nav.noPlaylistsCategoryDesc')}
               class="flex flex-col items-center justify-center text-center py-14 px-4"
             >
               <button
@@ -888,7 +910,7 @@
                 class="mt-6 h-10 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
                 style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
               >
-                Muat ulang
+                {tr(lang, 'nav.refresh')}
               </button>
             </EmptyState>
           {:else}
@@ -948,8 +970,8 @@
         {:else if ytResults.length === 0}
           <EmptyState
             icon="music-note"
-            title="Belum ada lagu"
-            description="Hasil untuk kategori ini belum tersedia."
+            title={tr(lang, 'nav.noSongsTitle')}
+            description={tr(lang, 'nav.noSongsDesc')}
             class="flex flex-col items-center justify-center text-center py-14 px-4"
           >
             <button
@@ -965,7 +987,7 @@
               class="mt-6 h-10 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
               style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
             >
-              Muat ulang
+              {tr(lang, 'nav.refresh')}
             </button>
           </EmptyState>
         {:else}
@@ -1031,12 +1053,12 @@
           type="button"
           disabled={ytLoadingMore}
           aria-label={ytLoadingMore
-            ? 'Memuat'
+            ? tr(lang, 'nav.loading')
             : activeFilterPill === 'playlist'
-              ? 'Muat lebih banyak playlist'
+              ? tr(lang, 'nav.loadMorePlaylists')
               : activeFilterPill === 'album'
-                ? 'Muat lebih banyak album'
-                : 'Muat lebih banyak lagu'}
+                ? tr(lang, 'nav.loadMoreAlbums')
+                : tr(lang, 'nav.loadMoreSongs')}
           onclick={() => {
             if (activeFilterPill === 'semua') {
               expandedShelves = {
@@ -1054,13 +1076,13 @@
           {#if ytLoadingMore}
             <EqIndicator variant="loader" />
           {:else if activeFilterPill === 'playlist'}
-            Muat lebih banyak playlist
+            {tr(lang, 'nav.loadMorePlaylists')}
           {:else if activeFilterPill === 'artis'}
-            Muat lebih banyak artis
+            {tr(lang, 'nav.loadMoreArtists')}
           {:else if activeFilterPill === 'album'}
-            Muat lebih banyak album
+            {tr(lang, 'nav.loadMoreAlbums')}
           {:else}
-            Muat lebih banyak lagu
+            {tr(lang, 'nav.loadMoreSongs')}
           {/if}
         </button>
       </div>

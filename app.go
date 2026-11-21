@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -214,9 +215,6 @@ func (a *App) startup(ctx context.Context) {
 		},
 	)
 	if prefs, pErr := a.store.GetPreferences(); pErr == nil {
-		if prefs["integrations.jam.enabled"] == "true" {
-			_, _ = a.StartJam()
-		}
 		if d, err := strconv.Atoi(prefs["privacy.historyDays"]); err == nil && d > 0 {
 			_ = a.store.PrunePlayHistory(d)
 		}
@@ -351,17 +349,19 @@ func (a *App) ensureTrackPlayableExternalID(ctx context.Context, tr db.Track) (d
 		if a.deezerClient == nil {
 			return tr, fmt.Errorf("deezer client not initialized")
 		}
-		vid, err = a.deezerClient.ResolveTrackToYTMusic(reqCtx, a.ytClient, extID, tr.Title, tr.ArtistName)
+		vid, err = a.deezerClient.ResolveTrackToYTMusic(reqCtx, a.ytClient, extID, tr.Title, tr.ArtistName, tr.DurationSec)
 	} else if !strings.HasPrefix(extID, "sp:import:") && a.spotifyClient != nil {
-		vid, err = a.spotifyClient.ResolveTrackToYTMusic(reqCtx, a.ytClient, extID, tr.Title, tr.ArtistName)
+		vid, err = a.spotifyClient.ResolveTrackToYTMusic(reqCtx, a.ytClient, extID, tr.Title, tr.ArtistName, tr.DurationSec)
 	} else {
 		err = fmt.Errorf("fallback yt search")
 	}
 	if err != nil || strings.TrimSpace(vid) == "" {
 		q := strings.TrimSpace(tr.Title + " " + tr.ArtistName)
-		if hits, sErr := a.ytClient.Search(reqCtx, q); sErr == nil && len(hits) > 0 && strings.TrimSpace(hits[0].VideoID) != "" {
-			vid = strings.TrimSpace(hits[0].VideoID)
-			err = nil
+		if hits, sErr := a.ytClient.Search(reqCtx, q); sErr == nil && len(hits) > 0 {
+			if picked := sources.PickBestYTMusicVideoID(hits, tr.Title, tr.ArtistName, tr.DurationSec); picked != "" {
+				vid = picked
+				err = nil
+			}
 		}
 	}
 	if err != nil {
@@ -1065,21 +1065,34 @@ func (a *App) GetTrackLyrics(trackID int64, title, artist, album string, duratio
 		ctx = context.Background()
 	}
 
+	dbDur := 0
 	if trackID > 0 {
+		if tr, trErr := a.store.GetTrackByID(trackID); trErr == nil {
+			dbDur = tr.DurationSec
+			if durationSec > 0 && (dbDur <= 0 || dbDur == 200) && durationSec != dbDur {
+				_ = a.store.UpdateTrackDuration(trackID, durationSec)
+			}
+		}
 		if plain, syncedJSON, source, ok := a.store.GetCachedLyrics(trackID); ok {
 			var lines []sources.LyricLine
 			_ = json.Unmarshal([]byte(syncedJSON), &lines)
 			if lines == nil {
 				lines = []sources.LyricLine{}
 			}
-			a.updateDynamicIslandLyrics(lines, plain)
-			return sources.TrackLyrics{
-				TrackID:      trackID,
-				Title:        title,
-				Artist:       artist,
-				PlainLyrics:  plain,
-				SyncedLyrics: lines,
-				Source:       source,
+			staleByDuration := durationSec > 0 && ((dbDur <= 0 || dbDur == 200) && math.Abs(float64(durationSec-dbDur)) >= 3.0)
+			if !staleByDuration && len(lines) > 0 && durationSec > 0 && lines[len(lines)-1].TimeSec > float64(durationSec)+6.0 {
+				staleByDuration = true
+			}
+			if !staleByDuration {
+				a.updateDynamicIslandLyrics(lines, plain)
+				return sources.TrackLyrics{
+					TrackID:      trackID,
+					Title:        title,
+					Artist:       artist,
+					PlainLyrics:  plain,
+					SyncedLyrics: lines,
+					Source:       source,
+				}
 			}
 		}
 	}
@@ -1208,6 +1221,10 @@ func (a *App) GetFireStreak() (stats.FireStreakStatus, error) {
 	return a.statsSvc.GetFireStreak(time.Now())
 }
 
+func (a *App) GetMonthlyStreak(year int, month int) ([]db.DailyStreakRow, error) {
+	return a.statsSvc.GetMonthlyStreak(year, month, time.Now())
+}
+
 func (a *App) SavePreferences(prefs map[string]string) error {
 	if err := a.store.SavePreferences(prefs); err != nil {
 		return err
@@ -1311,6 +1328,10 @@ func (a *App) OpenExternalURL(rawURL string) error {
 		return nil
 	}
 	return nil
+}
+
+func (a *App) GenerateQRDataURL(content string) string {
+	return jam.BuildQRDataURL(strings.TrimSpace(content))
 }
 
 type UpdateCheckResult struct {
@@ -1576,7 +1597,6 @@ func (a *App) StartJam() (jam.Status, error) {
 	}
 	st, err := a.jamSrv.Start()
 	if err == nil && a.store != nil {
-		_ = a.store.SetPreference("integrations.jam.enabled", "true")
 		_ = a.store.SetPreference("integrations.jam.remoteUrl", st.RemoteURL)
 		_ = a.store.SetPreference("integrations.jam.apiUrl", st.APIURL)
 	}
@@ -1595,7 +1615,8 @@ func (a *App) StopJam() jam.Status {
 	}
 	st := a.jamSrv.Stop()
 	if a.store != nil {
-		_ = a.store.SetPreference("integrations.jam.enabled", "false")
+		_ = a.store.SetPreference("integrations.jam.remoteUrl", "")
+		_ = a.store.SetPreference("integrations.jam.apiUrl", "")
 	}
 	if a.trayCtrl != nil {
 		a.trayCtrl.UpdateJamState(false, st.RemoteURL)

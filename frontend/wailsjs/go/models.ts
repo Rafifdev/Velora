@@ -970,6 +970,7 @@ export namespace stats {
 	export class TopStatItem {
 	    name: string;
 	    subText: string;
+	    imageUrl: string;
 	    plays: number;
 	    minutes: number;
 	
@@ -981,6 +982,7 @@ export namespace stats {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
 	        this.subText = source["subText"];
+	        this.imageUrl = source["imageUrl"];
 	        this.plays = source["plays"];
 	        this.minutes = source["minutes"];
 	    }

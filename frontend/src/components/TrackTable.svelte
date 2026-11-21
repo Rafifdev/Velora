@@ -1,5 +1,6 @@
 <script lang="ts">
   import { formatDuration, resolveCoverUrl } from '../lib/api';
+  import { tr, type LangCode } from '../lib/i18n';
   import type { DownloadProgress, Playlist, Track } from '../lib/types';
   import EqIndicator from './EqIndicator.svelte';
   import Icon from './Icon.svelte';
@@ -23,6 +24,7 @@
     onRemoveDownload?: (trackId: number) => void;
     onOpenTrackAlbum?: (track: Track) => void;
     showCover?: boolean;
+    lang?: LangCode;
   }
 
   let {
@@ -42,7 +44,8 @@
     onDownloadTrack,
     onRemoveDownload,
     onOpenTrackAlbum,
-    showCover = true
+    showCover = true,
+    lang = 'en'
   }: Props = $props();
 
   let openMenuTrackId = $state<number | null>(null);
@@ -86,16 +89,16 @@
     style="color: var(--md-sys-color-on-surface-variant);"
   >
     <div class="text-center">#</div>
-    <div>Title</div>
-    <div class="hidden sm:block">Album</div>
-    <div class="hidden sm:block">Source</div>
-    <div class="text-right">Time</div>
+    <div>{tr(lang, 'nav.titleCol')}</div>
+    <div class="hidden sm:block">{tr(lang, 'nav.albumCol')}</div>
+    <div class="hidden sm:block">{tr(lang, 'nav.sourceCol')}</div>
+    <div class="text-right">{tr(lang, 'nav.timeCol')}</div>
   </div>
 
   <div class="space-y-0.5 mt-1">
-    {#each tracks as tr, idx (tr.id)}
-      {@const active = isTrackActive(tr)}
-      {@const cover = resolveCoverUrl(tr.coverUrl, mediaBaseUrl)}
+    {#each tracks as item, idx (item.id)}
+      {@const active = isTrackActive(item)}
+      {@const cover = resolveCoverUrl(item.coverUrl, mediaBaseUrl)}
       <div
         class="velora-track-row group grid grid-cols-[28px_minmax(0,1fr)_auto] sm:grid-cols-[36px_1.4fr_1fr_92px_96px] gap-2 sm:gap-3 px-2 sm:px-3.5 py-2 items-center rounded-lg transition-colors duration-150 {active
           ? 'bg-[var(--md-sys-color-state-hover)]'
@@ -107,8 +110,8 @@
             <EqIndicator class="group-hover:hidden" />
             <button
               type="button"
-              onclick={() => handleRowPlayClick(tr, active)}
-              aria-label="Jeda {tr.title}"
+              onclick={() => handleRowPlayClick(item, active)}
+              aria-label="{tr(lang, 'nav.pause')} {item.title}"
               class="hidden group-hover:flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
             >
               <Icon name="pause" weight="fill" size={14} />
@@ -116,8 +119,8 @@
           {:else if active && !isPlaying}
             <button
               type="button"
-              onclick={() => handleRowPlayClick(tr, active)}
-              aria-label="Putar {tr.title}"
+              onclick={() => handleRowPlayClick(item, active)}
+              aria-label="{tr(lang, 'nav.play')} {item.title}"
               class="flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
             >
               <Icon name="play" weight="fill" size={14} />
@@ -128,8 +131,8 @@
             </span>
             <button
               type="button"
-              onclick={() => handleRowPlayClick(tr, active)}
-              aria-label="Putar {tr.title}"
+              onclick={() => handleRowPlayClick(item, active)}
+              aria-label="{tr(lang, 'nav.play')} {item.title}"
               class="hidden group-hover:flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
             >
               <Icon name="play" weight="fill" size={14} />
@@ -141,12 +144,12 @@
           {#if showCover}
             <button
               type="button"
-              onclick={() => handleRowPlayClick(tr, active)}
-              aria-label="Putar {tr.title}"
+              onclick={() => handleRowPlayClick(item, active)}
+              aria-label="{tr(lang, 'nav.play')} {item.title}"
               class="shrink-0 cursor-pointer"
             >
               {#if cover}
-                <img src={cover} alt={tr.title} loading="lazy" decoding="async" class="block w-10 h-10 rounded-md object-cover object-center shrink-0" />
+                <img src={cover} alt={item.title} loading="lazy" decoding="async" class="block w-10 h-10 rounded-md object-cover object-center shrink-0" />
               {:else}
                 <div
                   class="w-10 h-10 rounded-md flex items-center justify-center shrink-0"
@@ -161,26 +164,26 @@
             {#if onOpenTrackAlbum}
               <button
                 type="button"
-                onclick={() => onOpenTrackAlbum(tr)}
+                onclick={() => onOpenTrackAlbum(item)}
                 class="block max-w-full text-left text-xs font-bold truncate hover:underline cursor-pointer {active ? 'text-[var(--md-sys-color-primary)]' : ''}"
               >
-                {tr.title}
+                {item.title}
               </button>
             {:else}
               <button
                 type="button"
-                onclick={() => handleRowPlayClick(tr, active)}
+                onclick={() => handleRowPlayClick(item, active)}
                 class="block max-w-full text-left text-xs font-bold truncate cursor-pointer {active ? 'text-[var(--md-sys-color-primary)]' : ''}"
               >
-                {tr.title}
+                {item.title}
               </button>
             {/if}
-            <div class="text-[11px] truncate opacity-75">{tr.artistName}</div>
+            <div class="text-[11px] truncate opacity-75">{item.artistName}</div>
           </div>
         </div>
 
         <div class="hidden sm:block text-xs truncate opacity-70">
-          {tr.albumTitle}
+          {item.albumTitle}
         </div>
 
         <div class="hidden sm:block">
@@ -188,27 +191,27 @@
             class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold"
             style="background-color: rgba(255, 255, 255, 0.08); color: var(--md-sys-color-on-surface-variant);"
           >
-            {tr.isDownloaded ? 'Offline' : tr.sourceType === 'ytmusic' ? 'YT Music' : 'Lokal'}
+            {item.isDownloaded ? tr(lang, 'nav.offlineSource') : item.sourceType === 'ytmusic' ? 'YT Music' : tr(lang, 'nav.localSource')}
           </span>
         </div>
 
         <div class="flex items-center justify-end gap-1.5 relative">
           {#if onDownloadTrack || onRemoveDownload}
-            {@const dlState = downloadStates[tr.id]}
+            {@const dlState = downloadStates[item.id]}
             {@const isDlActive = dlState && (dlState.status === 'queued' || dlState.status === 'downloading')}
             {#if isDlActive}
               <span
                 class="inline-flex items-center justify-center w-7 h-7 text-[10px] font-bold tabular-nums text-[var(--md-sys-color-primary)]"
-                title="Mengunduh ({Math.round(dlState.progress || 0)}%)"
+                title="{tr(lang, 'nav.downloading')} ({Math.round(dlState.progress || 0)}%)"
               >
                 {Math.round(dlState.progress || 0)}%
               </span>
-            {:else if tr.isDownloaded}
+            {:else if item.isDownloaded}
               <button
                 type="button"
-                onclick={() => onRemoveDownload?.(tr.id)}
-                title="Tersimpan offline • Klik untuk hapus unduhan"
-                aria-label="Hapus unduhan {tr.title}"
+                onclick={() => onRemoveDownload?.(item.id)}
+                title={tr(lang, 'nav.savedOfflineRemoveHint')}
+                aria-label="{tr(lang, 'nav.removeDownload')} {item.title}"
                 class="m3-icon-btn w-7 h-7 flex items-center justify-center transition cursor-pointer text-[var(--md-sys-color-primary)] opacity-90 hover:opacity-100"
               >
                 <Icon name="check-circle" weight="fill" size={15} />
@@ -216,9 +219,9 @@
             {:else if onDownloadTrack}
               <button
                 type="button"
-                onclick={() => onDownloadTrack(tr)}
-                title="Unduh untuk offline"
-                aria-label="Unduh {tr.title}"
+                onclick={() => onDownloadTrack(item)}
+                title={tr(lang, 'nav.downloadOffline')}
+                aria-label="{tr(lang, 'nav.downloadOffline')} {item.title}"
                 class="m3-icon-btn w-7 h-7 flex items-center justify-center opacity-0 group-hover:opacity-100 transition cursor-pointer"
               >
                 <Icon name="download" size={15} />
@@ -228,48 +231,48 @@
 
           <button
             type="button"
-            onclick={() => onToggleFavorite(tr.id)}
-            aria-label="Sukai {tr.title}"
-            class="m3-icon-btn w-7 h-7 flex items-center justify-center transition cursor-pointer {tr.isFavorite
+            onclick={() => onToggleFavorite(item.id)}
+            aria-label="{tr(lang, 'nav.likeSong')} {item.title}"
+            class="m3-icon-btn w-7 h-7 flex items-center justify-center transition cursor-pointer {item.isFavorite
               ? 'opacity-100 text-[var(--md-sys-color-tertiary)]'
               : 'opacity-0 group-hover:opacity-100'}"
           >
             <Icon
               name="heart"
-              weight={tr.isFavorite ? 'fill' : 'regular'}
+              weight={item.isFavorite ? 'fill' : 'regular'}
               size={15}
             />
           </button>
 
           <button
             type="button"
-            onclick={() => (openMenuTrackId = openMenuTrackId === tr.id ? null : tr.id)}
-            aria-label="Tambah ke Playlist"
+            onclick={() => (openMenuTrackId = openMenuTrackId === item.id ? null : item.id)}
+            aria-label={tr(lang, 'nav.addToPlaylist')}
             class="m3-icon-btn w-7 h-7 flex items-center justify-center opacity-0 group-hover:opacity-100 transition cursor-pointer"
           >
             <Icon name="list-plus" size={15} />
           </button>
 
           <span class="text-[11px] tabular-nums w-9 text-right opacity-75">
-            {formatDuration(tr.durationSec)}
+            {formatDuration(item.durationSec)}
           </span>
 
-          {#if openMenuTrackId === tr.id}
+          {#if openMenuTrackId === item.id}
             <div
               class="absolute right-0 top-9 z-30 w-52 p-1.5 rounded-lg text-xs shadow-xl"
               style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
             >
-              <div class="px-2.5 py-1 text-[11px] font-semibold opacity-70">Tambahkan ke Playlist</div>
+              <div class="px-2.5 py-1 text-[11px] font-semibold opacity-70">{tr(lang, 'nav.addToPlaylist')}</div>
               {#each playlists as pl (pl.id)}
                 <button
                   type="button"
                   onclick={() => {
-                    onAddToPlaylist(pl.id, tr.id);
+                    onAddToPlaylist(pl.id, item.id);
                     openMenuTrackId = null;
                   }}
                   class="w-full text-left px-2.5 py-1.5 rounded-md hover:bg-[var(--md-sys-color-state-hover)] truncate cursor-pointer"
                 >
-                  {pl.name} {pl.isLocal ? '(Local)' : ''}
+                  {pl.name} {pl.isLocal ? `(${tr(lang, 'nav.localSource')})` : ''}
                 </button>
               {/each}
             </div>

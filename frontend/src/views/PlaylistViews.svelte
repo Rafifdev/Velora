@@ -181,7 +181,7 @@
     if (!raw) return '—';
     const d = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T') + 'Z');
     if (Number.isNaN(d.getTime())) return raw;
-    return new Intl.DateTimeFormat('id-ID', {
+    return new Intl.DateTimeFormat(lang === 'id' ? 'id-ID' : lang, {
       day: 'numeric',
       month: 'short',
       year: 'numeric'
@@ -283,9 +283,9 @@
         style="color: var(--md-sys-color-on-surface-variant);"
       >
         <div class="text-center">#</div>
-        <div>Judul</div>
-        <div class="hidden md:block">Pemutaran</div>
-        <div class="hidden md:block">Ditambahkan</div>
+        <div>{tr(lang, 'nav.titleCol')}</div>
+        <div class="hidden md:block">{tr(lang, 'nav.playsCol')}</div>
+        <div class="hidden md:block">{tr(lang, 'nav.addedCol')}</div>
         <div class="flex justify-end pr-1">
           <Icon name="clock" size={14} />
         </div>
@@ -371,7 +371,7 @@
             </button>
 
             <p class="text-xs tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
-              {#if pl.description}{pl.description} • {/if}{detail.tracks.length} lagu • {formatTotalMinutes(pl.totalSec)}
+              {#if pl.description}{pl.description} • {/if}{detail.tracks.length} {tr(lang, 'nav.songs').toLowerCase()} • {formatTotalMinutes(pl.totalSec)}
             </p>
           </div>
         </div>
@@ -381,8 +381,8 @@
             type="button"
             disabled={detail.tracks.length === 0}
             onclick={() => detail.tracks[0] && onPlayTrack(detail.tracks[0], detail.tracks)}
-            title="Putar Playlist"
-            aria-label="Putar Playlist"
+            title={tr(lang, 'nav.playAll')}
+            aria-label={tr(lang, 'nav.playAll')}
             class="w-11 h-11 rounded-full border-0 outline-none shadow-none inline-flex items-center justify-center cursor-pointer transition-transform duration-150 hover:scale-[1.04] active:scale-95 disabled:opacity-40"
             style="background-color: {heroAccent}; color: var(--md-sys-color-on-primary);"
           >
@@ -393,8 +393,8 @@
             type="button"
             disabled={detail.tracks.length === 0}
             onclick={() => playShuffledPlaylist(detail.tracks)}
-            title="Acak (Shuffle)"
-            aria-label="Acak (Shuffle)"
+            title={tr(lang, 'nav.shuffle')}
+            aria-label={tr(lang, 'nav.shuffle')}
             class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors disabled:opacity-40"
             style="color: var(--md-sys-color-on-surface);"
           >
@@ -428,9 +428,9 @@
             style="color: var(--md-sys-color-on-surface-variant);"
           >
             <span class="text-center">#</span>
-            <span>Judul</span>
-            <span class="hidden md:block">Pemutaran</span>
-            <span class="hidden md:block">Ditambahkan</span>
+            <span>{tr(lang, 'nav.titleCol')}</span>
+            <span class="hidden md:block">{tr(lang, 'nav.playsCol')}</span>
+            <span class="hidden md:block">{tr(lang, 'nav.addedCol')}</span>
             <span class="flex justify-end pr-1">
               <Icon name="clock" size={14} />
             </span>
@@ -438,10 +438,10 @@
           </div>
 
           <div class="space-y-0.5" role="list">
-            {#each detail.tracks as tr, idx (tr.id)}
-              {@const cover = resolveCoverUrl(tr.coverUrl, mediaBaseUrl)}
-              {@const active = tr.id === currentTrackId}
-              {@const menuOpen = openActionTrackId === tr.id}
+            {#each detail.tracks as item, idx (item.id)}
+              {@const cover = resolveCoverUrl(item.coverUrl, mediaBaseUrl)}
+              {@const active = item.id === currentTrackId}
+              {@const menuOpen = openActionTrackId === item.id}
               <div
                 role="listitem"
                 draggable={true}
@@ -458,8 +458,8 @@
                     <EqIndicator color={heroAccent} class="group-hover:hidden" />
                     <button
                       type="button"
-                      onclick={() => (onTogglePlay ? onTogglePlay() : onPlayTrack(tr, detail.tracks))}
-                      aria-label="Jeda {tr.title}"
+                      onclick={() => (onTogglePlay ? onTogglePlay() : onPlayTrack(item, detail.tracks))}
+                      aria-label="{tr(lang, 'nav.pause')} {item.title}"
                       class="hidden group-hover:flex items-center justify-center cursor-pointer"
                       style="color: {heroAccent};"
                     >
@@ -468,8 +468,8 @@
                   {:else if active && !isPlaying}
                     <button
                       type="button"
-                      onclick={() => (onTogglePlay ? onTogglePlay() : onPlayTrack(tr, detail.tracks))}
-                      aria-label="Putar {tr.title}"
+                      onclick={() => (onTogglePlay ? onTogglePlay() : onPlayTrack(item, detail.tracks))}
+                      aria-label="{tr(lang, 'nav.play')} {item.title}"
                       class="flex items-center justify-center cursor-pointer"
                       style="color: {heroAccent};"
                     >
@@ -481,8 +481,8 @@
                     </span>
                     <button
                       type="button"
-                      onclick={() => onPlayTrack(tr, detail.tracks)}
-                      aria-label="Putar {tr.title}"
+                      onclick={() => onPlayTrack(item, detail.tracks)}
+                      aria-label="{tr(lang, 'nav.play')} {item.title}"
                       class="hidden group-hover:flex items-center justify-center cursor-pointer"
                       style="color: {heroAccent};"
                     >
@@ -493,11 +493,11 @@
 
                 <button
                   type="button"
-                  onclick={() => (active && onTogglePlay ? onTogglePlay() : onPlayTrack(tr, detail.tracks))}
+                  onclick={() => (active && onTogglePlay ? onTogglePlay() : onPlayTrack(item, detail.tracks))}
                   class="flex items-center gap-3 min-w-0 text-left cursor-pointer"
                 >
                   {#if cover}
-                    <img src={cover} alt={tr.title} class="block w-10 h-10 rounded-md object-cover object-center shrink-0" />
+                    <img src={cover} alt={item.title} class="block w-10 h-10 rounded-md object-cover object-center shrink-0" />
                   {:else}
                     <div
                       class="w-10 h-10 rounded-md flex items-center justify-center shrink-0"
@@ -510,23 +510,23 @@
                     <div
                       class="text-xs font-bold line-clamp-2 whitespace-normal leading-snug"
                       style={active ? `color: color-mix(in srgb, ${heroAccent} 82%, #ffffff);` : ''}
-                    >{tr.title}</div>
+                    >{item.title}</div>
                     <div class="text-[11px] truncate opacity-75 mt-0.5">
-                      {tr.artistName}
+                      {item.artistName}
                     </div>
                   </div>
                 </button>
 
                 <div class="hidden md:block text-xs tabular-nums truncate opacity-75">
-                  {tr.globalPlays || '-'}
+                  {item.globalPlays || '-'}
                 </div>
 
                 <div class="hidden md:block text-xs truncate tabular-nums opacity-75">
-                  {formatAddedDate(tr.createdAt)}
+                  {formatAddedDate(item.createdAt)}
                 </div>
 
                 <span class="text-[11px] font-medium tabular-nums text-right opacity-75 pr-1">
-                  {formatDuration(tr.durationSec)}
+                  {formatDuration(item.durationSec)}
                 </span>
 
                 <div class="relative flex items-center justify-end">
@@ -538,11 +538,11 @@
                         openActionTrackId = null;
                         showPlaylistSubmenu = false;
                       } else {
-                        openActionTrackId = tr.id;
+                        openActionTrackId = item.id;
                         showPlaylistSubmenu = false;
                       }
                     }}
-                    aria-label="Aksi lagu"
+                    aria-label={tr(lang, 'nav.trackActions')}
                     class="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-transparent cursor-pointer transition-colors {menuOpen ? 'opacity-100 text-[var(--md-sys-color-on-surface)]' : 'opacity-65 hover:opacity-100 text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'}"
                   >
                     <Icon name="dots-three-vertical" weight="bold" size={18} />
@@ -565,7 +565,7 @@
                           >
                             <span class="flex items-center gap-2.5">
                               <Icon name="plus" size={15} />
-                              <span>Tambah ke playlist</span>
+                              <span>{tr(lang, 'nav.addToPlaylist')}</span>
                             </span>
                             <Icon name="caret-right" size={12} />
                           </button>
@@ -575,7 +575,7 @@
                                 <button
                                   type="button"
                                   onclick={() => {
-                                    onAddTrack(otherPl.id, tr.id);
+                                    onAddTrack(otherPl.id, item.id);
                                     openActionTrackId = null;
                                     showPlaylistSubmenu = false;
                                   }}
@@ -592,87 +592,87 @@
                       <button
                         type="button"
                         onclick={() => {
-                          onRemoveTrack(pl.id, tr.id);
+                          onRemoveTrack(pl.id, item.id);
                           openActionTrackId = null;
                         }}
                         class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
                       >
                         <Icon name="minus-circle" size={15} />
-                        <span>Hapus dari playlist ini</span>
+                        <span>{tr(lang, 'nav.removeFromThisPlaylist')}</span>
                       </button>
 
                       <button
                         type="button"
                         onclick={() => {
-                          onToggleFavorite(tr.id);
+                          onToggleFavorite(item.id);
                           openActionTrackId = null;
                         }}
                         class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
                       >
                         <Icon
                           name="heart"
-                          weight={tr.isFavorite ? 'fill' : 'regular'}
+                          weight={item.isFavorite ? 'fill' : 'regular'}
                           size={15}
-                          class={tr.isFavorite ? 'text-[var(--md-sys-color-tertiary)]' : ''}
+                          class={item.isFavorite ? 'text-[var(--md-sys-color-tertiary)]' : ''}
                         />
-                        <span>{tr.isFavorite ? 'Hapus dari Lagu yang Disukai' : 'Tambahkan ke Lagu yang Disukai'}</span>
+                        <span>{item.isFavorite ? tr(lang, 'nav.removeFromLikedSongs') : tr(lang, 'nav.addToLikedSongs')}</span>
                       </button>
 
                       {#if onAddToQueue}
                         <button
                           type="button"
                           onclick={() => {
-                            onAddToQueue(tr);
+                            onAddToQueue(item);
                             openActionTrackId = null;
                           }}
                           class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
                         >
                           <Icon name="queue" size={15} />
-                          <span>Tambahkan ke antrean</span>
+                          <span>{tr(lang, 'nav.addToQueue')}</span>
                         </button>
                       {/if}
 
-                      {#if tr.isDownloaded && onRemoveDownload}
+                      {#if item.isDownloaded && onRemoveDownload}
                         <button
                           type="button"
                           onclick={() => {
-                            onRemoveDownload(tr.id);
+                            onRemoveDownload(item.id);
                             openActionTrackId = null;
                           }}
                           class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
                         >
                           <Icon name="check-circle" weight="fill" size={15} class="text-[var(--md-sys-color-primary)]" />
-                          <span>Hapus unduhan</span>
+                          <span>{tr(lang, 'nav.removeDownload')}</span>
                         </button>
                       {:else if onDownloadTrack}
                         <button
                           type="button"
                           onclick={() => {
-                            onDownloadTrack(tr);
+                            onDownloadTrack(item);
                             openActionTrackId = null;
                           }}
                           class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
                         >
                           <Icon name="download" size={15} />
-                          <span>Unduh untuk offline</span>
+                          <span>{tr(lang, 'nav.downloadOffline')}</span>
                         </button>
                       {/if}
 
-                      {#if (onOpenArtist && tr.artistId > 0) || onOpenTrackAlbum}
+                      {#if (onOpenArtist && item.artistId > 0) || onOpenTrackAlbum}
                         <div class="my-1 h-px opacity-15" style="background-color: var(--md-sys-color-on-surface);"></div>
                       {/if}
 
-                      {#if onOpenArtist && tr.artistId > 0}
+                      {#if onOpenArtist && item.artistId > 0}
                         <button
                           type="button"
                           onclick={() => {
-                            onOpenArtist(tr.artistId);
+                            onOpenArtist(item.artistId);
                             openActionTrackId = null;
                           }}
                           class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
                         >
                           <Icon name="user" size={15} />
-                          <span>Buka artis</span>
+                          <span>{tr(lang, 'nav.openArtist')}</span>
                         </button>
                       {/if}
 
@@ -680,13 +680,13 @@
                         <button
                           type="button"
                           onclick={() => {
-                            onOpenTrackAlbum(tr);
+                            onOpenTrackAlbum(item);
                             openActionTrackId = null;
                           }}
                           class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
                         >
                           <Icon name="vinyl-record" size={15} />
-                          <span>Ke album</span>
+                          <span>{tr(lang, 'nav.goToAlbum')}</span>
                         </button>
                       {/if}
                     </div>
@@ -701,7 +701,7 @@
       <section class="pt-2 space-y-3">
         <div class="flex items-end justify-between gap-3">
           <h2 class="text-base font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-            Direkomendasikan
+            {tr(lang, 'nav.recommendedSongs')}
           </h2>
           <button
             type="button"
@@ -715,7 +715,7 @@
             class="text-xs font-bold cursor-pointer hover:underline"
             style="color: var(--md-sys-color-on-surface-variant);"
           >
-            Cari lainnya
+            {tr(lang, 'nav.findMore')}
           </button>
         </div>
 
@@ -782,7 +782,7 @@
                   class="h-8 px-4 rounded-full bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] text-xs font-bold cursor-pointer transition-colors"
                   style="color: var(--md-sys-color-on-surface);"
                 >
-                  Tambahkan
+                  {tr(lang, 'nav.add')}
                 </button>
               </div>
             {/each}
@@ -801,7 +801,7 @@
   >
     <div class="mb-5">
       <h2 id="edit-playlist-title" class="text-xl font-bold tracking-tight">
-        Edit detail
+        {tr(lang, 'nav.editDetails')}
       </h2>
     </div>
 
@@ -823,13 +823,13 @@
             type="text"
             bind:value={editName}
             required
-            placeholder="Nama playlist"
+            placeholder={tr(lang, 'nav.playlistNamePlaceholder')}
             class="w-full h-10 px-3.5 rounded-md text-sm font-semibold outline-none bg-[var(--md-sys-color-surface-container)] text-[var(--md-sys-color-on-surface)] placeholder:text-[var(--md-sys-color-on-surface-variant)]"
           />
           <textarea
             rows="4"
             bind:value={editDesc}
-            placeholder="Tambahkan deskripsi opsional"
+            placeholder={tr(lang, 'nav.playlistDescOptionalPlaceholder')}
             class="w-full flex-1 px-3.5 py-2.5 rounded-md text-xs outline-none resize-none bg-[var(--md-sys-color-surface-container)] text-[var(--md-sys-color-on-surface)] placeholder:text-[var(--md-sys-color-on-surface-variant)]"
           ></textarea>
         </div>
@@ -841,14 +841,14 @@
           onclick={() => (editing = false)}
           class="h-10 px-5 rounded-full bg-[var(--md-sys-color-surface-container)] hover:bg-[var(--md-sys-color-surface-container-highest)] text-xs font-semibold cursor-pointer"
         >
-          Batal
+          {tr(lang, 'nav.cancel')}
         </button>
         <button
           type="submit"
           class="h-10 px-7 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
           style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
         >
-          Simpan
+          {tr(lang, 'nav.save')}
         </button>
       </div>
     </form>
@@ -895,7 +895,7 @@
             }}
             class="h-9 px-4 rounded-full bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
           >
-            <Icon name="upload-simple" size={14} /> Import Playlist
+            <Icon name="upload-simple" size={14} /> {tr(lang, 'nav.importPlaylist')}
           </button>
           <button
             type="button"
@@ -1001,7 +1001,7 @@
                 {pl.name}
               </div>
               <div class="text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-                {pl.description || `${pl.isLocal ? 'Local Playlist' : 'YT Music'} • ${pl.trackCount} lagu`}
+                {pl.description || `${pl.isLocal ? tr(lang, 'nav.localPlaylists') : 'YT Music'} • ${pl.trackCount} ${tr(lang, 'nav.songs').toLowerCase()}`}
               </div>
             </button>
           </div>
@@ -1021,14 +1021,14 @@
 >
   <div class="mb-5">
     <h2 id="import-playlist-title" class="text-lg font-bold tracking-tight">
-      Import Playlist
+      {tr(lang, 'nav.importPlaylist')}
     </h2>
   </div>
 
   <div class="space-y-5">
     <form onsubmit={handleSpotifyImportSubmit} class="space-y-2.5">
       <label for="spotify-url-input" class="block text-xs font-bold" style="color: var(--md-sys-color-on-surface);">
-        Link Spotify
+        {tr(lang, 'nav.spotifyLink')}
       </label>
       <input
         id="spotify-url-input"
@@ -1049,23 +1049,23 @@
       >
         {#if spotifyImporting}
           <EqIndicator variant="loader" color="currentColor" scale={0.75} />
-          <span>Mengimpor lagu...</span>
+          <span>{tr(lang, 'nav.importingSongs')}</span>
         {:else}
           <Icon name="link" size={15} />
-          <span>Import dari Spotify</span>
+          <span>{tr(lang, 'nav.importFromSpotify')}</span>
         {/if}
       </button>
     </form>
 
     <div class="flex items-center gap-3">
       <div class="flex-1 h-px opacity-15" style="background-color: var(--md-sys-color-on-surface);"></div>
-      <span class="text-[11px] font-semibold uppercase tracking-wider opacity-60">Atau</span>
+      <span class="text-[11px] font-semibold uppercase tracking-wider opacity-60">{tr(lang, 'nav.or')}</span>
       <div class="flex-1 h-px opacity-15" style="background-color: var(--md-sys-color-on-surface);"></div>
     </div>
 
     <div class="space-y-2">
       <div class="text-xs font-bold" style="color: var(--md-sys-color-on-surface);">
-        File Lokal
+        {tr(lang, 'nav.localFile')}
       </div>
       <button
         type="button"
@@ -1077,7 +1077,7 @@
         class="m3-btn-tonal w-full h-10 px-5 text-xs font-semibold flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
       >
         <Icon name="folder-open" size={16} />
-        <span>Pilih File</span>
+        <span>{tr(lang, 'nav.chooseFile')}</span>
       </button>
     </div>
   </div>

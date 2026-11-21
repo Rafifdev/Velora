@@ -1,6 +1,7 @@
 <script lang="ts">
   import { fade } from 'svelte/transition';
   import { formatDuration, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
+  import { tr, type LangCode } from '../lib/i18n';
   import type { Album, Playlist, Track, YTMusicAlbumView, YTMusicCard } from '../lib/types';
   import EqIndicator from './EqIndicator.svelte';
   import Icon from './Icon.svelte';
@@ -19,6 +20,7 @@
     playlists: Playlist[];
     mediaBaseUrl: string;
     accentColor: string;
+    lang?: LangCode;
     onPlayTrack: (tr: Track, list?: Track[]) => void;
     onTogglePlay: () => void;
     onToggleFavoriteTrack: (id: number) => void;
@@ -55,6 +57,7 @@
     playlists,
     mediaBaseUrl,
     accentColor,
+    lang = 'en',
     onPlayTrack,
     onTogglePlay,
     onToggleFavoriteTrack,
@@ -319,7 +322,7 @@
             class="px-2.5 py-0.5 rounded-full"
             style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
           >
-            Album
+            {tr(lang, 'nav.album')}
           </span>
           {#if album?.releaseYear}
             <span
@@ -358,7 +361,7 @@
           {/if}
 
           <span>•</span>
-          <span class="tabular-nums">{listTracks.length} lagu</span>
+          <span class="tabular-nums">{listTracks.length} {tr(lang, 'nav.songs').toLowerCase()}</span>
           {#if totalDurationSec > 0}
             <span>•</span>
             <span class="tabular-nums">{formatDuration(totalDurationSec)}</span>
@@ -457,9 +460,9 @@
           style="color: var(--md-sys-color-on-surface-variant);"
         >
           <div class="text-center">#</div>
-          <div>Title</div>
-          <div class="hidden md:block">Rilis</div>
-          <div class="hidden md:block">Pemutaran</div>
+          <div>{tr(lang, 'nav.titleCol')}</div>
+          <div class="hidden md:block">{tr(lang, 'nav.releaseCol')}</div>
+          <div class="hidden md:block">{tr(lang, 'nav.playsCol')}</div>
           <div class="flex justify-end pr-1">
             <Icon name="clock" size={14} />
           </div>
@@ -510,9 +513,9 @@
           style="color: var(--md-sys-color-on-surface-variant);"
         >
           <span class="text-center">#</span>
-          <span>Title</span>
-          <span class="hidden md:block">Rilis</span>
-          <span class="hidden md:block">Pemutaran</span>
+          <span>{tr(lang, 'nav.titleCol')}</span>
+          <span class="hidden md:block">{tr(lang, 'nav.releaseCol')}</span>
+          <span class="hidden md:block">{tr(lang, 'nav.playsCol')}</span>
           <span class="flex justify-end pr-1">
             <Icon name="clock" size={14} />
           </span>
@@ -520,9 +523,9 @@
         </div>
 
         <div class="space-y-0.5" role="list">
-          {#each listTracks as tr, idx (tr.id + '-' + idx)}
-            {@const active = isTrackActive(tr)}
-            {@const menuOpen = openActionTrackId === tr.id}
+          {#each listTracks as item, idx (item.id + '-' + idx)}
+            {@const active = isTrackActive(item)}
+            {@const menuOpen = openActionTrackId === item.id}
             <div
               role="listitem"
               class="group relative -mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] items-center gap-4 px-3 py-2 rounded-lg transition-colors duration-150 {active
@@ -535,8 +538,8 @@
                   <EqIndicator class="group-hover:hidden" />
                   <button
                     type="button"
-                    onclick={() => handleRowPlayClick(tr, active)}
-                    aria-label="Jeda {tr.title}"
+                    onclick={() => handleRowPlayClick(item, active)}
+                    aria-label="{tr(lang, 'nav.pause')} {item.title}"
                     class="hidden group-hover:flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
                   >
                     <Icon name="pause" weight="fill" size={14} />
@@ -544,8 +547,8 @@
                 {:else if active && !isPlaying}
                   <button
                     type="button"
-                    onclick={() => handleRowPlayClick(tr, active)}
-                    aria-label="Putar {tr.title}"
+                    onclick={() => handleRowPlayClick(item, active)}
+                    aria-label="{tr(lang, 'nav.play')} {item.title}"
                     class="flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
                   >
                     <Icon name="play" weight="fill" size={14} />
@@ -556,8 +559,8 @@
                   </span>
                   <button
                     type="button"
-                    onclick={() => handleRowPlayClick(tr, active)}
-                    aria-label="Putar {tr.title}"
+                    onclick={() => handleRowPlayClick(item, active)}
+                    aria-label="{tr(lang, 'nav.play')} {item.title}"
                     class="hidden group-hover:flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
                   >
                     <Icon name="play" weight="fill" size={14} />
@@ -567,14 +570,14 @@
 
               <button
                 type="button"
-                onclick={() => handleRowPlayClick(tr, active)}
+                onclick={() => handleRowPlayClick(item, active)}
                 class="min-w-0 pr-4 text-left cursor-pointer"
               >
                 <div class="text-xs font-bold line-clamp-2 whitespace-normal leading-snug {active ? 'text-[var(--md-sys-color-primary)]' : ''}">
-                  {tr.title}
+                  {item.title}
                 </div>
                 <div class="text-[11px] truncate opacity-75 mt-0.5">
-                  {tr.artistName}
+                  {item.artistName}
                 </div>
               </button>
 
@@ -583,11 +586,11 @@
               </div>
 
               <div class="hidden md:block text-xs tabular-nums truncate opacity-75">
-                {tr.globalPlays || '-'}
+                {item.globalPlays || '-'}
               </div>
 
               <span class="text-[11px] font-medium tabular-nums text-right opacity-75 pr-1">
-                {formatDuration(tr.durationSec)}
+                {formatDuration(item.durationSec)}
               </span>
 
               <div class="relative flex items-center justify-end">
@@ -599,11 +602,11 @@
                       openActionTrackId = null;
                       showPlaylistSubmenu = false;
                     } else {
-                      openActionTrackId = tr.id;
+                      openActionTrackId = item.id;
                       showPlaylistSubmenu = false;
                     }
                   }}
-                  aria-label="Aksi lagu"
+                  aria-label="Actions"
                   class="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-transparent cursor-pointer transition-colors {menuOpen
                     ? 'opacity-100 text-[var(--md-sys-color-on-surface)]'
                     : 'opacity-65 hover:opacity-100 text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'}"
@@ -628,7 +631,7 @@
                         >
                           <span class="flex items-center gap-2.5">
                             <Icon name="plus" size={15} />
-                            <span>Tambah ke playlist</span>
+                            <span>{tr(lang, 'nav.addToPlaylist')}</span>
                           </span>
                           <Icon name="caret-right" size={12} />
                         </button>
@@ -638,7 +641,7 @@
                               <button
                                 type="button"
                                 onclick={() => {
-                                  onAddToPlaylist(pl.id, tr.id);
+                                  onAddToPlaylist(pl.id, item.id);
                                   openActionTrackId = null;
                                   showPlaylistSubmenu = false;
                                 }}
@@ -655,43 +658,43 @@
                     <button
                       type="button"
                       onclick={() => {
-                        onToggleFavoriteTrack(tr.id);
+                        onToggleFavoriteTrack(item.id);
                         openActionTrackId = null;
                       }}
                       class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
                     >
                       <Icon
                         name="heart"
-                        weight={tr.isFavorite ? 'fill' : 'regular'}
+                        weight={item.isFavorite ? 'fill' : 'regular'}
                         size={15}
-                        class={tr.isFavorite ? 'text-[var(--md-sys-color-tertiary)]' : ''}
+                        class={item.isFavorite ? 'text-[var(--md-sys-color-tertiary)]' : ''}
                       />
-                      <span>{tr.isFavorite ? 'Hapus dari Lagu yang Disukai' : 'Tambahkan ke Lagu yang Disukai'}</span>
+                      <span>{item.isFavorite ? tr(lang, 'nav.removeFromLikedSongs') : tr(lang, 'nav.addToLikedSongs')}</span>
                     </button>
 
-                    {#if tr.isDownloaded && onRemoveDownload}
+                    {#if item.isDownloaded && onRemoveDownload}
                       <button
                         type="button"
                         onclick={() => {
-                          onRemoveDownload(tr.id);
+                          onRemoveDownload(item.id);
                           openActionTrackId = null;
                         }}
                         class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
                       >
                         <Icon name="check-circle" weight="fill" size={15} class="text-[var(--md-sys-color-primary)]" />
-                        <span>Hapus unduhan</span>
+                        <span>{tr(lang, 'nav.removeDownload')}</span>
                       </button>
                     {:else if onDownloadTrack}
                       <button
                         type="button"
                         onclick={() => {
-                          onDownloadTrack(tr);
+                          onDownloadTrack(item);
                           openActionTrackId = null;
                         }}
                         class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
                       >
                         <Icon name="download" size={15} />
-                        <span>Unduh untuk offline</span>
+                        <span>{tr(lang, 'nav.downloadOffline')}</span>
                       </button>
                     {/if}
 
@@ -699,28 +702,28 @@
                       <button
                         type="button"
                         onclick={() => {
-                          onAddToQueue(tr);
+                          onAddToQueue(item);
                           openActionTrackId = null;
                         }}
                         class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
                       >
                         <Icon name="queue" size={15} />
-                        <span>Tambahkan ke antrean</span>
+                        <span>{tr(lang, 'nav.addToQueue')}</span>
                       </button>
                     {/if}
 
-                    {#if tr.artistId > 0}
+                    {#if item.artistId > 0}
                       <div class="my-1 h-px opacity-15" style="background-color: var(--md-sys-color-on-surface);"></div>
                       <button
                         type="button"
                         onclick={() => {
-                          onOpenArtist(tr.artistId);
+                          onOpenArtist(item.artistId);
                           openActionTrackId = null;
                         }}
                         class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
                       >
                         <Icon name="user" size={15} />
-                        <span>Buka artis</span>
+                        <span>{tr(lang, 'nav.openArtist')}</span>
                       </button>
                     {/if}
                   </div>
@@ -736,7 +739,7 @@
   {#if artistReleases.length > 0}
     <section class="px-6 sm:px-10 pb-10">
       <h2 class="text-lg font-bold mb-4" style="color: var(--md-sys-color-on-surface);">
-        Lainnya dari {displayArtist}
+        {tr(lang, 'nav.moreFromArtist')} {displayArtist}
       </h2>
       <div
         use:shelfEdgeFade

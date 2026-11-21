@@ -2,6 +2,7 @@
   import { fly } from 'svelte/transition';
   import { cubicIn, cubicOut } from 'svelte/easing';
   import { formatDuration, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
+  import { tr, type LangCode } from '../lib/i18n';
   import type { Track, TrackLyrics } from '../lib/types';
   import Icon from './Icon.svelte';
 
@@ -18,6 +19,7 @@
     mediaBaseUrl: string;
     showMiniLyrics?: boolean;
     plainFallback?: boolean;
+    lang?: LangCode;
     onClose: () => void;
     onTogglePlay: () => void;
     onPrev: () => void;
@@ -44,6 +46,7 @@
     mediaBaseUrl,
     showMiniLyrics = true,
     plainFallback = true,
+    lang = 'en',
     onClose,
     onTogglePlay,
     onPrev,
@@ -121,7 +124,7 @@
         </button>
 
         <div class="min-w-0 text-center">
-          <div class="text-[10px] font-bold uppercase tracking-widest opacity-75">Playing from</div>
+          <div class="text-[10px] font-bold uppercase tracking-widest opacity-75">{tr(lang, 'nav.playingFrom')}</div>
           <div class="text-xs font-bold truncate max-w-[200px]">
             {currentTrack?.albumTitle || 'Velora'}
           </div>
@@ -133,7 +136,7 @@
             onClose();
             onOpenQueue();
           }}
-          aria-label="Buka Queue"
+          aria-label={tr(lang, 'nav.openQueue')}
           class="m3-icon-btn w-10 h-10 flex items-center justify-center cursor-pointer"
         >
           <Icon name="dots-three-vertical" weight="bold" size={20} />
@@ -157,7 +160,7 @@
         <div class="flex items-center justify-between gap-3">
           <div class="min-w-0 flex-1">
             <div class="text-xl font-bold tracking-tight truncate">
-              {currentTrack?.title || 'Belum ada lagu diputar'}
+              {currentTrack?.title || tr(lang, 'nav.noSongPlaying')}
             </div>
             <div class="text-sm truncate mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
               {currentTrack?.artistName || 'Velora'}
@@ -168,7 +171,7 @@
             type="button"
             disabled={!currentTrack}
             onclick={() => currentTrack && onToggleFavorite(currentTrack.id)}
-            aria-label="Sukai lagu"
+            aria-label={tr(lang, 'nav.likeSong')}
             class="w-10 h-10 rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)] disabled:opacity-40"
           >
             <Icon
@@ -282,7 +285,7 @@
       >
       {#if showMiniLyrics}
         <div class="flex items-center justify-between">
-          <h3 class="text-sm font-bold text-white">Lyrics preview</h3>
+          <h3 class="text-sm font-bold text-white">{tr(lang, 'nav.lyricsPreview')}</h3>
         </div>
         {#if previewLines.length > 0}
           <div class="space-y-1.5">
@@ -293,7 +296,7 @@
             {/each}
           </div>
         {:else}
-          <p class="text-sm text-white/75">Lirik belum tersedia untuk lagu ini.</p>
+          <p class="text-sm text-white/75">{tr(lang, 'nav.lyricsUnavailable')}</p>
         {/if}
       {/if}
         <button
@@ -304,7 +307,7 @@
           }}
           class="h-8 px-4 rounded-full text-xs font-bold bg-white text-black cursor-pointer transition-transform hover:scale-[1.03] active:scale-95"
         >
-          Show lyrics
+          {tr(lang, 'nav.showLyrics')}
         </button>
       </section>
 
@@ -313,7 +316,7 @@
         style="background-color: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface);"
       >
         <div class="flex items-center justify-between gap-2 mb-3.5">
-          <span class="text-[15px] font-bold">Antrean berikutnya</span>
+          <span class="text-[15px] font-bold">{tr(lang, 'nav.upNext')}</span>
           <button
             type="button"
             onclick={() => {
@@ -322,13 +325,13 @@
             }}
             class="text-[13px] font-bold text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)] hover:underline cursor-pointer transition-colors shrink-0"
           >
-            Buka antrean
+            {tr(lang, 'nav.openQueue')}
           </button>
         </div>
 
         {#if !nextTrack}
           <p class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] py-2">
-            Antrean berikutnya masih kosong.
+            {tr(lang, 'nav.emptyQueue')}
           </p>
         {:else}
           {@const nextCover = resolveCoverUrl(nextTrack.coverUrl, mediaBaseUrl)}

@@ -30,6 +30,8 @@ export function DownloadYTMusicTrack(arg1:sources.YTMusicTrack):Promise<db.Track
 
 export function ExportLocalPlaylistM3U(arg1:number):Promise<string>;
 
+export function GenerateQRDataURL(arg1:string):Promise<string>;
+
 export function GetAlbumTracks(arg1:number):Promise<Array<db.Track>>;
 
 export function GetAlbums(arg1:boolean):Promise<Array<db.Album>>;
@@ -51,6 +53,8 @@ export function GetFireStreak():Promise<stats.FireStreakStatus>;
 export function GetJamStatus():Promise<jam.Status>;
 
 export function GetListeningStats():Promise<stats.ListeningStats>;
+
+export function GetMonthlyStreak(arg1:number,arg2:number):Promise<Array<db.DailyStreakRow>>;
 
 export function GetMoreArtists(arg1:number,arg2:Array<string>):Promise<Array<sources.YTMusicCard>>;
 
@@ -125,6 +129,8 @@ export function SearchYouTubeMusicPlaylists(arg1:string):Promise<Array<sources.Y
 export function SetDynamicIslandAnimSpeed(arg1:string):Promise<void>;
 
 export function SetDynamicIslandContent(arg1:boolean,arg2:boolean,arg3:boolean,arg4:boolean,arg5:boolean,arg6:boolean,arg7:boolean,arg8:boolean,arg9:string):Promise<void>;
+
+export function SetDynamicIslandCoverOptions(arg1:string,arg2:boolean,arg3:boolean):Promise<void>;
 
 export function SetDynamicIslandEnabled(arg1:boolean):Promise<void>;
 

@@ -1,14 +1,16 @@
 <script lang="ts">
+  import { tr, type LangCode } from '../lib/i18n';
   import ModalDialog from './ModalDialog.svelte';
 
   interface Props {
     open: boolean;
     initialIsLocal: boolean;
+    lang?: LangCode;
     onClose: () => void;
     onSubmit: (name: string, description: string, isLocal: boolean, coverColor: string) => void;
   }
 
-  let { open, initialIsLocal, onClose, onSubmit }: Props = $props();
+  let { open, initialIsLocal, lang = 'en', onClose, onSubmit }: Props = $props();
 
   let name = $state('');
   let description = $state('');
@@ -41,47 +43,47 @@
 >
   <div class="mb-5">
     <h2 id="create-playlist-title" class="text-lg font-semibold">
-      {isLocal ? 'Buat Local Playlist' : 'Buat Playlist Baru'}
+      {isLocal ? tr(lang, 'nav.createLocalPlaylist') : tr(lang, 'nav.createNewPlaylist')}
     </h2>
   </div>
 
   <form onsubmit={handleFormSubmit} class="space-y-4">
     <div>
       <label for="pl-name" class="block text-xs font-medium mb-1.5" style="color: var(--md-sys-color-on-surface-variant);">
-        Nama Playlist
+        {tr(lang, 'nav.playlistName')}
       </label>
       <input
         id="pl-name"
         type="text"
         bind:value={name}
         required
-        placeholder="Misal: Coding Midnight Mix"
+        placeholder={tr(lang, 'nav.playlistNameExample')}
         class="m3-input w-full h-11 px-4 rounded-md text-sm outline-none"
       />
     </div>
 
     <div>
       <label for="pl-desc" class="block text-xs font-medium mb-1.5" style="color: var(--md-sys-color-on-surface-variant);">
-        Deskripsi
+        {tr(lang, 'nav.description')}
       </label>
       <textarea
         id="pl-desc"
         rows="2"
         bind:value={description}
-        placeholder="Deskripsi singkat playlist..."
+        placeholder={tr(lang, 'nav.playlistDescPlaceholder')}
         class="m3-input w-full px-4 py-2.5 rounded-md text-sm outline-none resize-none"
       ></textarea>
     </div>
 
     <div class="flex items-center justify-between">
-      <span class="text-xs font-medium" style="color: var(--md-sys-color-on-surface-variant);">Tipe Playlist</span>
+      <span class="text-xs font-medium" style="color: var(--md-sys-color-on-surface-variant);">{tr(lang, 'nav.playlistType')}</span>
       <div class="flex gap-2">
         <button
           type="button"
           onclick={() => (isLocal = true)}
           class="px-3.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer {isLocal ? 'm3-chip-selected' : 'm3-chip'}"
         >
-          Local Playlist
+          {tr(lang, 'nav.localPlaylists')}
         </button>
         <button
           type="button"
@@ -94,13 +96,13 @@
     </div>
 
     <div>
-      <span class="block text-xs font-medium mb-2" style="color: var(--md-sys-color-on-surface-variant);">Warna Cover</span>
+      <span class="block text-xs font-medium mb-2" style="color: var(--md-sys-color-on-surface-variant);">{tr(lang, 'nav.coverColor')}</span>
       <div class="flex items-center gap-2.5">
         {#each colors as c (c)}
           <button
             type="button"
             onclick={() => (coverColor = c)}
-            aria-label="Pilih warna {c}"
+            aria-label={c}
             class="w-7 h-7 rounded-full transition cursor-pointer {coverColor === c
               ? 'ring-2 ring-white scale-110'
               : 'opacity-70 hover:opacity-100'}"
@@ -116,13 +118,13 @@
         onclick={onClose}
         class="m3-btn-outlined px-5 py-2 text-xs cursor-pointer"
       >
-        Batal
+        {tr(lang, 'nav.cancel')}
       </button>
       <button
         type="submit"
         class="m3-btn-filled px-5 py-2 text-xs cursor-pointer"
       >
-        Simpan
+        {tr(lang, 'nav.save')}
       </button>
     </div>
   </form>

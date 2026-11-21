@@ -660,7 +660,7 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 		miniPx := maxInt(21, int(math.Round(20.8*u)))
 		topCov := int(math.Round((h/2.0)*u - float64(miniPx)/2.0))
 		cyExact := float64(topCov) + float64(miniPx)/2.0
-		if showLyric && playing && lyricsOpen && len(lyrics) > 0 {
+		if showLyric && playing && (lyricsOpen || c.compactStyle == "SATU_BARIS") && len(lyrics) > 0 {
 			txtHeightPx := float64(miniPx) * 0.72
 			fClosed := c.getDWriteTextFormat(1, txtHeightPx, dwTextAlignCenter, dwParaAlignCenter, false, true)
 			c.pushD2DClip((nx+35.0)*u, 0, (w-70.0)*u, h*u)
@@ -678,6 +678,8 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 				act := c.currentLyricIndexLocked()
 				if act >= 0 && act < len(lyrics) {
 					inTxt = strings.TrimSpace(lyrics[act].Text)
+				} else if len(lyrics) > 0 {
+					inTxt = "♪  • • •"
 				}
 			}
 			if inTxt != "" {

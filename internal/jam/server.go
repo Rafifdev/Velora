@@ -184,7 +184,7 @@ func (s *Server) Start() (Status, error) {
 	lanIP := detectLanIP()
 	remoteURL := fmt.Sprintf("http://%s:%d/jam", lanIP, port)
 	apiURL := fmt.Sprintf("http://%s:%d/api", lanIP, port)
-	qrDataURL := buildQRDataURL(remoteURL)
+	qrDataURL := BuildQRDataURL(remoteURL)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleRemoteUI)
@@ -689,7 +689,7 @@ func detectLanIP() string {
 	return "127.0.0.1"
 }
 
-func buildQRDataURL(content string) string {
+func BuildQRDataURL(content string) string {
 	png, err := qrcode.Encode(content, qrcode.Medium, 280)
 	if err != nil {
 		return ""

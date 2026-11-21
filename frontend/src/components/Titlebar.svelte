@@ -84,7 +84,7 @@
     jamLoading = false,
     jamRunning = false,
     jamConnected = false,
-    jamPrefEnabled = false,
+    jamPrefEnabled = true,
     saveSearches = true,
     onOpenJamSettings,
     onResetZoom
@@ -468,7 +468,7 @@
         type="button"
         onclick={onBack}
         disabled={!canGoBack}
-        aria-label="Kembali"
+        aria-label={tr(lang, 'nav.back')}
         class="m3-icon-btn w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-35 disabled:pointer-events-none cursor-pointer"
       >
         <Icon name="caret-left" weight="bold" size={17} />
@@ -477,7 +477,7 @@
         type="button"
         onclick={onForward}
         disabled={!canGoForward}
-        aria-label="Maju"
+        aria-label={tr(lang, 'nav.forward')}
         class="m3-icon-btn w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-35 disabled:pointer-events-none cursor-pointer"
       >
         <Icon name="caret-right" weight="bold" size={17} />
@@ -489,8 +489,8 @@
     <button
       type="button"
       onclick={() => onNavigate({ name: 'home' })}
-      title="Home"
-      aria-label="Home"
+      title={tr(lang, 'nav.home')}
+      aria-label={tr(lang, 'nav.home')}
       class="hidden sm:flex w-10 h-10 rounded-full items-center justify-center shrink-0 cursor-pointer transition-all duration-200 hover:scale-105 hover:brightness-125"
       style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
     >
@@ -540,8 +540,8 @@
           <button
             type="button"
             onclick={onOpenStreakModal}
-            title="Fire Streak Hari Ini ({fireStreak.currentStreak} Hari)"
-            aria-label="Fire Streak {fireStreak.currentStreak}"
+            title="{tr(lang, 'nav.dailyStreak')} ({fireStreak.currentStreak} {tr(lang, 'nav.days')})"
+            aria-label="{tr(lang, 'nav.dailyStreak')} {fireStreak.currentStreak}"
             class="h-8 px-2.5 rounded-full flex items-center gap-1.5 shrink-0 text-[13px] font-bold cursor-pointer transition-all duration-200 hover:brightness-125"
             style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
           >
@@ -696,14 +696,14 @@
                           {/each}
                         </div>
                         <div class="text-[12px] leading-snug truncate" style="color: var(--md-sys-color-on-surface-variant);">
-                          Artist
+                          {tr(lang, 'nav.artist')}
                         </div>
                       </div>
                     </button>
                     <button
                       type="button"
-                      title={art.isFavorite ? 'Hapus dari Favorit' : 'Tambahkan ke Favorit'}
-                      aria-label={art.isFavorite ? 'Hapus dari Favorit' : 'Tambahkan ke Favorit'}
+                      title={art.isFavorite ? tr(lang, 'nav.removeFromFavorites') : tr(lang, 'nav.addToFavorites')}
+                      aria-label={art.isFavorite ? tr(lang, 'nav.removeFromFavorites') : tr(lang, 'nav.addToFavorites')}
                       onclick={(e) => {
                         e.stopPropagation();
                         if (art.id !== null) {
@@ -790,7 +790,7 @@
             else if (onOpenJam) onOpenJam();
             else onNavigate({ name: 'preferences' });
           }}
-          title={!jamPrefEnabled ? 'Velora Jam (Nonaktif)' : jamRunning ? 'Velora Jam Remote (Aktif)' : 'Velora Jam Remote'}
+          title={!jamPrefEnabled ? 'Velora Jam (Izin Nonaktif)' : jamRunning ? 'Velora Jam Remote (Aktif)' : 'Velora Jam Remote'}
           aria-label="Remote QR & Integrations"
           class="relative w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:brightness-125 {!jamPrefEnabled ? 'opacity-45' : ''}"
           style={!jamPrefEnabled
@@ -812,13 +812,11 @@
         >
           <div class="mb-3">
             <h2 id="jam-disabled-title" class="text-lg font-bold tracking-tight">
-              {lang === 'id' ? 'Velora Jam belum aktif' : 'Velora Jam is turned off'}
+              {tr(lang, 'nav.jamPermDisabledTitle')}
             </h2>
           </div>
           <p id="jam-disabled-desc" class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
-            {lang === 'id'
-              ? 'Aktifkan kontrol Wi-Fi di Pengaturan Velora Jam terlebih dahulu untuk menghubungkan perangkat lain.'
-              : 'Enable Wi-Fi remote control in Settings Velora Jam first to connect another device.'}
+            {tr(lang, 'nav.jamPermDisabledDesc')}
           </p>
           <div class="flex items-center justify-end gap-2 mt-6">
             <button
@@ -826,7 +824,7 @@
               onclick={() => (jamDisabledAlert = false)}
               class="h-10 px-5 rounded-full bg-[var(--md-sys-color-surface-container)] hover:bg-[var(--md-sys-color-surface-container-highest)] text-xs font-semibold cursor-pointer transition-colors"
             >
-              {lang === 'id' ? 'Tutup' : 'Close'}
+              {tr(lang, 'nav.close')}
             </button>
             <button
               type="button"
@@ -838,7 +836,7 @@
               class="h-10 px-7 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
               style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
             >
-              {lang === 'id' ? 'Buka Pengaturan' : 'Open Settings'}
+              {tr(lang, 'nav.openSettings')}
             </button>
           </div>
         </ModalDialog>
@@ -848,6 +846,7 @@
             open={jamOpen}
             status={jamStatus}
             loading={jamLoading}
+            {lang}
             onClose={() => onCloseJam?.()}
             onToggleJam={() => onToggleJam?.()}
           />

@@ -56,6 +56,7 @@ func (a *App) SetDynamicIslandOpenTrigger(_ string)                      {}
 func (a *App) SetDynamicIslandOnlyPlaying(_ bool)                        {}
 func (a *App) SetDynamicIslandPauseHideSeconds(_ int)                    {}
 func (a *App) SetDynamicIslandContent(_, _, _, _, _, _, _, _ bool, _ string) {}
-func (a *App) SetDynamicIslandLanguage(_ string)                         {}
+func (a *App) SetDynamicIslandCoverOptions(_ string, _, _ bool)              {}
+func (a *App) SetDynamicIslandLanguage(_ string)                             {}
 func (a *App) SyncDynamicIsland(_ DynamicIslandSyncPayload)              {}
 func (a *App) NotifyDynamicIslandAudioDevice(_ string)                   {}

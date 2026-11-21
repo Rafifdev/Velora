@@ -22,6 +22,32 @@
 
 ---
 
+## Screenshots
+
+<div align="center">
+  <img src="docs/screenshots/home.jpg" alt="Velora Home & Now Playing Panel" width="100%" />
+  <p><em>Home Discovery, Curated Playlists, Now Playing Panel & Live Lyrics Preview</em></p>
+</div>
+
+<br />
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="docs/screenshots/lyrics.jpg" alt="Velora Time-Synced Fullscreen Lyrics" width="100%" />
+      <br />
+      <sub><b>Immersive Time-Synced Lyrics & Wave Seekbar</b></sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="docs/screenshots/artist.jpg" alt="Velora Verified Artist Profile" width="100%" />
+      <br />
+      <sub><b>Verified Artist Profile & Popular Tracks</b></sub>
+    </td>
+  </tr>
+</table>
+
+---
+
 ## Key Features
 
 ### 1. Hybrid Catalog & Local Library Playback
@@ -139,9 +165,10 @@ velora/
 
 ---
 
-## License
+## Privacy & License
 
-This project is licensed under the [MIT License](LICENSE).
+- Read our [Privacy Policy](PRIVACY_POLICY.md) to see how Velora handles local storage and network connections.
+- This project is licensed under the [MIT License](LICENSE).
 
 ---
 
