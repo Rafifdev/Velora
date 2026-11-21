@@ -19,6 +19,13 @@
     lang = 'en',
     onBack
   }: Props = $props();
+
+  const isDesktopApp =
+    typeof window !== 'undefined' &&
+    Boolean((window as unknown as { go?: { main?: { App?: unknown } } }).go?.main?.App);
+  const visibleCategories = $derived(
+    isDesktopApp ? PREFERENCE_CATEGORIES : PREFERENCE_CATEGORIES.filter((c) => c.id !== 'dynamic-island')
+  );
 </script>
 
 <div
@@ -68,7 +75,7 @@
     </div>
 
     <div class="space-y-1">
-      {#each PREFERENCE_CATEGORIES as cat (cat.id)}
+      {#each visibleCategories as cat (cat.id)}
         {@const active = !search.trim() && activeTab === cat.id}
         <button
           type="button"
