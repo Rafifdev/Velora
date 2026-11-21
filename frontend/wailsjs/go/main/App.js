@@ -94,6 +94,10 @@ export function GetListeningStats() {
   return window['go']['main']['App']['GetListeningStats']();
 }
 
+export function GetListeningStatsByDate(arg1) {
+  return window['go']['main']['App']['GetListeningStatsByDate'](arg1);
+}
+
 export function GetMonthlyStreak(arg1, arg2) {
   return window['go']['main']['App']['GetMonthlyStreak'](arg1, arg2);
 }
@@ -316,6 +320,10 @@ export function StartJam() {
 
 export function StopJam() {
   return window['go']['main']['App']['StopJam']();
+}
+
+export function SubmitFeedback(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SubmitFeedback'](arg1, arg2, arg3, arg4);
 }
 
 export function SyncDynamicIsland(arg1) {

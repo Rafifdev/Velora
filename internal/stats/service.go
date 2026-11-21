@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"database/sql"
 	"fmt"
 	"math"
 	"strconv"
@@ -301,6 +302,11 @@ func (s *Service) GetMonthlyStreak(year int, month int, now time.Time) ([]db.Dai
 }
 
 func (s *Service) GetListeningStats() (ListeningStats, error) {
+	return s.GetListeningStatsByDate("")
+}
+
+func (s *Service) GetListeningStatsByDate(dateStr string) (ListeningStats, error) {
+	dateFilter := strings.TrimSpace(dateStr)
 	hours := make([]HourBucket, 24)
 	for h := 0; h < 24; h++ {
 		hours[h] = HourBucket{
@@ -330,7 +336,13 @@ func (s *Service) GetListeningStats() (ListeningStats, error) {
 		}
 	}
 
-	rows, err := s.store.DB().Query(`SELECT track_id, played_at, duration_listened_sec FROM play_history`)
+	var rows *sql.Rows
+	var err error
+	if dateFilter != "" {
+		rows, err = s.store.DB().Query(`SELECT track_id, played_at, duration_listened_sec FROM play_history WHERE played_at LIKE ?`, dateFilter+"%")
+	} else {
+		rows, err = s.store.DB().Query(`SELECT track_id, played_at, duration_listened_sec FROM play_history`)
+	}
 	if err != nil {
 		return ListeningStats{}, err
 	}
@@ -407,13 +419,25 @@ func (s *Service) GetListeningStats() (ListeningStats, error) {
 	}
 
 	topTracks := []TopStatItem{}
-	tRows, err := s.store.DB().Query(`
-		SELECT t.title, t.artist_name, COALESCE(t.cover_url, ''), COUNT(h.id) AS plays, COALESCE(SUM(h.duration_listened_sec), 0) AS secs
-		FROM play_history h
-		JOIN tracks t ON t.id = h.track_id
-		GROUP BY h.track_id
-		ORDER BY plays DESC, secs DESC
-		LIMIT 5`)
+	var tRows *sql.Rows
+	if dateFilter != "" {
+		tRows, err = s.store.DB().Query(`
+			SELECT t.title, t.artist_name, COALESCE(t.cover_url, ''), COUNT(h.id) AS plays, COALESCE(SUM(h.duration_listened_sec), 0) AS secs
+			FROM play_history h
+			JOIN tracks t ON t.id = h.track_id
+			WHERE h.played_at LIKE ?
+			GROUP BY h.track_id
+			ORDER BY plays DESC, secs DESC
+			LIMIT 5`, dateFilter+"%")
+	} else {
+		tRows, err = s.store.DB().Query(`
+			SELECT t.title, t.artist_name, COALESCE(t.cover_url, ''), COUNT(h.id) AS plays, COALESCE(SUM(h.duration_listened_sec), 0) AS secs
+			FROM play_history h
+			JOIN tracks t ON t.id = h.track_id
+			GROUP BY h.track_id
+			ORDER BY plays DESC, secs DESC
+			LIMIT 5`)
+	}
 	if err == nil {
 		defer tRows.Close()
 		for tRows.Next() {
@@ -427,14 +451,27 @@ func (s *Service) GetListeningStats() (ListeningStats, error) {
 	}
 
 	topArtists := []TopStatItem{}
-	aRows, err := s.store.DB().Query(`
-		SELECT t.artist_name, COALESCE(MAX(NULLIF(a.avatar_url, '')), MAX(NULLIF(t.cover_url, '')), ''), COUNT(h.id) AS plays, COALESCE(SUM(h.duration_listened_sec), 0) AS secs
-		FROM play_history h
-		JOIN tracks t ON t.id = h.track_id
-		LEFT JOIN artists a ON a.id = t.artist_id
-		GROUP BY t.artist_name
-		ORDER BY plays DESC, secs DESC
-		LIMIT 5`)
+	var aRows *sql.Rows
+	if dateFilter != "" {
+		aRows, err = s.store.DB().Query(`
+			SELECT t.artist_name, COALESCE(MAX(NULLIF(a.avatar_url, '')), MAX(NULLIF(t.cover_url, '')), ''), COUNT(h.id) AS plays, COALESCE(SUM(h.duration_listened_sec), 0) AS secs
+			FROM play_history h
+			JOIN tracks t ON t.id = h.track_id
+			LEFT JOIN artists a ON a.id = t.artist_id
+			WHERE h.played_at LIKE ?
+			GROUP BY t.artist_name
+			ORDER BY plays DESC, secs DESC
+			LIMIT 5`, dateFilter+"%")
+	} else {
+		aRows, err = s.store.DB().Query(`
+			SELECT t.artist_name, COALESCE(MAX(NULLIF(a.avatar_url, '')), MAX(NULLIF(t.cover_url, '')), ''), COUNT(h.id) AS plays, COALESCE(SUM(h.duration_listened_sec), 0) AS secs
+			FROM play_history h
+			JOIN tracks t ON t.id = h.track_id
+			LEFT JOIN artists a ON a.id = t.artist_id
+			GROUP BY t.artist_name
+			ORDER BY plays DESC, secs DESC
+			LIMIT 5`)
+	}
 	if err == nil {
 		defer aRows.Close()
 		for aRows.Next() {

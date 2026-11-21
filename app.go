@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"math"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"os/exec"
@@ -1217,6 +1221,10 @@ func (a *App) GetListeningStats() (stats.ListeningStats, error) {
 	return a.statsSvc.GetListeningStats()
 }
 
+func (a *App) GetListeningStatsByDate(dateStr string) (stats.ListeningStats, error) {
+	return a.statsSvc.GetListeningStatsByDate(dateStr)
+}
+
 func (a *App) GetFireStreak() (stats.FireStreakStatus, error) {
 	return a.statsSvc.GetFireStreak(time.Now())
 }
@@ -1345,10 +1353,101 @@ type UpdateCheckResult struct {
 }
 
 const (
-	veloraAppVersion         = "1.0.0"
-	veloraReleasesLatestAPI  = "https://api.github.com/repos/Rafifdev/Velora/releases/latest"
-	veloraReleasesPageURL    = "https://github.com/Rafifdev/Velora/releases"
+	veloraAppVersion            = "1.0.0"
+	veloraReleasesLatestAPI     = "https://api.github.com/repos/Rafifdev/Velora/releases/latest"
+	veloraReleasesPageURL       = "https://github.com/Rafifdev/Velora/releases"
+	veloraFeedbackFormspreeURL  = "https://formspree.io/f/xoedkapp"
 )
+
+func (a *App) SubmitFeedback(title string, detail string, screenshotName string, screenshotDataURL string) error {
+	cleanTitle := strings.TrimSpace(title)
+	cleanDetail := strings.TrimSpace(detail)
+	if cleanTitle == "" || cleanDetail == "" {
+		return fmt.Errorf("judul dan detail masukan wajib diisi")
+	}
+	if veloraFeedbackFormspreeURL == "" || strings.Contains(veloraFeedbackFormspreeURL, "YOUR_FORM_ID") {
+		return fmt.Errorf("Formspree endpoint belum dikonfigurasi")
+	}
+
+	reqCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if a.ctx != nil {
+		reqCtx, cancel = context.WithTimeout(a.ctx, 15*time.Second)
+		defer cancel()
+	}
+
+	var body bytes.Buffer
+	var contentType string
+
+	dataURL := strings.TrimSpace(screenshotDataURL)
+	if dataURL != "" {
+		commaIdx := strings.Index(dataURL, ",")
+		if commaIdx <= 0 {
+			return fmt.Errorf("format screenshot tidak valid")
+		}
+		rawBytes, err := base64.StdEncoding.DecodeString(dataURL[commaIdx+1:])
+		if err != nil {
+			return fmt.Errorf("gagal membaca data screenshot: %w", err)
+		}
+		mw := multipart.NewWriter(&body)
+		_ = mw.WriteField("_subject", "[Velora Feedback] "+cleanTitle)
+		_ = mw.WriteField("title", cleanTitle)
+		_ = mw.WriteField("message", cleanDetail)
+		_ = mw.WriteField("appVersion", veloraAppVersion)
+		_ = mw.WriteField("os", goruntime.GOOS+"/"+goruntime.GOARCH)
+		fileName := strings.TrimSpace(screenshotName)
+		if fileName == "" {
+			fileName = "screenshot.png"
+		}
+		fw, err := mw.CreateFormFile("screenshot", filepath.Base(fileName))
+		if err != nil {
+			return err
+		}
+		if _, err := fw.Write(rawBytes); err != nil {
+			return err
+		}
+		if err := mw.Close(); err != nil {
+			return err
+		}
+		contentType = mw.FormDataContentType()
+	} else {
+		payload := map[string]string{
+			"_subject":   "[Velora Feedback] " + cleanTitle,
+			"title":      cleanTitle,
+			"message":    cleanDetail,
+			"appVersion": veloraAppVersion,
+			"os":         goruntime.GOOS + "/" + goruntime.GOARCH,
+		}
+		if err := json.NewEncoder(&body).Encode(payload); err != nil {
+			return err
+		}
+		contentType = "application/json"
+	}
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, veloraFeedbackFormspreeURL, &body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("gagal terhubung ke server")
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		rawMsg := strings.TrimSpace(string(respBytes))
+		if dataURL != "" && strings.Contains(strings.ToLower(rawMsg), "file uploads not permitted") {
+			// Formspree free plan rejects multipart file uploads; retry as JSON text so feedback still arrives.
+			return a.SubmitFeedback(cleanTitle, cleanDetail, "", "")
+		}
+		return fmt.Errorf("gagal mengirim masukan, silakan coba lagi nanti")
+	}
+	return nil
+}
 
 func parseSemverParts(v string) [3]int {
 	cleaned := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(v, "v"), "V"))
