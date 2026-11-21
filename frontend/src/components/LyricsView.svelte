@@ -2,6 +2,12 @@
   import { fade } from 'svelte/transition';
   import type { Track, TrackLyrics } from '../lib/types';
   import { resolveCoverUrl } from '../lib/api';
+  import { getPrefLang, tr } from '../lib/i18n';
+  import {
+    computeLineSweepProgress,
+    computeWordProgressList,
+    wordSweepBackground
+  } from '../lib/lyricsSweep';
   import { getPrefBool, getPrefValue } from '../lib/preferences';
   import EqIndicator from './EqIndicator.svelte';
   import Icon from './Icon.svelte';
@@ -10,6 +16,7 @@
     track = null,
     lyrics = null,
     lyricsLoading = false,
+    isPlaying = false,
     positionSec = 0,
     mediaBaseUrl = '',
     preferences = {},
@@ -20,6 +27,7 @@
     track: Track | null;
     lyrics: TrackLyrics | null;
     lyricsLoading?: boolean;
+    isPlaying?: boolean;
     positionSec?: number;
     mediaBaseUrl?: string;
     preferences?: Record<string, string>;
@@ -32,7 +40,11 @@
   let lineEls: Array<HTMLElement | null> = $state([]);
   let autoSync = $state(true);
   let offsetSec = $state(0);
+  let smoothPosSec = $state(0);
+  let anchorPos = 0;
+  let anchorAt = 0;
 
+  const lang = $derived(getPrefLang(preferences));
   const lyricsTextSize = $derived(Number(getPrefValue(preferences, 'lyrics.textSize') || '1'));
   const lyricsAutoScroll = $derived(getPrefBool(preferences, 'lyrics.autoScroll'));
   const lyricsSweep = $derived(getPrefBool(preferences, 'lyrics.sweep'));
@@ -69,7 +81,28 @@
       : []
   );
 
-  let effectiveTime = $derived(positionSec + 0.25 + offsetSec);
+  $effect(() => {
+    anchorPos = positionSec;
+    anchorAt = performance.now();
+    smoothPosSec = positionSec;
+  });
+
+  $effect(() => {
+    if (!isPlaying || !lyricsSweep || !hasSynced) {
+      smoothPosSec = positionSec;
+      return;
+    }
+    let rafId = 0;
+    const step = (now: number) => {
+      const dtSec = Math.max(0, Math.min(0.35, (now - anchorAt) / 1000));
+      smoothPosSec = anchorPos + dtSec;
+      rafId = requestAnimationFrame(step);
+    };
+    rafId = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(rafId);
+  });
+
+  let effectiveTime = $derived(smoothPosSec + 0.05 + offsetSec);
 
   let activeSyncedIndex = $derived.by(() => {
     if (!hasSynced) return -1;
@@ -81,14 +114,11 @@
     return idx;
   });
 
-  function getLineSweepPct(idx: number): number {
-    if (!lyricsSweep || idx !== activeSyncedIndex || !hasSynced) return 100;
+  function getLineSweepProgress(idx: number): number {
+    if (!lyricsSweep || idx !== activeSyncedIndex || !hasSynced) return 1;
     const cur = syncedLines[idx];
     const next = syncedLines[idx + 1];
-    const start = cur.timeSec;
-    const end = next ? Math.max(start + 0.6, next.timeSec) : start + 4.0;
-    const pct = ((effectiveTime - start) / (end - start)) * 100;
-    return Math.max(8, Math.min(100, pct));
+    return computeLineSweepProgress(cur.text || '♪', cur.timeSec, next?.timeSec, smoothPosSec + offsetSec);
   }
 
   function scrollToActiveLine(behavior: ScrollBehavior = 'smooth') {
@@ -165,10 +195,10 @@
       {/if}
       <div class="min-w-0 flex flex-col justify-center">
         <p class="text-[11px] leading-[14px] font-semibold uppercase tracking-widest text-white/60 mb-1.5">
-          Lirik Lagu
+          {tr(lang, 'nav.songLyrics')}
         </p>
         <h1 class="text-lg leading-[24px] font-bold text-white truncate">
-          {track?.title ?? 'Tidak ada lagu diputar'}
+          {track?.title ?? tr(lang, 'nav.noSongPlaying')}
         </h1>
         {#if track?.artistName}
           <p class="text-xs leading-[18px] text-white/70 truncate mt-0.5">{track.artistName}</p>
@@ -183,8 +213,8 @@
             type="button"
             onclick={() => (offsetSec = Number((offsetSec - lyricsNudgeStepSec).toFixed(2)))}
             class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white/80 hover:text-white hover:bg-white/15 cursor-pointer"
-            title="Mundurkan lirik {lyricsNudgeStepSec}s"
-            aria-label="Mundurkan lirik"
+            title="{tr(lang, 'nav.nudgeLyricBack')} {lyricsNudgeStepSec}s"
+            aria-label={tr(lang, 'nav.nudgeLyricBack')}
           >
             -
           </button>
@@ -193,7 +223,7 @@
               type="button"
               onclick={() => (offsetSec = 0)}
               class="px-1.5 text-[11px] font-semibold tabular-nums text-white/85 hover:text-white cursor-pointer"
-              title="Reset geser waktu lirik"
+              title={tr(lang, 'nav.resetLyricOffset')}
             >
               {offsetSec > 0 ? `+${offsetSec}s` : `${offsetSec}s`}
             </button>
@@ -202,8 +232,8 @@
             type="button"
             onclick={() => (offsetSec = Number((offsetSec + lyricsNudgeStepSec).toFixed(2)))}
             class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white/80 hover:text-white hover:bg-white/15 cursor-pointer"
-            title="Majukan lirik {lyricsNudgeStepSec}s"
-            aria-label="Majukan lirik"
+            title="{tr(lang, 'nav.nudgeLyricForward')} {lyricsNudgeStepSec}s"
+            aria-label={tr(lang, 'nav.nudgeLyricForward')}
           >
             +
           </button>
@@ -215,8 +245,8 @@
         class="w-9 h-9 rounded-full flex items-center justify-center transition-colors duration-200 cursor-pointer {hasSynced && autoSync
           ? 'bg-white/25 text-white'
           : 'bg-white/10 hover:bg-white/20 text-white/80 hover:text-white'}"
-        title={hasSynced ? 'Sinkronkan lirik dengan lagu' : 'Cari ulang lirik tersinkron'}
-        aria-label="Sinkronisasi lirik"
+        title={hasSynced ? tr(lang, 'nav.syncLyrics') : tr(lang, 'nav.resyncLyrics')}
+        aria-label={tr(lang, 'nav.syncLyrics')}
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <rect x="3" y="9" width="2.4" height="6" rx="1.2" fill="currentColor" />
@@ -231,8 +261,8 @@
         type="button"
         onclick={onClose}
         class="w-9 h-9 rounded-full flex items-center justify-center bg-white/10 hover:bg-white/20 text-white transition-colors duration-200 cursor-pointer"
-        title="Tutup layar lirik"
-        aria-label="Tutup layar lirik"
+        title={tr(lang, 'nav.closeLyrics')}
+        aria-label={tr(lang, 'nav.closeLyrics')}
       >
         <Icon name="x" size={18} />
       </button>
@@ -254,18 +284,17 @@
     {#if !track}
       <div class="h-full flex flex-col items-center justify-center text-center gap-3 text-white/65">
         <Icon name="microphone-stage" size={40} />
-        <p class="text-base font-medium">Putar lagu untuk melihat liriknya di sini.</p>
+        <p class="text-base font-medium">{tr(lang, 'nav.playSongForLyrics')}</p>
       </div>
     {:else if lyricsLoading}
       <div class="h-full flex flex-col items-center justify-center text-center gap-3 text-white/65">
         <EqIndicator variant="loader" color="rgba(255, 255, 255, 0.85)" />
-        <p class="text-sm font-medium">Memuat lirik…</p>
+        <p class="text-sm font-medium">{tr(lang, 'nav.loadingLyrics')}</p>
       </div>
     {:else if hasSynced}
       <div class="max-w-4xl mx-auto flex flex-col gap-5 py-12">
         {#each syncedLines as line, idx (idx + '-' + line.timeSec)}
           {@const active = idx === activeSyncedIndex}
-          {@const sweepPct = getLineSweepPct(idx)}
           <button
             bind:this={lineEls[idx]}
             type="button"
@@ -277,10 +306,12 @@
                 : 'opacity-35 scale-[0.92] hover:opacity-90'}"
           >
             {#if active && lyricsSweep}
-              {@const words = (line.text || '♪').split(' ')}
-              {#each words as word, wIdx (wIdx)}
-                {@const wordLit = sweepPct >= (wIdx / Math.max(1, words.length)) * 100}
-                <span class="transition-opacity duration-150 {wordLit ? 'opacity-100' : 'opacity-40'}">{word}{wIdx < words.length - 1 ? ' ' : ''}</span>
+              {@const words = computeWordProgressList(line.text || '♪', getLineSweepProgress(idx))}
+              {#each words as item, wIdx (wIdx)}
+                <span
+                  class="inline-block will-change-transform"
+                  style="background-image: {wordSweepBackground(item.prog, 'rgba(255, 255, 255, 1)', 'rgba(255, 255, 255, 0.36)')}; -webkit-background-clip: text; background-clip: text; color: transparent; transform: translate3d(0, {(-1.2 * item.prog).toFixed(2)}px, 0);"
+                >{item.word}</span>{wIdx < words.length - 1 ? ' ' : ''}
               {/each}
             {:else}
               {line.text || '♪'}
@@ -305,7 +336,7 @@
     {:else}
       <div class="h-full flex flex-col items-center justify-center text-center gap-3 text-white/65">
         <Icon name="microphone-slash" size={36} />
-        <p class="text-base font-medium">Lirik belum tersedia untuk lagu ini.</p>
+        <p class="text-base font-medium">{tr(lang, 'nav.lyricsUnavailable')}</p>
       </div>
     {/if}
     </div>
