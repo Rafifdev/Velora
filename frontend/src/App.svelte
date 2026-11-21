@@ -3099,8 +3099,13 @@
           {tracks}
           {mediaBaseUrl}
           {accentColor}
+          {isMobile}
           bind:activePrefTab
           bind:prefSearch
+          onBackFromPreferences={() => {
+            if (navIndex > 0) goBack();
+            else navigate({ name: 'home' });
+          }}
           onPlayTrack={playTrack}
           onClearHistory={async () => {
             await api.clearPlayHistory();

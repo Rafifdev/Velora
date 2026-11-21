@@ -54,6 +54,8 @@ export function GetJamStatus():Promise<jam.Status>;
 
 export function GetListeningStats():Promise<stats.ListeningStats>;
 
+export function GetListeningStatsByDate(arg1:string):Promise<stats.ListeningStats>;
+
 export function GetMonthlyStreak(arg1:number,arg2:number):Promise<Array<db.DailyStreakRow>>;
 
 export function GetMoreArtists(arg1:number,arg2:Array<string>):Promise<Array<sources.YTMusicCard>>;
@@ -165,6 +167,8 @@ export function SetWindowTitle(arg1:string):Promise<void>;
 export function StartJam():Promise<jam.Status>;
 
 export function StopJam():Promise<jam.Status>;
+
+export function SubmitFeedback(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function SyncDynamicIsland(arg1:main.DynamicIslandSyncPayload):Promise<void>;
 

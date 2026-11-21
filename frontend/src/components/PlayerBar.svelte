@@ -31,7 +31,7 @@
     onToggleMute: () => void;
     onToggleShuffle: () => void;
     onCycleRepeat: () => void;
-    onToggleFavorite: (trackId: number) => void;
+    onToggleFavorite?: (trackId: number) => void;
     onFocusRightCard: (card: 'album' | 'lyrics' | 'queue') => void;
     onOpenTrackDetail?: (track: Track) => void;
     onOpenArtistDetail?: (track: Track) => void;
@@ -54,7 +54,7 @@
     seekDeltaSec = 0,
     seekDeltaSeq = 0,
     mediaBaseUrl,
-    waveBar = true,
+    waveBar = false,
     lang = 'en',
     onTogglePlay,
     onPrev,
@@ -64,7 +64,7 @@
     onToggleMute,
     onToggleShuffle,
     onCycleRepeat,
-    onToggleFavorite,
+    onToggleFavorite: _onToggleFavorite,
     onFocusRightCard,
     onOpenTrackDetail,
     onOpenArtistDetail,
@@ -140,20 +140,6 @@
       </button>
 
       <div class="flex items-center gap-1 shrink-0">
-        <button
-          type="button"
-          disabled={!currentTrack}
-          onclick={() => currentTrack && onToggleFavorite(currentTrack.id)}
-          aria-label={tr(lang, 'nav.likeSong')}
-          class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)] disabled:opacity-40"
-        >
-          <Icon
-            name="heart"
-            weight={currentTrack?.isFavorite ? 'fill' : 'regular'}
-            size={19}
-            style={currentTrack?.isFavorite ? 'color: var(--md-sys-color-tertiary);' : 'color: var(--md-sys-color-on-surface);'}
-          />
-        </button>
         <button
           type="button"
           onclick={onTogglePlay}
@@ -324,21 +310,6 @@
     </div>
 
     <div class="flex items-center justify-center gap-1 sm:gap-3 shrink-0">
-      <button
-        type="button"
-        disabled={!currentTrack}
-        onclick={() => currentTrack && onToggleFavorite(currentTrack.id)}
-        aria-label={tr(lang, 'nav.likeSong')}
-        class="hidden sm:flex m3-icon-btn w-9 h-9 items-center justify-center cursor-pointer disabled:opacity-35"
-      >
-        <Icon
-          name="heart"
-          weight={currentTrack?.isFavorite ? 'fill' : 'regular'}
-          size={19}
-          style={currentTrack?.isFavorite ? 'color: var(--md-sys-color-primary);' : ''}
-        />
-      </button>
-
       <button
         type="button"
         onclick={onToggleShuffle}

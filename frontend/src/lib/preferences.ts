@@ -1024,7 +1024,7 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     title: 'Wavy progress bar',
     description: 'Display an animated wave along the playback progress bar.',
     widget: 'toggle',
-    defaultValue: 'true'
+    defaultValue: 'false'
   },
   {
     id: 'stream_quality',
@@ -1146,7 +1146,7 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     title: 'Previous restarts song',
     description: 'Restart current track after N seconds.',
     widget: 'select',
-    defaultValue: '3',
+    defaultValue: '0',
     options: [
       { value: '0', label: 'opt.never' },
       { value: '3', label: 'opt.3sec' },
@@ -1162,7 +1162,7 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     title: 'Font size',
     description: 'Adjust lyrics text size.',
     widget: 'segmented',
-    defaultValue: '1',
+    defaultValue: '0',
     options: [
       { value: '0', label: 'opt.small' },
       { value: '1', label: 'opt.medium' },
@@ -1185,7 +1185,7 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     title: 'Word-by-word sweep',
     description: 'Smooth word-level highlighting.',
     widget: 'toggle',
-    defaultValue: 'true'
+    defaultValue: 'false'
   },
   {
     id: 'lyrics.blurOthers',
@@ -1194,7 +1194,7 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     title: 'Blur inactive lines',
     description: 'Full performance mode only.',
     widget: 'toggle',
-    defaultValue: 'true'
+    defaultValue: 'false'
   },
   {
     id: 'lyrics.miniLyrics',
@@ -1212,7 +1212,7 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     title: 'Lyric timing nudge step',
     description: 'Step size for timing buttons.',
     widget: 'segmented',
-    defaultValue: '500',
+    defaultValue: '250',
     options: [
       { value: '250', label: '0.25s' },
       { value: '500', label: '0.5s' },

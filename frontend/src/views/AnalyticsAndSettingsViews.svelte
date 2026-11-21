@@ -28,6 +28,7 @@
     tracks: Track[];
     mediaBaseUrl: string;
     accentColor: string;
+    isMobile?: boolean;
     activePrefTab?: string;
     prefSearch?: string;
     onPlayTrack: (track: Track, list: Track[]) => void;
@@ -35,6 +36,7 @@
     onSavePreferences: (prefs: Record<string, string>) => void;
     onClearCache: () => Promise<number>;
     onNavigate?: (route: ViewRoute) => void;
+    onBackFromPreferences?: () => void;
   }
 
   let {
@@ -46,14 +48,31 @@
     tracks,
     mediaBaseUrl,
     accentColor: _accentColor,
+    isMobile = false,
     activePrefTab = $bindable('appearance'),
     prefSearch = $bindable(''),
     onPlayTrack,
     onClearHistory,
     onSavePreferences,
     onClearCache,
-    onNavigate
+    onNavigate,
+    onBackFromPreferences
   }: Props = $props();
+
+  const isDesktopApp =
+    typeof window !== 'undefined' &&
+    Boolean((window as unknown as { go?: { main?: { App?: unknown } } }).go?.main?.App);
+  const allowDynamicIsland = $derived(!isMobile && isDesktopApp);
+  const mobilePrefTabs = $derived([
+    ...(allowDynamicIsland ? PREFERENCE_CATEGORIES : PREFERENCE_CATEGORIES.filter((c) => c.id !== 'dynamic-island')),
+    ...PREFERENCE_APP_TABS
+  ]);
+
+  $effect(() => {
+    if (!allowDynamicIsland && activePrefTab === 'dynamic-island') {
+      activePrefTab = 'appearance';
+    }
+  });
 
   let copiedKey = $state('');
   let cacheToast = $state('');
@@ -68,6 +87,15 @@
   let showShortcutsModal = $state(false);
   let showReleaseNotesModal = $state(false);
   let showSupportModal = $state(false);
+  let showFeedbackModal = $state(false);
+  let feedbackTitle = $state('');
+  let feedbackDetail = $state('');
+  let feedbackScreenshotFile = $state<File | null>(null);
+  let feedbackScreenshotUrl = $state('');
+  let feedbackSubmitting = $state(false);
+  let feedbackSubmitted = $state(false);
+  let feedbackError = $state('');
+  let feedbackFileInputEl = $state<HTMLInputElement | null>(null);
   let dataDirPath = $state('');
   let supportQrDataUrl = $state('');
   const SUPPORT_TRIBE_URL = 'https://sociabuzz.com/yoapipp/tribe';
@@ -80,6 +108,43 @@
   let calMonth = $state(currentMonth);
   let monthlyStreakRows = $state<DailyStreakRow[]>([]);
   let monthlyStreakKey = $state('');
+  let selectedStatsDate = $state('');
+  let dateFilteredStats = $state<ListeningStats | null>(null);
+  let statsLoading = $state(false);
+  let initialStatsLoaded = $state(false);
+  let statsReqSeq = 0;
+
+  const displayedStats = $derived(
+    selectedStatsDate && dateFilteredStats ? dateFilteredStats : listeningStats
+  );
+  const todayDateStr = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(currentDay).padStart(2, '0')}`;
+
+  async function selectStatsDate(dateStr: string) {
+    if (dateStr > todayDateStr) return;
+    if (selectedStatsDate === dateStr) {
+      selectedStatsDate = '';
+      dateFilteredStats = null;
+      return;
+    }
+    const seq = ++statsReqSeq;
+    selectedStatsDate = dateStr;
+    statsLoading = true;
+    try {
+      const res = await api.getListeningStatsByDate(dateStr);
+      if (seq === statsReqSeq) {
+        dateFilteredStats = res;
+      }
+    } finally {
+      if (seq === statsReqSeq) {
+        statsLoading = false;
+      }
+    }
+  }
+
+  function clearSelectedStatsDate() {
+    selectedStatsDate = '';
+    dateFilteredStats = null;
+  }
 
   const isCurrentCalMonth = $derived(calYear === currentYear && calMonth === currentMonth);
 
@@ -101,6 +166,33 @@
       calMonth += 1;
     }
   }
+
+  $effect(() => {
+    if (mode !== 'listening-stats') {
+      initialStatsLoaded = false;
+      return;
+    }
+    if (!initialStatsLoaded) {
+      const seq = ++statsReqSeq;
+      statsLoading = true;
+      const targetDate = selectedStatsDate;
+      const call = targetDate ? api.getListeningStatsByDate(targetDate) : api.getListeningStats();
+      void call
+        .then((res) => {
+          if (seq !== statsReqSeq) return;
+          if (targetDate) {
+            dateFilteredStats = res;
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (seq === statsReqSeq) {
+            initialStatsLoaded = true;
+            statsLoading = false;
+          }
+        });
+    }
+  });
 
   $effect(() => {
     if (mode !== 'listening-stats') return;
@@ -128,7 +220,7 @@
     for (let i = firstWeekday - 1; i >= 0; i--) {
       prevDays.push(prevMonthDaysCount - i);
     }
-    const trailingCount = (7 - ((firstWeekday + daysInMonth) % 7)) % 7;
+    const trailingCount = Math.max(0, 42 - (prevDays.length + daysInMonth));
     const nextDays: number[] = [];
     for (let i = 1; i <= trailingCount; i++) {
       nextDays.push(i);
@@ -181,6 +273,62 @@
         shakingParentId = null;
       }, 420);
     });
+  }
+
+  function setFeedbackScreenshot(file: File | null) {
+    if (feedbackScreenshotUrl) {
+      URL.revokeObjectURL(feedbackScreenshotUrl);
+    }
+    feedbackScreenshotFile = file;
+    feedbackScreenshotUrl = file ? URL.createObjectURL(file) : '';
+  }
+
+  function handleFeedbackFileChange(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    if (file && file.type.startsWith('image/')) {
+      setFeedbackScreenshot(file);
+    }
+  }
+
+  function resetFeedbackForm() {
+    feedbackTitle = '';
+    feedbackDetail = '';
+    setFeedbackScreenshot(null);
+    if (feedbackFileInputEl) feedbackFileInputEl.value = '';
+    feedbackSubmitted = false;
+    feedbackError = '';
+  }
+
+  function fileToDataURL(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+      reader.onerror = () => reject(new Error('Gagal membaca file gambar'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function submitFeedbackForm() {
+    const title = feedbackTitle.trim();
+    const detail = feedbackDetail.trim();
+    if (!title || !detail || feedbackSubmitting) return;
+    feedbackSubmitting = true;
+    feedbackError = '';
+    try {
+      let dataUrl = '';
+      let fileName = '';
+      if (feedbackScreenshotFile) {
+        fileName = feedbackScreenshotFile.name;
+        dataUrl = await fileToDataURL(feedbackScreenshotFile);
+      }
+      await api.submitFeedback(title, detail, fileName, dataUrl);
+      feedbackSubmitted = true;
+    } catch (err) {
+      feedbackError = err instanceof Error ? err.message : String(err || 'Gagal mengirim masukan');
+    } finally {
+      feedbackSubmitting = false;
+    }
   }
 
   $effect(() => {
@@ -236,6 +384,9 @@
     const q = prefSearch.trim().toLowerCase();
     return PREFERENCE_SETTINGS.map((s) => localizeItem(s, lang))
       .filter((s) => {
+        if (!allowDynamicIsland && s.category === 'dynamic-island') {
+          return false;
+        }
         if (q) {
           return (
             s.title.toLowerCase().includes(q) ||
@@ -267,10 +418,10 @@
   });
 
   const maxTopTrackPlays = $derived(
-    Math.max(1, ...(listeningStats.topTracks ?? []).map((t) => t.plays))
+    Math.max(1, ...(displayedStats.topTracks ?? []).map((t) => t.plays))
   );
   const maxTopArtistPlays = $derived(
-    Math.max(1, ...(listeningStats.topArtists ?? []).map((a) => a.plays))
+    Math.max(1, ...(displayedStats.topArtists ?? []).map((a) => a.plays))
   );
 
   const last14DaysSeries = $derived.by(() => {
@@ -291,12 +442,12 @@
   });
 
   const weeklySeries = $derived.by(() => {
-    const days = listeningStats.dayOfWeek ?? [];
+    const days = displayedStats.dayOfWeek ?? [];
     const labels = days.map((d) => localizeShortDay(d.dayIndex, d.label));
     const values = days.map((d) => d.minutes);
     const plays = days.map((d) => d.plays);
     const highlightIndex = days.findIndex(
-      (d) => d.fullName === listeningStats.mostActiveDay && d.minutes > 0
+      (d) => d.fullName === displayedStats.mostActiveDay && d.minutes > 0
     );
     return { labels, values, plays, highlightIndex };
   });
@@ -510,7 +661,7 @@
   {@const isShaking = shakingParentId === item.id}
   <div
     id="pref-row-{item.id}"
-    class="py-3.5 first:pt-2 px-1 flex flex-wrap items-center justify-between gap-4 relative {isOpen ? 'z-30' : ''}"
+    class="py-3.5 first:pt-2 px-1 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-4 relative {isOpen ? 'z-30' : ''}"
   >
     {#if isDropdownWidget}
       <button
@@ -1178,50 +1329,116 @@
       class="relative z-10 px-6 sm:px-8 pt-6 pb-6"
       style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-primary) 24%, var(--md-sys-color-primary-container)) 0%, color-mix(in srgb, var(--md-sys-color-primary-container) 56%, var(--md-sys-color-surface-container-low)) 100%);"
     >
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div class="p-4 rounded-xl bg-[var(--md-sys-color-surface-container)]/90 space-y-1 shadow-xs">
-          <div class="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style="color: var(--md-sys-color-on-surface-variant);">
-            <Icon name="clock" size={13} /> {tr(lang, 'nav.totalTime')}
-          </div>
-          <div class="text-2xl font-bold tabular-nums" style="color: var(--md-sys-color-on-surface);">
-            {listeningStats.totalMinutes} <span class="text-sm font-semibold opacity-75">{tr(lang, 'nav.minutesShort')}</span>
-          </div>
+      {#if statsLoading}
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {#each [0, 1, 2, 3] as skIdx (`stat-card-sk-${skIdx}`)}
+            <div class="p-4 rounded-xl bg-[var(--md-sys-color-surface-container)]/90 space-y-2.5 shadow-xs animate-pulse">
+              <div class="h-3 w-24 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+              <div class="h-7 w-28 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+            </div>
+          {/each}
         </div>
+      {:else}
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div class="p-4 rounded-xl bg-[var(--md-sys-color-surface-container)]/90 space-y-1 shadow-xs">
+            <div class="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style="color: var(--md-sys-color-on-surface-variant);">
+              <Icon name="clock" size={13} /> {tr(lang, 'nav.totalTime')}
+            </div>
+            <div class="text-2xl font-bold tabular-nums" style="color: var(--md-sys-color-on-surface);">
+              {displayedStats.totalMinutes} <span class="text-sm font-semibold opacity-75">{tr(lang, 'nav.minutesShort')}</span>
+            </div>
+          </div>
 
-        <div class="p-4 rounded-xl bg-[var(--md-sys-color-surface-container)]/90 space-y-1 shadow-xs">
-          <div class="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style="color: var(--md-sys-color-on-surface-variant);">
-            <Icon name="sparkle" size={13} /> {tr(lang, 'nav.peakHour')}
+          <div class="p-4 rounded-xl bg-[var(--md-sys-color-surface-container)]/90 space-y-1 shadow-xs">
+            <div class="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style="color: var(--md-sys-color-on-surface-variant);">
+              <Icon name="sparkle" size={13} /> {tr(lang, 'nav.peakHour')}
+            </div>
+            <div class="text-2xl font-bold tabular-nums" style="color: var(--md-sys-color-on-surface);">
+              {displayedStats.peakHourLabel}
+            </div>
           </div>
-          <div class="text-2xl font-bold tabular-nums" style="color: var(--md-sys-color-on-surface);">
-            {listeningStats.peakHourLabel}
-          </div>
-        </div>
 
-        <div class="p-4 rounded-xl bg-[var(--md-sys-color-surface-container)]/90 space-y-1 shadow-xs">
-          <div class="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style="color: var(--md-sys-color-on-surface-variant);">
-            <Icon name="calendar" size={13} /> {tr(lang, 'nav.mostActiveDay')}
+          <div class="p-4 rounded-xl bg-[var(--md-sys-color-surface-container)]/90 space-y-1 shadow-xs">
+            <div class="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style="color: var(--md-sys-color-on-surface-variant);">
+              <Icon name="calendar" size={13} /> {tr(lang, 'nav.mostActiveDay')}
+            </div>
+            <div class="text-2xl font-bold truncate" style="color: var(--md-sys-color-on-surface);">
+              {localizeFullDayName(displayedStats.mostActiveDay)}
+            </div>
           </div>
-          <div class="text-2xl font-bold truncate" style="color: var(--md-sys-color-on-surface);">
-            {localizeFullDayName(listeningStats.mostActiveDay)}
-          </div>
-        </div>
 
-        <div class="p-4 rounded-xl bg-[var(--md-sys-color-surface-container)]/90 space-y-1 shadow-xs">
-          <div class="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style="color: var(--md-sys-color-on-surface-variant);">
-            <Icon name="flame" weight="fill" size={13} class="text-orange-400" /> {tr(lang, 'nav.streak')}
-          </div>
-          <div class="text-2xl font-bold text-orange-400 tabular-nums">
-            {fireStreak.currentStreak} <span class="text-sm font-semibold">{tr(lang, 'nav.days')}</span>
+          <div class="p-4 rounded-xl bg-[var(--md-sys-color-surface-container)]/90 space-y-1 shadow-xs">
+            <div class="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style="color: var(--md-sys-color-on-surface-variant);">
+              <Icon name="flame" weight="fill" size={13} class="text-orange-400" /> {tr(lang, 'nav.streak')}
+            </div>
+            <div class="text-2xl font-bold text-orange-400 tabular-nums">
+              {fireStreak.currentStreak} <span class="text-sm font-semibold">{tr(lang, 'nav.days')}</span>
+            </div>
           </div>
         </div>
-      </div>
+      {/if}
     </section>
 
     <div
       class="relative z-10 px-6 sm:px-8 pt-2 pb-10 flex-1 flex flex-col gap-5"
       style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-primary-container) 30%, var(--md-sys-color-surface-container-low)) 0%, var(--md-sys-color-surface-container-low) 180px);"
     >
-      {#if listeningStats.totalPlays === 0}
+      {#if statsLoading}
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <section class="lg:col-span-7 p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-4 animate-pulse">
+            <div class="flex items-center justify-between">
+              <div class="h-3.5 w-28 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+              <div class="h-3.5 w-16 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+            </div>
+            <div class="h-44 w-full rounded-lg bg-[var(--md-sys-color-surface-container-highest)]"></div>
+          </section>
+          <section class="lg:col-span-5 p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-4 animate-pulse">
+            <div class="flex items-center justify-between">
+              <div class="h-3.5 w-32 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+              <div class="h-3.5 w-20 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+            </div>
+            <div class="h-44 w-full rounded-lg bg-[var(--md-sys-color-surface-container-highest)]"></div>
+          </section>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {#each [0, 1] as colIdx (`top-sk-${colIdx}`)}
+            <section class="p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3 animate-pulse">
+              <div class="h-3.5 w-28 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+              <div class="space-y-3">
+                {#each [0, 1, 2, 3, 4] as rowIdx (`top-row-sk-${colIdx}-${rowIdx}`)}
+                  <div class="flex items-center gap-3">
+                    <div class="w-4 h-3 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+                    <div class="w-10 h-10 {colIdx === 1 ? 'rounded-full' : 'rounded-lg'} bg-[var(--md-sys-color-surface-container-highest)] shrink-0"></div>
+                    <div class="flex-1 space-y-2">
+                      <div class="flex justify-between gap-4">
+                        <div class="h-3 w-36 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+                        <div class="h-3 w-16 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+                      </div>
+                      <div class="h-1.5 w-full rounded-full bg-[var(--md-sys-color-surface-container-highest)]"></div>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            </section>
+          {/each}
+        </div>
+
+        <section class="p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3 animate-pulse">
+          <div class="flex items-center justify-between">
+            <div class="h-3.5 w-36 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+            <div class="h-6 w-28 rounded-full bg-[var(--md-sys-color-surface-container-highest)]"></div>
+          </div>
+          <div class="grid grid-cols-7 gap-1.5">
+            {#each [0, 1, 2, 3, 4, 5, 6] as wd (`cal-wd-sk-${wd}`)}
+              <div class="h-3 mx-auto w-6 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+            {/each}
+            {#each Array.from({ length: 42 }, (_, idx) => idx) as cellIdx (`cal-cell-sk-${cellIdx}`)}
+              <div class="h-8 rounded-md bg-[var(--md-sys-color-surface-container-highest)]"></div>
+            {/each}
+          </div>
+        </section>
+      {:else if !selectedStatsDate && displayedStats.totalPlays === 0}
         <EmptyState
           icon="chart-bar"
           iconWeight="fill"
@@ -1239,136 +1456,156 @@
           </button>
         </EmptyState>
       {:else}
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-          <section class="lg:col-span-7 p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
-            <div class="flex items-center justify-between">
-              <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
-                {tr(lang, 'nav.dailyTrend')}
-              </h2>
-              <span class="text-xs font-semibold tabular-nums" style="color: var(--md-sys-color-primary);">
-                {last14DaysSeries.total14Min} {tr(lang, 'nav.minutesShort')}
-              </span>
+        {#if selectedStatsDate && displayedStats.totalPlays === 0}
+          <section class="p-6 rounded-xl bg-[var(--md-sys-color-surface-container)] flex flex-col items-center justify-center text-center gap-2">
+            <Icon name="chart-bar" size={28} class="opacity-50" />
+            <div class="text-sm font-semibold" style="color: var(--md-sys-color-on-surface);">
+              {tr(lang, 'nav.noStatsTitle')}
             </div>
-            <StatsChart
-              type="line"
-              labels={last14DaysSeries.labels}
-              values={last14DaysSeries.values}
-              secondaryValues={last14DaysSeries.tracks}
-              unitLabel={tr(lang, 'nav.minutesShort')}
-              secondaryUnitLabel={tr(lang, 'nav.songs').toLowerCase()}
-              highlightIndex={last14DaysSeries.peakIdx}
-            />
-          </section>
-
-          <section class="lg:col-span-5 p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
-            <div class="flex items-center justify-between">
-              <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
-                {tr(lang, 'nav.weeklyActivity')}
-              </h2>
-              <span class="text-xs font-semibold" style="color: var(--md-sys-color-primary);">
-                {localizeFullDayName(listeningStats.mostActiveDay)}
-              </span>
+            <div class="text-xs opacity-70" style="color: var(--md-sys-color-on-surface-variant);">
+              {selectedStatsDate}
             </div>
-            <StatsChart
-              type="bar"
-              labels={weeklySeries.labels}
-              values={weeklySeries.values}
-              secondaryValues={weeklySeries.plays}
-              unitLabel={tr(lang, 'nav.minutesShort')}
-              secondaryUnitLabel={tr(lang, 'nav.playsLower')}
-              highlightIndex={weeklySeries.highlightIndex}
-            />
           </section>
-        </div>
+        {:else}
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            <section class="lg:col-span-7 p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
+              <div class="flex items-center justify-between">
+                <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
+                  {tr(lang, 'nav.dailyTrend')}
+                </h2>
+                <span class="text-xs font-semibold tabular-nums" style="color: var(--md-sys-color-primary);">
+                  {last14DaysSeries.total14Min} {tr(lang, 'nav.minutesShort')}
+                </span>
+              </div>
+              <StatsChart
+                type="line"
+                labels={last14DaysSeries.labels}
+                values={last14DaysSeries.values}
+                secondaryValues={last14DaysSeries.tracks}
+                unitLabel={tr(lang, 'nav.minutesShort')}
+                secondaryUnitLabel={tr(lang, 'nav.songs').toLowerCase()}
+                highlightIndex={last14DaysSeries.peakIdx}
+              />
+            </section>
 
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <section class="p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
-            <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
-              {tr(lang, 'nav.topTracks')}
-            </h2>
-            <div class="space-y-3">
-              {#each (listeningStats.topTracks ?? []).slice(0, 5) as item, idx (item.name + idx)}
-                {@const pct = Math.max(8, Math.round((item.plays / maxTopTrackPlays) * 100))}
-                {@const imgSrc = resolveCoverUrl(item.imageUrl ?? '', mediaBaseUrl)}
-                <div class="flex items-center gap-3">
-                  <span class="w-4 text-xs font-bold tabular-nums opacity-55 shrink-0 text-center">{idx + 1}</span>
-                  <div class="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-[var(--md-sys-color-surface-container-highest)] flex items-center justify-center">
-                    {#if imgSrc}
-                      <img src={imgSrc} alt={item.name} class="w-full h-full object-cover" />
-                    {:else}
-                      <Icon name="music-note" size={16} class="opacity-50" />
-                    {/if}
-                  </div>
-                  <div class="min-w-0 flex-1 space-y-1.5">
-                    <div class="flex items-center justify-between gap-3 text-xs">
-                      <div class="min-w-0 flex items-center gap-1.5">
-                        <span class="font-bold truncate" style="color: var(--md-sys-color-on-surface);">{item.name}</span>
-                        {#if item.subText}
-                          <span class="text-[11px] truncate opacity-65">• {item.subText}</span>
-                        {/if}
+            <section class="lg:col-span-5 p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
+              <div class="flex items-center justify-between">
+                <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
+                  {tr(lang, 'nav.weeklyActivity')}
+                </h2>
+                <span class="text-xs font-semibold" style="color: var(--md-sys-color-primary);">
+                  {localizeFullDayName(displayedStats.mostActiveDay)}
+                </span>
+              </div>
+              <StatsChart
+                type="bar"
+                labels={weeklySeries.labels}
+                values={weeklySeries.values}
+                secondaryValues={weeklySeries.plays}
+                unitLabel={tr(lang, 'nav.minutesShort')}
+                secondaryUnitLabel={tr(lang, 'nav.playsLower')}
+                highlightIndex={weeklySeries.highlightIndex}
+              />
+            </section>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <section class="p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
+              <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
+                {tr(lang, 'nav.topTracks')}
+              </h2>
+              <div class="space-y-3">
+                {#each (displayedStats.topTracks ?? []).slice(0, 5) as item, idx (item.name + idx)}
+                  {@const pct = Math.max(8, Math.round((item.plays / maxTopTrackPlays) * 100))}
+                  {@const imgSrc = resolveCoverUrl(item.imageUrl ?? '', mediaBaseUrl)}
+                  <div class="flex items-center gap-3">
+                    <span class="w-4 text-xs font-bold tabular-nums opacity-55 shrink-0 text-center">{idx + 1}</span>
+                    <div class="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-[var(--md-sys-color-surface-container-highest)] flex items-center justify-center">
+                      {#if imgSrc}
+                        <img src={imgSrc} alt={item.name} class="w-full h-full object-cover" />
+                      {:else}
+                        <Icon name="music-note" size={16} class="opacity-50" />
+                      {/if}
+                    </div>
+                    <div class="min-w-0 flex-1 space-y-1.5">
+                      <div class="flex items-center justify-between gap-3 text-xs">
+                        <div class="min-w-0 flex items-center gap-1.5">
+                          <span class="font-bold truncate" style="color: var(--md-sys-color-on-surface);">{item.name}</span>
+                          {#if item.subText}
+                            <span class="text-[11px] truncate opacity-65">• {item.subText}</span>
+                          {/if}
+                        </div>
+                        <span class="text-[11px] font-semibold tabular-nums shrink-0" style="color: var(--md-sys-color-on-surface-variant);">
+                          {item.plays}× • {item.minutes} {tr(lang, 'nav.minutesShort')}
+                        </span>
                       </div>
-                      <span class="text-[11px] font-semibold tabular-nums shrink-0" style="color: var(--md-sys-color-on-surface-variant);">
-                        {item.plays}× • {item.minutes} {tr(lang, 'nav.minutesShort')}
-                      </span>
-                    </div>
-                    <div class="h-1.5 w-full rounded-full overflow-hidden bg-[var(--md-sys-color-surface-container-highest)]">
-                      <div
-                        class="h-full rounded-full transition-all duration-300"
-                        style="width: {pct}%; background-color: {idx === 0 ? 'var(--md-sys-color-tertiary)' : 'var(--md-sys-color-primary)'};"
-                      ></div>
+                      <div class="h-1.5 w-full rounded-full overflow-hidden bg-[var(--md-sys-color-surface-container-highest)]">
+                        <div
+                          class="h-full rounded-full transition-all duration-300"
+                          style="width: {pct}%; background-color: {idx === 0 ? 'var(--md-sys-color-tertiary)' : 'var(--md-sys-color-primary)'};"
+                        ></div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              {/each}
-            </div>
-          </section>
+                {/each}
+              </div>
+            </section>
 
-          <section class="p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
-            <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
-              {tr(lang, 'nav.topArtists')}
-            </h2>
-            <div class="space-y-3">
-              {#each (listeningStats.topArtists ?? []).slice(0, 5) as item, idx (item.name + idx)}
-                {@const pct = Math.max(8, Math.round((item.plays / maxTopArtistPlays) * 100))}
-                {@const imgSrc = resolveCoverUrl(item.imageUrl ?? '', mediaBaseUrl)}
-                <div class="flex items-center gap-3">
-                  <span class="w-4 text-xs font-bold tabular-nums opacity-55 shrink-0 text-center">{idx + 1}</span>
-                  <div class="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-[var(--md-sys-color-surface-container-highest)] flex items-center justify-center">
-                    {#if imgSrc}
-                      <img src={imgSrc} alt={item.name} class="w-full h-full object-cover" />
-                    {:else}
-                      <Icon name="user" size={16} class="opacity-50" />
-                    {/if}
-                  </div>
-                  <div class="min-w-0 flex-1 space-y-1.5">
-                    <div class="flex items-center justify-between gap-3 text-xs">
-                      <span class="font-bold truncate" style="color: var(--md-sys-color-on-surface);">{item.name}</span>
-                      <span class="text-[11px] font-semibold tabular-nums shrink-0" style="color: var(--md-sys-color-on-surface-variant);">
-                        {item.plays}× • {item.minutes} {tr(lang, 'nav.minutesShort')}
-                      </span>
+            <section class="p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
+              <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
+                {tr(lang, 'nav.topArtists')}
+              </h2>
+              <div class="space-y-3">
+                {#each (displayedStats.topArtists ?? []).slice(0, 5) as item, idx (item.name + idx)}
+                  {@const pct = Math.max(8, Math.round((item.plays / maxTopArtistPlays) * 100))}
+                  {@const imgSrc = resolveCoverUrl(item.imageUrl ?? '', mediaBaseUrl)}
+                  <div class="flex items-center gap-3">
+                    <span class="w-4 text-xs font-bold tabular-nums opacity-55 shrink-0 text-center">{idx + 1}</span>
+                    <div class="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-[var(--md-sys-color-surface-container-highest)] flex items-center justify-center">
+                      {#if imgSrc}
+                        <img src={imgSrc} alt={item.name} class="w-full h-full object-cover" />
+                      {:else}
+                        <Icon name="user" size={16} class="opacity-50" />
+                      {/if}
                     </div>
-                    <div class="h-1.5 w-full rounded-full overflow-hidden bg-[var(--md-sys-color-surface-container-highest)]">
-                      <div
-                        class="h-full rounded-full transition-all duration-300"
-                        style="width: {pct}%; background-color: {idx === 0 ? 'var(--md-sys-color-tertiary)' : 'var(--md-sys-color-primary)'};"
-                      ></div>
+                    <div class="min-w-0 flex-1 space-y-1.5">
+                      <div class="flex items-center justify-between gap-3 text-xs">
+                        <span class="font-bold truncate" style="color: var(--md-sys-color-on-surface);">{item.name}</span>
+                        <span class="text-[11px] font-semibold tabular-nums shrink-0" style="color: var(--md-sys-color-on-surface-variant);">
+                          {item.plays}× • {item.minutes} {tr(lang, 'nav.minutesShort')}
+                        </span>
+                      </div>
+                      <div class="h-1.5 w-full rounded-full overflow-hidden bg-[var(--md-sys-color-surface-container-highest)]">
+                        <div
+                          class="h-full rounded-full transition-all duration-300"
+                          style="width: {pct}%; background-color: {idx === 0 ? 'var(--md-sys-color-tertiary)' : 'var(--md-sys-color-primary)'};"
+                        ></div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              {/each}
-            </div>
-          </section>
-        </div>
+                {/each}
+              </div>
+            </section>
+          </div>
+        {/if}
 
         <section class="p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div class="flex items-center gap-2.5">
               <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
-                {tr(lang, 'nav.streakCalendar')}
+                Last 30 Days Streak
               </h2>
-              <span class="text-[11px] font-medium tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
-                • {fireStreak.goalMinutes} {tr(lang, 'nav.minutesShort')} / {fireStreak.goalTracks} {tr(lang, 'nav.songs').toLowerCase()}
-              </span>
+              {#if selectedStatsDate}
+                <button
+                  type="button"
+                  onclick={clearSelectedStatsDate}
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold cursor-pointer transition-opacity hover:opacity-80"
+                  style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
+                >
+                  <span>{selectedStatsDate}</span>
+                  <Icon name="x" size={11} weight="bold" />
+                </button>
+              {/if}
             </div>
             <div class="flex items-center gap-1">
               <button
@@ -1413,9 +1650,12 @@
             {/each}
 
             {#each calendarView.days as day (day.date)}
-              <div
+              <button
+                type="button"
+                disabled={day.isFuture}
+                onclick={() => selectStatsDate(day.date)}
                 title="{day.date} • {Math.round(day.secondsListened / 60)} {tr(lang, 'nav.minutesShort')} • {day.tracksCount} {tr(lang, 'nav.songs').toLowerCase()}"
-                class="h-8 rounded-md flex items-center justify-center text-[11px] font-semibold tabular-nums transition-colors {day.isToday ? 'ring-1 ring-[var(--md-sys-color-primary)]' : ''}"
+                class="h-8 rounded-md flex items-center justify-center text-[11px] font-semibold tabular-nums transition-all {day.isFuture ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:brightness-110'} {selectedStatsDate === day.date ? 'ring-2 ring-[var(--md-sys-color-on-surface)]' : day.isToday ? 'ring-1 ring-[var(--md-sys-color-primary)]' : ''}"
                 style={day.streakMet
                   ? 'background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);'
                   : day.secondsListened > 0
@@ -1423,7 +1663,7 @@
                     : 'background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface);'}
               >
                 {day.dayNum}
-              </div>
+              </button>
             {/each}
 
             {#each calendarView.nextDays as nextDay, padIdx (`next-${padIdx}`)}
@@ -1491,7 +1731,66 @@
   </div>
 {:else}
   <div class="h-full min-h-0 flex flex-col overflow-hidden relative" use:svelteMotionEnter={{ y: 8 }}>
-    <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-6 pb-20">
+    <div
+      class="md:hidden shrink-0 px-4 pt-3 pb-2.5 space-y-2.5 border-b"
+      style="background-color: var(--md-sys-color-surface-container-low); border-color: var(--md-sys-color-outline-variant);"
+    >
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-1.5 min-w-0">
+          <button
+            type="button"
+            onclick={() => (onBackFromPreferences ? onBackFromPreferences() : onNavigate?.({ name: 'home' }))}
+            title={tr(lang, 'nav.back')}
+            aria-label={tr(lang, 'nav.back')}
+            class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer shrink-0"
+          >
+            <Icon name="arrow-left" size={17} />
+          </button>
+          <span class="text-sm font-bold tracking-tight truncate" style="color: var(--md-sys-color-on-surface);">
+            {tr(lang, 'nav.settings')}
+          </span>
+        </div>
+      </div>
+
+      <div class="relative">
+        <span
+          class="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+          style="color: var(--md-sys-color-on-surface-variant);"
+        >
+          <Icon name="magnifying-glass" size={14} />
+        </span>
+        <input
+          type="search"
+          bind:value={prefSearch}
+          placeholder={tr(lang, 'nav.searchSettings')}
+          class="m3-input w-full h-9 pl-8 pr-3 rounded-xl text-xs outline-none"
+        />
+      </div>
+
+      <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+        {#each mobilePrefTabs as tab (tab.id)}
+          {@const active = !prefSearch.trim() && activePrefTab === tab.id}
+          <button
+            type="button"
+            onclick={() => {
+              prefSearch = '';
+              activePrefTab = tab.id;
+            }}
+            class="h-8 px-3 rounded-full text-xs inline-flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors {active
+              ? 'font-semibold'
+              : 'font-medium hover:bg-[var(--md-sys-color-state-hover)]'}"
+            style={active
+              ? 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'
+              : 'background-color: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface-variant);'}
+          >
+            <Icon name={tab.icon} weight={active ? 'fill' : 'regular'} size={13} class="shrink-0" />
+            <span>{tr(lang, tab.titleKey, tab.title)}</span>
+          </button>
+        {/each}
+      </div>
+    </div>
+
+    <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-6 pb-24 sm:pb-20">
       {#key prefSearch.trim() ? '__search__' : activePrefTab}
         <div in:fly={{ y: 10, duration: 200 }} class="space-y-6">
       {#if !prefSearch.trim() && isAppTab(activePrefTab)}
@@ -1579,6 +1878,24 @@
                 {tr(lang, 'nav.buyCoffeeDesc')}
               </div>
             </div>
+          </button>
+
+          <button
+            type="button"
+            onclick={() => (showFeedbackModal = true)}
+            class="w-full rounded-2xl px-4 py-3.5 flex items-center gap-3.5 text-left cursor-pointer transition-transform active:scale-[0.99] hover:brightness-105"
+            style="background-color: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);"
+          >
+            <Icon name="chat-circle-text" weight="fill" size={20} class="shrink-0" />
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-bold">
+                {tr(lang, 'nav.feedbackTitle')}
+              </div>
+              <div class="text-xs opacity-85">
+                {tr(lang, 'nav.feedbackDesc')}
+              </div>
+            </div>
+            <Icon name="caret-right" size={16} class="shrink-0 opacity-75" />
           </button>
 
           <div class="space-y-0.5">
@@ -1747,16 +2064,6 @@
             </li>
           </ul>
         </div>
-      </div>
-
-      <div class="mt-6 flex justify-end">
-        <button
-          type="button"
-          onclick={() => (showReleaseNotesModal = false)}
-          class="m3-btn-filled px-5 py-2 text-xs font-semibold rounded-full cursor-pointer"
-        >
-          {tr(lang, 'nav.close')}
-        </button>
       </div>
     </ModalDialog>
     <ModalDialog
@@ -1986,6 +2293,164 @@
           <Icon name="arrow-up-right" size={14} />
         </button>
       </div>
+    </ModalDialog>
+
+    <ModalDialog
+      open={showFeedbackModal}
+      onClose={() => {
+        showFeedbackModal = false;
+        if (feedbackSubmitted) resetFeedbackForm();
+      }}
+      ariaLabelledby="feedback-modal-title"
+      maxWidthClass="max-w-lg"
+      class="rounded-2xl p-6"
+    >
+      <div class="flex items-center justify-between gap-4 mb-4">
+        <h2 id="feedback-modal-title" class="text-base font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+          {tr(lang, 'nav.feedbackTitle')}
+        </h2>
+        <button
+          type="button"
+          onclick={() => {
+            showFeedbackModal = false;
+            if (feedbackSubmitted) resetFeedbackForm();
+          }}
+          aria-label={tr(lang, 'nav.close')}
+          class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer shrink-0"
+        >
+          <Icon name="x" size={15} />
+        </button>
+      </div>
+
+      {#if feedbackSubmitted}
+        <div in:scale={{ start: 0.95, duration: 240 }} out:fade={{ duration: 140 }}>
+          <EmptyState
+            icon="check-circle"
+            iconWeight="fill"
+            iconSize={38}
+            title={tr(lang, 'nav.feedbackSentTitle')}
+            description={tr(lang, 'nav.feedbackSentDesc')}
+            titleClass="text-lg font-bold tracking-tight"
+            descClass="mt-1.5 text-xs max-w-sm mx-auto leading-relaxed"
+            class="flex flex-col items-center justify-center text-center py-8 px-4"
+          />
+        </div>
+      {:else}
+        <form
+          in:fade={{ duration: 180 }}
+          onsubmit={(e) => {
+            e.preventDefault();
+            void submitFeedbackForm();
+          }}
+          class="space-y-4"
+        >
+          <label class="block space-y-1.5">
+            <span class="block text-xs font-semibold" style="color: var(--md-sys-color-on-surface-variant);">
+              {tr(lang, 'nav.feedbackSubject')}
+            </span>
+            <input
+              type="text"
+              required
+              maxlength={140}
+              bind:value={feedbackTitle}
+              placeholder={tr(lang, 'nav.feedbackSubjectPlaceholder')}
+              class="w-full h-10 px-3.5 rounded-xl text-sm outline-none border transition-colors focus:border-[var(--md-sys-color-primary)]"
+              style="background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface); border-color: color-mix(in srgb, var(--md-sys-color-on-surface) 18%, transparent);"
+            />
+          </label>
+
+          <label class="block space-y-1.5">
+            <span class="block text-xs font-semibold" style="color: var(--md-sys-color-on-surface-variant);">
+              {tr(lang, 'nav.feedbackDetail')}
+            </span>
+            <textarea
+              required
+              rows={4}
+              bind:value={feedbackDetail}
+              placeholder={tr(lang, 'nav.feedbackDetailPlaceholder')}
+              class="w-full p-3.5 rounded-xl text-sm outline-none border resize-y min-h-[110px] transition-colors focus:border-[var(--md-sys-color-primary)]"
+              style="background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface); border-color: color-mix(in srgb, var(--md-sys-color-on-surface) 18%, transparent);"
+            ></textarea>
+          </label>
+
+          <div class="space-y-2">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs font-semibold" style="color: var(--md-sys-color-on-surface-variant);">
+                {tr(lang, 'nav.feedbackScreenshot')}
+              </span>
+              <span class="text-[11px]" style="color: var(--md-sys-color-on-surface-variant); opacity: 0.78;">
+                {tr(lang, 'nav.feedbackScreenshotHint')}
+              </span>
+            </div>
+
+            <input
+              bind:this={feedbackFileInputEl}
+              type="file"
+              accept="image/*"
+              onchange={handleFeedbackFileChange}
+              class="hidden"
+            />
+
+            {#if feedbackScreenshotUrl && feedbackScreenshotFile}
+              <div
+                in:scale={{ start: 0.92, duration: 180 }}
+                class="relative group w-24 h-24 rounded-xl overflow-hidden border"
+                style="border-color: var(--md-sys-color-outline-variant);"
+              >
+                <img
+                  src={feedbackScreenshotUrl}
+                  alt="Screenshot preview"
+                  class="w-full h-full object-cover"
+                />
+                <button
+                  type="button"
+                  onclick={() => {
+                    setFeedbackScreenshot(null);
+                    if (feedbackFileInputEl) feedbackFileInputEl.value = '';
+                  }}
+                  aria-label={tr(lang, 'nav.feedbackRemoveImage')}
+                  class="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/70 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:bg-black/90"
+                >
+                  <Icon name="x" size={12} weight="bold" />
+                </button>
+              </div>
+            {:else}
+              <button
+                type="button"
+                onclick={() => feedbackFileInputEl?.click()}
+                class="w-full py-3.5 px-4 rounded-xl border-2 border-dashed flex items-center justify-center gap-2 text-xs font-semibold cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+                style="background-color: var(--md-sys-color-surface-container-highest); border-color: color-mix(in srgb, var(--md-sys-color-on-surface) 28%, transparent); color: var(--md-sys-color-on-surface-variant);"
+              >
+                <Icon name="image" size={18} />
+                <span>{tr(lang, 'nav.feedbackPickImage')}</span>
+              </button>
+            {/if}
+          </div>
+
+          {#if feedbackError}
+            <p class="text-xs font-medium text-rose-400">
+              {feedbackError}
+            </p>
+          {/if}
+
+          <div class="mt-6">
+            <button
+              type="submit"
+              disabled={!feedbackTitle.trim() || !feedbackDetail.trim() || feedbackSubmitting}
+              class="w-full h-10 px-6 rounded-full text-xs font-bold inline-flex items-center justify-center gap-2 cursor-pointer transition-all duration-150 hover:scale-[1.01] active:scale-95 disabled:opacity-55 disabled:cursor-not-allowed disabled:hover:scale-100"
+              style="background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);"
+            >
+              {#if feedbackSubmitting}
+                <Icon name="circle-notch" weight="bold" size={15} class="animate-spin" />
+                <span>{tr(lang, 'nav.feedbackSending')}</span>
+              {:else}
+                <Icon name="paper-plane-tilt" weight="fill" size={14} />
+                <span>{tr(lang, 'nav.feedbackSend')}</span>
+              {/if}
+            </button>
+          </div>
+        </form>
+      {/if}
     </ModalDialog>
     {#if cacheToast}
       <div

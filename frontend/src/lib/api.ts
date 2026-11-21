@@ -302,6 +302,11 @@ export const api = {
   async getListeningStats(): Promise<ListeningStats> {
     return appBridge().GetListeningStats();
   },
+  async getListeningStatsByDate(dateStr: string): Promise<ListeningStats> {
+    const fn = appBridge()?.GetListeningStatsByDate;
+    if (!fn) return appBridge().GetListeningStats();
+    return fn(dateStr);
+  },
   async getFireStreak(): Promise<FireStreakStatus> {
     return appBridge().GetFireStreak();
   },
@@ -347,6 +352,18 @@ export const api = {
   },
   async openDataFolder(): Promise<void> {
     return appBridge()?.OpenDataFolder?.();
+  },
+  async submitFeedback(
+    title: string,
+    detail: string,
+    screenshotName = '',
+    screenshotDataURL = ''
+  ): Promise<void> {
+    const fn = appBridge()?.SubmitFeedback;
+    if (!fn) {
+      throw new Error('SubmitFeedback hanya tersedia di aplikasi desktop');
+    }
+    return await fn(title, detail, screenshotName, screenshotDataURL);
   },
   async setWindowTitle(title: string): Promise<void> {
     return appBridge().SetWindowTitle?.(title);

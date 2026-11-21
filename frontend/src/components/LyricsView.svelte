@@ -45,13 +45,13 @@
   let anchorAt = 0;
 
   const lang = $derived(getPrefLang(preferences));
-  const lyricsTextSize = $derived(Number(getPrefValue(preferences, 'lyrics.textSize') || '1'));
+  const lyricsTextSize = $derived(Number(getPrefValue(preferences, 'lyrics.textSize') || '0'));
   const lyricsAutoScroll = $derived(getPrefBool(preferences, 'lyrics.autoScroll'));
   const lyricsSweep = $derived(getPrefBool(preferences, 'lyrics.sweep'));
   const lyricsBlurOthers = $derived(
     getPrefBool(preferences, 'lyrics.blurOthers') && getPrefValue(preferences, 'appearance.performance') !== 'lite'
   );
-  const lyricsNudgeStepSec = $derived(Math.max(0.25, Number(getPrefValue(preferences, 'lyrics.nudgeMs') || '500') / 1000));
+  const lyricsNudgeStepSec = $derived(Math.max(0.25, Number(getPrefValue(preferences, 'lyrics.nudgeMs') || '250') / 1000));
   const lyricsPlainFallback = $derived(getPrefBool(preferences, 'lyrics.plainFallback'));
 
   const syncedSizeClass = $derived(
