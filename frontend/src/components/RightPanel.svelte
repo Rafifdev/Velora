@@ -94,7 +94,7 @@
 
   const lang = $derived(getPrefLang(preferences));
   const lyricsAutoScroll = $derived(getPrefBool(preferences, 'lyrics.autoScroll'));
-  const lyricsTextSize = $derived(Number(getPrefValue(preferences, 'lyrics.textSize') || '1'));
+  const lyricsTextSize = $derived(Number(getPrefValue(preferences, 'lyrics.textSize') || '0'));
   const lyricsSweep = $derived(getPrefBool(preferences, 'lyrics.sweep'));
   const lyricsBlurOthers = $derived(
     getPrefBool(preferences, 'lyrics.blurOthers') && getPrefValue(preferences, 'appearance.performance') !== 'lite'

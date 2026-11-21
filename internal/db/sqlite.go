@@ -996,8 +996,16 @@ func (s *Store) SeedDefaults() error {
 		"streak_goal_tracks":  "3",
 		"accent_color":        "#FF9E64",
 		"gapless_playback":         "true",
-		"volume":                   "80",
+		"volume":                   "100",
 		"integrations.jam.enabled": "true",
+		"playback.waveBar":         "false",
+		"playback.prevRestartSec":  "0",
+		"lyrics.textSize":          "0",
+		"lyrics.sweep":             "false",
+		"lyrics.blurOthers":        "false",
+		"lyrics.nudgeMs":           "250",
+		"storage.cacheLimit":       "40",
+		"layout.rightCollapsed":    "false",
 	}
 	for k, v := range defaults {
 		var exists int
