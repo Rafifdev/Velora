@@ -12,11 +12,12 @@
     type PreferenceItemDef
   } from '../lib/preferences';
   import { getPrefLang, tr } from '../lib/i18n';
-  import type { FireStreakStatus, ListeningStats, PlayHistoryItem, Track, UpdateCheckResult, ViewRoute } from '../lib/types';
+  import type { DailyStreakRow, FireStreakStatus, ListeningStats, PlayHistoryItem, Track, UpdateCheckResult, ViewRoute } from '../lib/types';
   import EmptyState from '../components/EmptyState.svelte';
   import EqIndicator from '../components/EqIndicator.svelte';
   import Icon from '../components/Icon.svelte';
   import ModalDialog from '../components/ModalDialog.svelte';
+  import StatsChart from '../components/StatsChart.svelte';
 
   interface Props {
     mode: 'history' | 'listening-stats' | 'fire-streak' | 'preferences';
@@ -66,7 +67,103 @@
   let confirmResetIsland = $state(false);
   let showShortcutsModal = $state(false);
   let showReleaseNotesModal = $state(false);
+  let showSupportModal = $state(false);
   let dataDirPath = $state('');
+  let supportQrDataUrl = $state('');
+  const SUPPORT_TRIBE_URL = 'https://sociabuzz.com/yoapipp/tribe';
+
+  const initToday = new Date();
+  const currentYear = initToday.getFullYear();
+  const currentMonth = initToday.getMonth() + 1;
+  const currentDay = initToday.getDate();
+  let calYear = $state(currentYear);
+  let calMonth = $state(currentMonth);
+  let monthlyStreakRows = $state<DailyStreakRow[]>([]);
+  let monthlyStreakKey = $state('');
+
+  const isCurrentCalMonth = $derived(calYear === currentYear && calMonth === currentMonth);
+
+  function prevCalMonth() {
+    if (calMonth === 1) {
+      calYear -= 1;
+      calMonth = 12;
+    } else {
+      calMonth -= 1;
+    }
+  }
+
+  function nextCalMonth() {
+    if (isCurrentCalMonth) return;
+    if (calMonth === 12) {
+      calYear += 1;
+      calMonth = 1;
+    } else {
+      calMonth += 1;
+    }
+  }
+
+  $effect(() => {
+    if (mode !== 'listening-stats') return;
+    const y = calYear;
+    const m = calMonth;
+    const key = `${y}-${String(m).padStart(2, '0')}`;
+    const _todaySec = fireStreak.todaySeconds;
+    const _todayTracks = fireStreak.todayTracks;
+    void api.getMonthlyStreak(y, m).then((rows) => {
+      if (calYear === y && calMonth === m) {
+        monthlyStreakRows = rows;
+        monthlyStreakKey = key;
+      }
+    });
+  });
+
+  const calendarView = $derived.by(() => {
+    const y = calYear;
+    const m = calMonth;
+    const key = `${y}-${String(m).padStart(2, '0')}`;
+    const daysInMonth = new Date(y, m, 0).getDate();
+    const firstWeekday = (new Date(y, m - 1, 1).getDay() + 6) % 7;
+    const prevMonthDaysCount = new Date(y, m - 1, 0).getDate();
+    const prevDays: number[] = [];
+    for (let i = firstWeekday - 1; i >= 0; i--) {
+      prevDays.push(prevMonthDaysCount - i);
+    }
+    const trailingCount = (7 - ((firstWeekday + daysInMonth) % 7)) % 7;
+    const nextDays: number[] = [];
+    for (let i = 1; i <= trailingCount; i++) {
+      nextDays.push(i);
+    }
+
+    const byDate = new Map<string, DailyStreakRow>();
+    for (const r of fireStreak.last30Days ?? []) {
+      byDate.set(r.date, r);
+    }
+    if (monthlyStreakKey === key) {
+      for (const r of monthlyStreakRows) {
+        byDate.set(r.date, r);
+      }
+    }
+
+    const days: Array<DailyStreakRow & { dayNum: number; isToday: boolean; isFuture: boolean }> = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${key}-${String(d).padStart(2, '0')}`;
+      const existing = byDate.get(dateStr);
+      const isToday = y === currentYear && m === currentMonth && d === currentDay;
+      const isFuture = y === currentYear && m === currentMonth && d > currentDay;
+      days.push({
+        date: dateStr,
+        secondsListened: existing?.secondsListened ?? 0,
+        tracksCount: existing?.tracksCount ?? 0,
+        streakMet: existing?.streakMet ?? false,
+        dayNum: d,
+        isToday,
+        isFuture
+      });
+    }
+
+    const numericLabel = `${String(m).padStart(2, '0')}/${y}`;
+    return { prevDays, days, nextDays, numericLabel };
+  });
   let updateStatusText = $state('');
   let checkingUpdates = $state(false);
   let updateResult = $state<UpdateCheckResult | null>(null);
@@ -87,30 +184,35 @@
   }
 
   $effect(() => {
-    if (mode === 'preferences' && isAppTab(activePrefTab) && !dataDirPath) {
-      void api.getDataDir().then((dir) => {
-        if (dir) dataDirPath = dir;
-      });
+    if (mode === 'preferences' && isAppTab(activePrefTab)) {
+      if (!dataDirPath) {
+        void api.getDataDir().then((dir) => {
+          if (dir) dataDirPath = dir;
+        });
+      }
+      if (!supportQrDataUrl) {
+        void api.generateQRDataURL(SUPPORT_TRIBE_URL).then((url) => {
+          if (url) supportQrDataUrl = url;
+        });
+      }
     }
   });
 
   async function handleCheckForUpdates() {
     if (checkingUpdates) return;
     checkingUpdates = true;
-    updateStatusText = lang === 'id' ? 'Memeriksa...' : 'Checking...';
+    updateStatusText = tr(lang, 'nav.checkingUpdates');
     try {
       const res = await api.checkForUpdates();
       updateResult = res;
       if (res.hasUpdate) {
-        updateStatusText = lang === 'id' ? `Tersedia v${res.latestVersion}` : `v${res.latestVersion} available`;
+        updateStatusText = `${tr(lang, 'nav.updateAvailableBadge')} v${res.latestVersion}`;
         showUpdateModal = true;
       } else {
-        updateStatusText = lang === 'id'
-          ? `Sudah versi terbaru (v${res.currentVersion})`
-          : `Up to date (v${res.currentVersion})`;
+        updateStatusText = `${tr(lang, 'nav.upToDate')} (v${res.currentVersion})`;
       }
     } catch {
-      updateStatusText = lang === 'id' ? 'Gagal memeriksa pembaruan' : 'Failed to check updates';
+      updateStatusText = tr(lang, 'nav.updateCheckFailed');
     } finally {
       checkingUpdates = false;
     }
@@ -164,12 +266,63 @@
     return cat ? tr(lang, cat.titleKey, cat.title) : activePrefTab;
   });
 
-  const maxHourMinutes = $derived(
-    Math.max(1, ...listeningStats.timeOfDay.map((b) => b.minutes))
+  const maxTopTrackPlays = $derived(
+    Math.max(1, ...(listeningStats.topTracks ?? []).map((t) => t.plays))
   );
-  const maxDayMinutes = $derived(
-    Math.max(1, ...listeningStats.dayOfWeek.map((d) => d.minutes))
+  const maxTopArtistPlays = $derived(
+    Math.max(1, ...(listeningStats.topArtists ?? []).map((a) => a.plays))
   );
+
+  const last14DaysSeries = $derived.by(() => {
+    const slice = (fireStreak.last30Days ?? []).slice(-14);
+    const labels = slice.map((d) => `${d.date.slice(8, 10)}/${d.date.slice(5, 7)}`);
+    const values = slice.map((d) => Math.round((d.secondsListened / 60) * 10) / 10);
+    const tracks = slice.map((d) => d.tracksCount);
+    let peakIdx = -1;
+    let peakVal = 0;
+    for (let i = 0; i < values.length; i++) {
+      if (values[i] > peakVal) {
+        peakVal = values[i];
+        peakIdx = i;
+      }
+    }
+    const total14Min = Math.round(values.reduce((a, b) => a + b, 0) * 10) / 10;
+    return { labels, values, tracks, peakIdx, total14Min };
+  });
+
+  const weeklySeries = $derived.by(() => {
+    const days = listeningStats.dayOfWeek ?? [];
+    const labels = days.map((d) => localizeShortDay(d.dayIndex, d.label));
+    const values = days.map((d) => d.minutes);
+    const plays = days.map((d) => d.plays);
+    const highlightIndex = days.findIndex(
+      (d) => d.fullName === listeningStats.mostActiveDay && d.minutes > 0
+    );
+    return { labels, values, plays, highlightIndex };
+  });
+
+  const SHORT_DAY_KEYS = ['nav.dayMon', 'nav.dayTue', 'nav.dayWed', 'nav.dayThu', 'nav.dayFri', 'nav.daySat', 'nav.daySun'] as const;
+  const FULL_DAY_KEYS = ['nav.dayMonFull', 'nav.dayTueFull', 'nav.dayWedFull', 'nav.dayThuFull', 'nav.dayFriFull', 'nav.daySatFull', 'nav.daySunFull'] as const;
+
+  function localizeShortDay(dayIndex: number, fallback: string): string {
+    const key = SHORT_DAY_KEYS[dayIndex];
+    return key ? tr(lang, key, fallback) : fallback;
+  }
+
+  function localizeFullDayName(raw: string): string {
+    if (!raw || raw === '-') return '-';
+    const map: Record<string, (typeof FULL_DAY_KEYS)[number]> = {
+      senin: 'nav.dayMonFull',
+      selasa: 'nav.dayTueFull',
+      rabu: 'nav.dayWedFull',
+      kamis: 'nav.dayThuFull',
+      jumat: 'nav.dayFriFull',
+      sabtu: 'nav.daySatFull',
+      minggu: 'nav.daySunFull'
+    };
+    const key = map[raw.trim().toLowerCase()];
+    return key ? tr(lang, key, raw) : raw;
+  }
 
   function updateSetting(key: string, value: string) {
     if (getPrefValue(preferences, key) === value) return;
@@ -188,7 +341,7 @@
     const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
     const d = new Date(normalized);
     if (Number.isNaN(d.getTime())) return raw;
-    const datePart = new Intl.DateTimeFormat(lang === 'id' ? 'id-ID' : 'en-US', {
+    const datePart = new Intl.DateTimeFormat(lang === 'id' ? 'id-ID' : lang, {
       day: '2-digit',
       month: 'short',
       year: 'numeric'
@@ -204,8 +357,8 @@
     try {
       const freed = Number(await onClearCache()) || 0;
       const msg = freed > 0
-        ? `Cache dibersihkan (${formatClearedBytes(freed)} dihapus)`
-        : 'Cache sudah bersih (0 B)';
+        ? `${tr(lang, 'nav.cacheCleared')} (${formatClearedBytes(freed)})`
+        : tr(lang, 'nav.cacheAlreadyClean');
       cacheToast = msg;
       setTimeout(() => {
         if (cacheToast === msg) cacheToast = '';
@@ -319,6 +472,31 @@
   </button>
 {/snippet}
 
+{#snippet settingTitleRow(item: PreferenceItemDef, parentDisabled: boolean, showConflictBadge: boolean)}
+  <div class="inline-flex items-center gap-1.5 min-h-[20px]">
+    <span
+      class="text-sm leading-5 font-semibold {parentDisabled ? 'opacity-45 select-none' : ''}"
+      style="color: var(--md-sys-color-on-surface);"
+    >{item.title}</span>
+    {#if showConflictBadge}
+      <span
+        class="group/warn relative inline-flex items-center justify-center w-5 h-5 rounded-full shrink-0 cursor-help"
+        style="color: var(--md-sys-color-error);"
+        aria-label={tr(lang, 'nav.disableFullscreenFirstHint')}
+      >
+        <Icon name="warning-circle" weight="fill" size={16} />
+        <span
+          role="tooltip"
+          class="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2.5 py-1.5 rounded-lg text-[11px] leading-snug font-medium whitespace-nowrap opacity-0 scale-95 group-hover/warn:opacity-100 group-hover/warn:scale-100 transition-all duration-150 z-50 shadow-lg border"
+          style="background-color: var(--md-sys-color-inverse-surface); color: var(--md-sys-color-inverse-on-surface); border-color: var(--md-sys-color-outline-variant);"
+        >
+          {tr(lang, 'nav.disableFullscreenFirstHint')}
+        </span>
+      </span>
+    {/if}
+  </div>
+{/snippet}
+
 {#snippet settingControl(item: PreferenceItemDef)}
   {@const val = getPrefValue(effectivePrefs, item.id)}
   {@const checked = val === 'true'}
@@ -326,6 +504,7 @@
   {@const disabledByParent = Boolean(item.visibleWhen && getPrefValue(effectivePrefs, item.visibleWhen.id) !== item.visibleWhen.equals)}
   {@const disabledByConflict = Boolean(item.disabledWhen && getPrefValue(effectivePrefs, item.disabledWhen.id) === item.disabledWhen.equals)}
   {@const parentDisabled = disabledByParent || disabledByConflict}
+  {@const showConflictBadge = disabledByConflict && !disabledByParent}
   {@const shakeTargetId = disabledByParent ? item.visibleWhen!.id : disabledByConflict ? item.disabledWhen!.id : null}
   {@const isDropdownWidget = item.widget === 'select' || item.widget === 'multi-select' || item.widget === 'combobox' || (item.widget === 'segmented' && (item.options?.length ?? 0) >= 3)}
   {@const isShaking = shakingParentId === item.id}
@@ -350,17 +529,23 @@
             openSelectId = item.id;
           }
         }}
-        class="min-w-0 flex-1 space-y-0.5 text-left {parentDisabled ? 'cursor-not-allowed opacity-45 select-none' : 'cursor-pointer hover:opacity-90 transition-opacity'} {isShaking ? 'velora-shake' : ''}"
+        class="min-w-0 flex-1 space-y-0.5 text-left {parentDisabled ? 'cursor-not-allowed select-none' : 'cursor-pointer hover:opacity-90 transition-opacity'} {isShaking ? 'velora-shake' : ''}"
       >
-        <div class="text-sm font-semibold" style="color: var(--md-sys-color-on-surface);">{item.title}</div>
-        <div class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
+        {@render settingTitleRow(item, parentDisabled, showConflictBadge)}
+        <div
+          class="text-xs leading-relaxed {parentDisabled ? 'opacity-45 select-none' : ''}"
+          style="color: var(--md-sys-color-on-surface-variant);"
+        >
           {item.description}
         </div>
       </button>
     {:else}
-      <div class="min-w-0 flex-1 space-y-0.5 {isShaking ? 'velora-shake' : ''} {parentDisabled ? 'opacity-45 select-none' : ''}">
-        <div class="text-sm font-semibold" style="color: var(--md-sys-color-on-surface);">{item.title}</div>
-        <div class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
+      <div class="min-w-0 flex-1 space-y-0.5 {isShaking ? 'velora-shake' : ''}">
+        {@render settingTitleRow(item, parentDisabled, showConflictBadge)}
+        <div
+          class="text-xs leading-relaxed {parentDisabled ? 'opacity-45 select-none' : ''}"
+          style="color: var(--md-sys-color-on-surface-variant);"
+        >
           {item.description}
         </div>
       </div>
@@ -373,9 +558,9 @@
           aria-label={item.title}
           onclick={() => triggerParentShake(shakeTargetId)}
           class="absolute -inset-1 z-20 rounded-xl cursor-not-allowed"
-          title={disabledByConflict
-            ? (lang === 'id' ? 'Nonaktifkan "Sembunyikan saat aplikasi layar penuh" terlebih dahulu' : 'Disable "Hide in fullscreen apps" first')
-            : (lang === 'id' ? 'Aktifkan pengaturan utama terlebih dahulu' : 'Enable the main toggle first')}
+          title={disabledByParent
+            ? tr(lang, 'nav.enableMainToggleFirstHint')
+            : tr(lang, 'nav.disableFullscreenFirstHint')}
         ></button>
       {/if}
       <div class="flex items-center gap-2 {parentDisabled ? 'opacity-45 pointer-events-none select-none' : ''}">
@@ -417,7 +602,7 @@
               onclick={() => updateSetting(item.id, '1')}
               class="m3-btn-outlined px-2.5 h-9 text-[11px] font-medium cursor-pointer"
             >
-              Reset
+              {tr(lang, 'nav.reset')}
             </button>
           {/if}
           <div
@@ -611,7 +796,7 @@
       {:else if item.widget === 'combobox'}
         {@const minV = item.min ?? 0}
         {@const maxV = item.max ?? 3600}
-        {@const unitLabel = lang === 'id' ? 'detik' : (item.unit || 's')}
+        {@const unitLabel = tr(lang, 'nav.secondsUnit')}
         <div class="relative">
           <div
             class="h-10 min-w-[168px] pl-3.5 pr-1.5 rounded-lg text-xs font-medium flex items-center justify-between gap-1.5 transition-colors duration-150"
@@ -657,7 +842,7 @@
               style="color: var(--md-sys-color-on-surface-variant);"
             >
               <span class="text-[11px] font-medium truncate">
-                {Number(val) === 0 ? (lang === 'id' ? 'Mati' : 'Off') : unitLabel}
+                {Number(val) === 0 ? tr(lang, 'opt.off') : unitLabel}
               </span>
               <span class="transition-transform duration-200 {isOpen ? 'rotate-180' : ''} shrink-0">
                 <Icon name="caret-down" size={14} weight="bold" />
@@ -675,7 +860,7 @@
             >
               {#each item.options || [] as opt (opt.value)}
                 {@const isSelected = opt.value === String(Number(val) || 0)}
-                {@const optLabel = opt.value === '0' ? (lang === 'id' ? 'Mati' : 'Off') : (lang === 'id' ? `${opt.value} detik` : opt.label)}
+                {@const optLabel = opt.value === '0' ? tr(lang, 'opt.off') : `${opt.value} ${unitLabel}`}
                 <button
                   type="button"
                   role="option"
@@ -801,7 +986,7 @@
             type="button"
             disabled={jamDisabled || !infoVal}
             onclick={() => !jamDisabled && copyInfoValue(item.id, infoVal)}
-            title="Salin alamat"
+            title={tr(lang, 'nav.copy')}
             class="m3-icon-btn-tonal w-8 h-8 flex items-center justify-center {jamDisabled || !infoVal ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}"
           >
             <Icon name={copiedKey === item.id ? 'check' : 'copy'} weight="bold" size={14} />
@@ -844,7 +1029,7 @@
             </div>
             <h1 class="text-3xl font-bold tracking-tight text-[var(--md-sys-color-on-surface)]">{tr(lang, 'nav.history')}</h1>
             <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] tabular-nums">
-              {history.length} recent streams • {listeningStats.totalMinutes} min
+              {history.length} {tr(lang, 'nav.recentStreams')} • {listeningStats.totalMinutes} {tr(lang, 'nav.minutesShort')}
             </p>
           </div>
         </div>
@@ -901,9 +1086,9 @@
             style="color: var(--md-sys-color-on-surface-variant);"
           >
             <span class="text-center">#</span>
-            <span>{lang === 'id' ? 'Judul' : 'Title'}</span>
-            <span class="hidden md:block">{lang === 'id' ? 'Pemutaran' : 'Listened'}</span>
-            <span class="hidden md:block">{lang === 'id' ? 'Ditonton' : 'Watched'}</span>
+            <span>{tr(lang, 'nav.titleCol')}</span>
+            <span class="hidden md:block">{tr(lang, 'nav.listenedCol')}</span>
+            <span class="hidden md:block">{tr(lang, 'nav.watchedCol')}</span>
             <span class="flex justify-end pr-1">
               <Icon name="clock" size={14} />
             </span>
@@ -984,107 +1169,275 @@
     </div>
   </div>
 {:else if mode === 'listening-stats'}
-  <div class="p-6 space-y-6" use:svelteMotionEnter={{ y: 8 }}>
-    <div>
-      <h1 class="text-2xl font-semibold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-        Listening Stats
-      </h1>
-      <p class="text-xs mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-        Statistik kebiasaan mendengarkan musik
-      </p>
-    </div>
+  <div
+    class="relative h-full w-full overflow-y-auto rounded-xl select-none flex flex-col"
+    style="background-color: var(--md-sys-color-surface-container-low);"
+    use:svelteMotionEnter={{ y: 8 }}
+  >
+    <section
+      class="relative z-10 px-6 sm:px-8 pt-6 pb-6"
+      style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-primary) 24%, var(--md-sys-color-primary-container)) 0%, color-mix(in srgb, var(--md-sys-color-primary-container) 56%, var(--md-sys-color-surface-container-low)) 100%);"
+    >
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="p-4 rounded-xl bg-[var(--md-sys-color-surface-container)]/90 space-y-1 shadow-xs">
+          <div class="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style="color: var(--md-sys-color-on-surface-variant);">
+            <Icon name="clock" size={13} /> {tr(lang, 'nav.totalTime')}
+          </div>
+          <div class="text-2xl font-bold tabular-nums" style="color: var(--md-sys-color-on-surface);">
+            {listeningStats.totalMinutes} <span class="text-sm font-semibold opacity-75">{tr(lang, 'nav.minutesShort')}</span>
+          </div>
+        </div>
 
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
-      <div class="m3-card p-4 rounded-lg">
-        <div class="text-xs flex items-center gap-1.5" style="color: var(--md-sys-color-on-surface-variant);">
-          <Icon name="clock" size={14} /> Total Waktu
+        <div class="p-4 rounded-xl bg-[var(--md-sys-color-surface-container)]/90 space-y-1 shadow-xs">
+          <div class="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style="color: var(--md-sys-color-on-surface-variant);">
+            <Icon name="sparkle" size={13} /> {tr(lang, 'nav.peakHour')}
+          </div>
+          <div class="text-2xl font-bold tabular-nums" style="color: var(--md-sys-color-on-surface);">
+            {listeningStats.peakHourLabel}
+          </div>
         </div>
-        <div class="text-2xl font-semibold mt-1 tabular-nums">{listeningStats.totalMinutes} mnt</div>
-        <div class="text-[11px] mt-0.5 tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
-          {listeningStats.totalPlays} plays • {listeningStats.uniqueTracks} lagu
-        </div>
-      </div>
-      <div class="m3-card p-4 rounded-lg">
-        <div class="text-xs flex items-center gap-1.5" style="color: var(--md-sys-color-on-surface-variant);">
-          <Icon name="sparkle" size={14} /> Jam Puncak
-        </div>
-        <div class="text-2xl font-semibold mt-1 tabular-nums">{listeningStats.peakHourLabel}</div>
-        <div class="text-[11px] mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-          {listeningStats.peakPersona}
-        </div>
-      </div>
-      <div class="m3-card p-4 rounded-lg">
-        <div class="text-xs flex items-center gap-1.5" style="color: var(--md-sys-color-on-surface-variant);">
-          <Icon name="calendar" size={14} /> Hari Aktif
-        </div>
-        <div class="text-2xl font-semibold mt-1">{listeningStats.mostActiveDay}</div>
-        <div class="text-[11px] mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-          Berdasarkan total menit
-        </div>
-      </div>
-      <div class="m3-card p-4 rounded-lg">
-        <div class="text-xs flex items-center gap-1.5" style="color: var(--md-sys-color-on-surface-variant);">
-          <Icon name="flame" weight="fill" size={14} class="text-orange-400" /> Fire Streak
-        </div>
-        <div class="text-2xl font-semibold text-orange-400 mt-1 tabular-nums">{fireStreak.currentStreak} Hari</div>
-        <div class="text-[11px] mt-0.5 tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
-          Rekor: {fireStreak.longestStreak} hari
-        </div>
-      </div>
-    </div>
 
-    <section class="m3-card p-5 rounded-lg space-y-3">
-      <h2 class="text-sm font-semibold" style="color: var(--md-sys-color-on-surface);">Time of Day (00:00 – 23:00)</h2>
-      <svg viewBox="0 0 720 180" class="w-full h-44">
-        {#each listeningStats.timeOfDay as bucket, i (bucket.hour)}
-          {@const barH = Math.max(4, (bucket.minutes / maxHourMinutes) * 120)}
-          {@const x = i * 29 + 14}
-          {@const y = 144 - barH}
-          <g>
-            <rect
-              x={x}
-              y={y}
-              width="20"
-              height={barH}
-              rx="6"
-              fill={bucket.minutes > 0 ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface-container-highest)'}
-            />
-            {#if i % 3 === 0}
-              <text x={x + 10} y="166" text-anchor="middle" fill="currentColor" opacity="0.65" font-size="10">
-                {bucket.label.slice(0, 2)}
-              </text>
-            {/if}
-          </g>
-        {/each}
-      </svg>
+        <div class="p-4 rounded-xl bg-[var(--md-sys-color-surface-container)]/90 space-y-1 shadow-xs">
+          <div class="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style="color: var(--md-sys-color-on-surface-variant);">
+            <Icon name="calendar" size={13} /> {tr(lang, 'nav.mostActiveDay')}
+          </div>
+          <div class="text-2xl font-bold truncate" style="color: var(--md-sys-color-on-surface);">
+            {localizeFullDayName(listeningStats.mostActiveDay)}
+          </div>
+        </div>
+
+        <div class="p-4 rounded-xl bg-[var(--md-sys-color-surface-container)]/90 space-y-1 shadow-xs">
+          <div class="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style="color: var(--md-sys-color-on-surface-variant);">
+            <Icon name="flame" weight="fill" size={13} class="text-orange-400" /> {tr(lang, 'nav.streak')}
+          </div>
+          <div class="text-2xl font-bold text-orange-400 tabular-nums">
+            {fireStreak.currentStreak} <span class="text-sm font-semibold">{tr(lang, 'nav.days')}</span>
+          </div>
+        </div>
+      </div>
     </section>
 
-    <section class="m3-card p-5 rounded-lg space-y-3">
-      <h2 class="text-sm font-semibold" style="color: var(--md-sys-color-on-surface);">Day of Week</h2>
-      <svg viewBox="0 0 420 180" class="w-full h-44">
-        {#each listeningStats.dayOfWeek as day, i (day.dayIndex)}
-          {@const barH = Math.max(6, (day.minutes / maxDayMinutes) * 116)}
-          {@const x = i * 56 + 22}
-          {@const y = 140 - barH}
-          <g>
-            <rect
-              x={x}
-              y={y}
-              width="34"
-              height={barH}
-              rx="8"
-              fill={day.minutes > 0 ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-surface-container-highest)'}
+    <div
+      class="relative z-10 px-6 sm:px-8 pt-2 pb-10 flex-1 flex flex-col gap-5"
+      style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-primary-container) 30%, var(--md-sys-color-surface-container-low)) 0%, var(--md-sys-color-surface-container-low) 180px);"
+    >
+      {#if listeningStats.totalPlays === 0}
+        <EmptyState
+          icon="chart-bar"
+          iconWeight="fill"
+          iconSize={38}
+          title={tr(lang, 'nav.noStatsTitle')}
+          description={tr(lang, 'nav.noStatsDesc')}
+        >
+          <button
+            type="button"
+            onclick={() => onNavigate?.({ name: 'home', filter: 'musik' })}
+            class="mt-6 h-10 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
+            style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
+          >
+            {tr(lang, 'nav.exploreSongs')}
+          </button>
+        </EmptyState>
+      {:else}
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <section class="lg:col-span-7 p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
+            <div class="flex items-center justify-between">
+              <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
+                {tr(lang, 'nav.dailyTrend')}
+              </h2>
+              <span class="text-xs font-semibold tabular-nums" style="color: var(--md-sys-color-primary);">
+                {last14DaysSeries.total14Min} {tr(lang, 'nav.minutesShort')}
+              </span>
+            </div>
+            <StatsChart
+              type="line"
+              labels={last14DaysSeries.labels}
+              values={last14DaysSeries.values}
+              secondaryValues={last14DaysSeries.tracks}
+              unitLabel={tr(lang, 'nav.minutesShort')}
+              secondaryUnitLabel={tr(lang, 'nav.songs').toLowerCase()}
+              highlightIndex={last14DaysSeries.peakIdx}
             />
-            <text x={x + 17} y={y - 6} text-anchor="middle" fill="currentColor" opacity="0.7" font-size="10">
-              {day.minutes}m
-            </text>
-            <text x={x + 17} y="164" text-anchor="middle" fill="currentColor" font-size="11" font-weight="600">
-              {day.label}
-            </text>
-          </g>
-        {/each}
-      </svg>
-    </section>
+          </section>
+
+          <section class="lg:col-span-5 p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
+            <div class="flex items-center justify-between">
+              <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
+                {tr(lang, 'nav.weeklyActivity')}
+              </h2>
+              <span class="text-xs font-semibold" style="color: var(--md-sys-color-primary);">
+                {localizeFullDayName(listeningStats.mostActiveDay)}
+              </span>
+            </div>
+            <StatsChart
+              type="bar"
+              labels={weeklySeries.labels}
+              values={weeklySeries.values}
+              secondaryValues={weeklySeries.plays}
+              unitLabel={tr(lang, 'nav.minutesShort')}
+              secondaryUnitLabel={tr(lang, 'nav.playsLower')}
+              highlightIndex={weeklySeries.highlightIndex}
+            />
+          </section>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <section class="p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
+            <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
+              {tr(lang, 'nav.topTracks')}
+            </h2>
+            <div class="space-y-3">
+              {#each (listeningStats.topTracks ?? []).slice(0, 5) as item, idx (item.name + idx)}
+                {@const pct = Math.max(8, Math.round((item.plays / maxTopTrackPlays) * 100))}
+                {@const imgSrc = resolveCoverUrl(item.imageUrl ?? '', mediaBaseUrl)}
+                <div class="flex items-center gap-3">
+                  <span class="w-4 text-xs font-bold tabular-nums opacity-55 shrink-0 text-center">{idx + 1}</span>
+                  <div class="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-[var(--md-sys-color-surface-container-highest)] flex items-center justify-center">
+                    {#if imgSrc}
+                      <img src={imgSrc} alt={item.name} class="w-full h-full object-cover" />
+                    {:else}
+                      <Icon name="music-note" size={16} class="opacity-50" />
+                    {/if}
+                  </div>
+                  <div class="min-w-0 flex-1 space-y-1.5">
+                    <div class="flex items-center justify-between gap-3 text-xs">
+                      <div class="min-w-0 flex items-center gap-1.5">
+                        <span class="font-bold truncate" style="color: var(--md-sys-color-on-surface);">{item.name}</span>
+                        {#if item.subText}
+                          <span class="text-[11px] truncate opacity-65">• {item.subText}</span>
+                        {/if}
+                      </div>
+                      <span class="text-[11px] font-semibold tabular-nums shrink-0" style="color: var(--md-sys-color-on-surface-variant);">
+                        {item.plays}× • {item.minutes} {tr(lang, 'nav.minutesShort')}
+                      </span>
+                    </div>
+                    <div class="h-1.5 w-full rounded-full overflow-hidden bg-[var(--md-sys-color-surface-container-highest)]">
+                      <div
+                        class="h-full rounded-full transition-all duration-300"
+                        style="width: {pct}%; background-color: {idx === 0 ? 'var(--md-sys-color-tertiary)' : 'var(--md-sys-color-primary)'};"
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          </section>
+
+          <section class="p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
+            <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
+              {tr(lang, 'nav.topArtists')}
+            </h2>
+            <div class="space-y-3">
+              {#each (listeningStats.topArtists ?? []).slice(0, 5) as item, idx (item.name + idx)}
+                {@const pct = Math.max(8, Math.round((item.plays / maxTopArtistPlays) * 100))}
+                {@const imgSrc = resolveCoverUrl(item.imageUrl ?? '', mediaBaseUrl)}
+                <div class="flex items-center gap-3">
+                  <span class="w-4 text-xs font-bold tabular-nums opacity-55 shrink-0 text-center">{idx + 1}</span>
+                  <div class="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-[var(--md-sys-color-surface-container-highest)] flex items-center justify-center">
+                    {#if imgSrc}
+                      <img src={imgSrc} alt={item.name} class="w-full h-full object-cover" />
+                    {:else}
+                      <Icon name="user" size={16} class="opacity-50" />
+                    {/if}
+                  </div>
+                  <div class="min-w-0 flex-1 space-y-1.5">
+                    <div class="flex items-center justify-between gap-3 text-xs">
+                      <span class="font-bold truncate" style="color: var(--md-sys-color-on-surface);">{item.name}</span>
+                      <span class="text-[11px] font-semibold tabular-nums shrink-0" style="color: var(--md-sys-color-on-surface-variant);">
+                        {item.plays}× • {item.minutes} {tr(lang, 'nav.minutesShort')}
+                      </span>
+                    </div>
+                    <div class="h-1.5 w-full rounded-full overflow-hidden bg-[var(--md-sys-color-surface-container-highest)]">
+                      <div
+                        class="h-full rounded-full transition-all duration-300"
+                        style="width: {pct}%; background-color: {idx === 0 ? 'var(--md-sys-color-tertiary)' : 'var(--md-sys-color-primary)'};"
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          </section>
+        </div>
+
+        <section class="p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2.5">
+              <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
+                {tr(lang, 'nav.streakCalendar')}
+              </h2>
+              <span class="text-[11px] font-medium tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
+                • {fireStreak.goalMinutes} {tr(lang, 'nav.minutesShort')} / {fireStreak.goalTracks} {tr(lang, 'nav.songs').toLowerCase()}
+              </span>
+            </div>
+            <div class="flex items-center gap-1">
+              <button
+                type="button"
+                onclick={prevCalMonth}
+                aria-label="Previous month"
+                class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+                style="color: var(--md-sys-color-on-surface-variant);"
+              >
+                <Icon name="caret-left" size={14} weight="bold" />
+              </button>
+              <span class="min-w-[60px] text-center text-xs font-bold tabular-nums" style="color: var(--md-sys-color-on-surface);">
+                {calendarView.numericLabel}
+              </span>
+              <button
+                type="button"
+                onclick={nextCalMonth}
+                disabled={isCurrentCalMonth}
+                aria-label="Next month"
+                class="w-7 h-7 rounded-full flex items-center justify-center transition-colors {isCurrentCalMonth ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer hover:bg-[var(--md-sys-color-state-hover)]'}"
+                style="color: var(--md-sys-color-on-surface-variant);"
+              >
+                <Icon name="caret-right" size={14} weight="bold" />
+              </button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-7 gap-1.5 text-center">
+            {#each [0, 1, 2, 3, 4, 5, 6] as wd (wd)}
+              <div class="text-[10px] font-semibold uppercase tracking-wider pb-1 opacity-60" style="color: var(--md-sys-color-on-surface-variant);">
+                {localizeShortDay(wd, '')}
+              </div>
+            {/each}
+
+            {#each calendarView.prevDays as prevDay, padIdx (`prev-${padIdx}`)}
+              <div
+                class="h-8 rounded-md flex items-center justify-center text-[11px] font-medium tabular-nums opacity-35 blur-[0.6px] select-none pointer-events-none"
+                style="background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant);"
+              >
+                {prevDay}
+              </div>
+            {/each}
+
+            {#each calendarView.days as day (day.date)}
+              <div
+                title="{day.date} • {Math.round(day.secondsListened / 60)} {tr(lang, 'nav.minutesShort')} • {day.tracksCount} {tr(lang, 'nav.songs').toLowerCase()}"
+                class="h-8 rounded-md flex items-center justify-center text-[11px] font-semibold tabular-nums transition-colors {day.isToday ? 'ring-1 ring-[var(--md-sys-color-primary)]' : ''}"
+                style={day.streakMet
+                  ? 'background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);'
+                  : day.secondsListened > 0
+                    ? 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'
+                    : 'background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface);'}
+              >
+                {day.dayNum}
+              </div>
+            {/each}
+
+            {#each calendarView.nextDays as nextDay, padIdx (`next-${padIdx}`)}
+              <div
+                class="h-8 rounded-md flex items-center justify-center text-[11px] font-medium tabular-nums opacity-35 blur-[0.6px] select-none pointer-events-none"
+                style="background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant);"
+              >
+                {nextDay}
+              </div>
+            {/each}
+          </div>
+        </section>
+      {/if}
+    </div>
   </div>
 {:else if mode === 'fire-streak'}
   <div class="p-6 space-y-6" use:svelteMotionEnter={{ y: 8 }}>
@@ -1098,28 +1451,28 @@
         </div>
         <div>
           <h1 class="text-2xl font-semibold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-            Fire Streak Harian
+            {tr(lang, 'nav.dailyStreak')}
           </h1>
           <p class="text-xs mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-            Target: {fireStreak.goalMinutes} menit atau {fireStreak.goalTracks} lagu per hari
+            {tr(lang, 'nav.streakTargetDesc')} {fireStreak.goalMinutes} {tr(lang, 'nav.minutes')} {tr(lang, 'nav.orWord')} {fireStreak.goalTracks} {tr(lang, 'nav.songs').toLowerCase()} {tr(lang, 'nav.perDay')}
           </p>
         </div>
       </div>
       <div class="flex items-center gap-6">
         <div class="text-center">
           <div class="text-2xl font-semibold text-orange-400 tabular-nums">{fireStreak.currentStreak}</div>
-          <div class="text-[11px]" style="color: var(--md-sys-color-on-surface-variant);">Streak Aktif</div>
+          <div class="text-[11px]" style="color: var(--md-sys-color-on-surface-variant);">{tr(lang, 'nav.activeStreak')}</div>
         </div>
         <div class="text-center">
           <div class="text-2xl font-semibold tabular-nums">{fireStreak.longestStreak}</div>
-          <div class="text-[11px]" style="color: var(--md-sys-color-on-surface-variant);">Rekor</div>
+          <div class="text-[11px]" style="color: var(--md-sys-color-on-surface-variant);">{tr(lang, 'nav.record')}</div>
         </div>
       </div>
     </div>
 
     <div class="m3-card p-5 rounded-lg">
       <h2 class="text-sm font-semibold mb-3" style="color: var(--md-sys-color-on-surface);">
-        Kalender Streak 30 Hari Terakhir
+        {tr(lang, 'nav.streakCalendar')}
       </h2>
       <div class="grid grid-cols-10 gap-2">
         {#each fireStreak.last30Days as day (day.date)}
@@ -1154,7 +1507,7 @@
                   Velora
                 </h2>
                 <p class="text-sm font-medium" style="color: var(--md-sys-color-on-surface-variant);">
-                  {lang === 'id' ? 'Versi 1.0.0 untuk Windows' : 'Version 1.0.0 for Windows'}
+                  {tr(lang, 'nav.versionForWindows')}
                 </p>
               </div>
             </div>
@@ -1169,7 +1522,7 @@
                 Yoapipp
               </div>
               <div class="text-sm font-medium" style="color: var(--md-sys-color-on-surface-variant);">
-                {lang === 'id' ? 'Pengembang' : 'Developer'}
+                {tr(lang, 'nav.developer')}
               </div>
             </div>
             <img
@@ -1184,7 +1537,7 @@
               class="px-3.5 text-[11px] font-semibold uppercase tracking-wider"
               style="color: var(--md-sys-color-on-surface-variant); opacity: 0.78;"
             >
-              {lang === 'id' ? 'Media sosial' : 'Social media'}
+              {tr(lang, 'nav.socialMedia')}
             </div>
             <button
               type="button"
@@ -1213,17 +1566,17 @@
 
           <button
             type="button"
-            onclick={() => (showReleaseNotesModal = true)}
+            onclick={() => (showSupportModal = true)}
             class="w-full rounded-2xl px-4 py-3.5 flex items-center gap-3.5 text-left cursor-pointer transition-transform active:scale-[0.99] hover:brightness-105"
             style="background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);"
           >
             <Icon name="heart" weight="fill" size={20} class="shrink-0" />
             <div class="min-w-0 flex-1">
               <div class="text-sm font-bold">
-                {lang === 'id' ? 'Traktir kopi' : 'Buy me a coffee'}
+                {tr(lang, 'nav.buyCoffee')}
               </div>
               <div class="text-xs opacity-85">
-                {lang === 'id' ? 'Dukung aplikasi dengan nominal berapa pun' : 'Support the app with any amount'}
+                {tr(lang, 'nav.buyCoffeeDesc')}
               </div>
             </div>
           </button>
@@ -1236,7 +1589,7 @@
             >
               <span class="flex items-center gap-3.5 text-sm font-medium" style="color: var(--md-sys-color-on-surface);">
                 <Icon name="seal-warning" weight="fill" size={18} style="color: var(--md-sys-color-on-surface-variant);" />
-                {lang === 'id' ? 'Catatan rilis' : 'Release notes'}
+                {tr(lang, 'nav.releaseNotes')}
               </span>
             </button>
             <hr class="border-0 h-px w-full" style="background-color: var(--md-sys-color-outline-variant);" />
@@ -1248,7 +1601,7 @@
             >
               <span class="flex items-center gap-3.5 text-sm font-medium" style="color: var(--md-sys-color-on-surface);">
                 <Icon name="download-simple" size={18} style="color: var(--md-sys-color-on-surface-variant);" />
-                {lang === 'id' ? 'Cek pembaruan' : 'Check for updates'}
+                {tr(lang, 'nav.checkForUpdates')}
               </span>
               {#if updateStatusText}
                 <span class="text-xs font-medium" style="color: var(--md-sys-color-primary);">
@@ -1260,7 +1613,7 @@
             <div class="py-3.5 px-3.5 flex items-center justify-between gap-4">
               <div class="min-w-0 flex-1 space-y-0.5">
                 <div class="text-sm font-medium" style="color: var(--md-sys-color-on-surface);">
-                  {lang === 'id' ? 'Folder data' : 'Data folder'}
+                  {tr(lang, 'nav.dataFolder')}
                 </div>
                 {#if dataDirPath}
                   <div class="text-xs truncate" style="color: var(--md-sys-color-on-surface-variant);">
@@ -1273,7 +1626,7 @@
                 onclick={() => void api.openDataFolder()}
                 class="m3-btn-tonal px-4 min-w-[104px] h-9 text-xs font-semibold inline-flex items-center justify-center cursor-pointer shrink-0"
               >
-                {lang === 'id' ? 'Buka' : 'Open'}
+                {tr(lang, 'nav.open')}
               </button>
             </div>
           </div>
@@ -1291,9 +1644,7 @@
               icon="magnifying-glass"
               iconSize={40}
               title={tr(lang, 'nav.noMatchingSettings')}
-              description={lang === 'id'
-                ? 'Coba kata kunci lain untuk menemukan pengaturan yang kamu cari.'
-                : 'Try a different keyword to find the setting you are looking for.'}
+              description={tr(lang, 'nav.noMatchingSettingsDesc')}
               titleClass="text-base font-bold"
               descClass="mt-1 text-xs max-w-sm mx-auto"
               class="min-h-[45vh] flex flex-col items-center justify-center text-center px-4"
@@ -1331,7 +1682,7 @@
         <div class="space-y-1">
           <div class="flex items-center gap-2">
             <h2 id="release-notes-title" class="text-lg font-bold tracking-tight">
-              {lang === 'id' ? 'Catatan Rilis' : 'Release Notes'}
+              {tr(lang, 'nav.releaseNotes')}
             </h2>
             <span
               class="px-2.5 py-0.5 rounded-full text-[11px] font-bold"
@@ -1341,13 +1692,13 @@
             </span>
           </div>
           <p class="text-xs" style="color: var(--md-sys-color-on-surface-variant);">
-            {lang === 'id' ? 'Rilis perdana Velora Desktop untuk Windows' : 'Initial public release of Velora Desktop for Windows'}
+            {tr(lang, 'nav.releaseNotesSubtitle')}
           </p>
         </div>
         <button
           type="button"
           onclick={() => (showReleaseNotesModal = false)}
-          aria-label={lang === 'id' ? 'Tutup' : 'Close'}
+          aria-label={tr(lang, 'nav.close')}
           class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer shrink-0"
         >
           <Icon name="x" size={16} />
@@ -1357,54 +1708,42 @@
       <div class="space-y-4 max-h-[55vh] overflow-y-auto pr-1 text-xs leading-relaxed">
         <div class="space-y-1.5">
           <div class="font-bold uppercase tracking-wider text-[11px]" style="color: var(--md-sys-color-primary);">
-            {lang === 'id' ? 'Pemutar Musik & Katalog' : 'Music Player & Catalog'}
+            {tr(lang, 'nav.releaseNotesSec1')}
           </div>
           <ul class="list-disc pl-5 space-y-1" style="color: var(--md-sys-color-on-surface-variant);">
             <li>
-              {lang === 'id'
-                ? 'Streaming musik dengan mesin metadata YouTube Music & Deezer, lengkap dengan dukungan wilayah konten dan filter pencarian.'
-                : 'Music streaming powered by YouTube Music & Deezer metadata with content region and search filter controls.'}
+              {tr(lang, 'nav.releaseNotesItem1')}
             </li>
             <li>
-              {lang === 'id'
-                ? 'Pemutaran file lokal (MP3, FLAC, WAV, M4A, OGG), manajemen playlist, album, artis, serta unduhan offline.'
-                : 'Local library playback (MP3, FLAC, WAV, M4A, OGG), playlists, albums, artists, and offline downloads.'}
+              {tr(lang, 'nav.releaseNotesItem2')}
             </li>
             <li>
-              {lang === 'id'
-                ? 'Equalizer 10-band, normalisasi audio, crossfade, dan tampilan lirik tersinkronisasi.'
-                : '10-band equalizer, audio normalization, crossfade transitions, and time-synced lyrics.'}
+              {tr(lang, 'nav.releaseNotesItem3')}
             </li>
           </ul>
         </div>
 
         <div class="space-y-1.5">
           <div class="font-bold uppercase tracking-wider text-[11px]" style="color: var(--md-sys-color-primary);">
-            {lang === 'id' ? 'Dynamic Island Windows' : 'Windows Dynamic Island'}
+            {tr(lang, 'nav.releaseNotesSec2')}
           </div>
           <ul class="list-disc pl-5 space-y-1" style="color: var(--md-sys-color-on-surface-variant);">
             <li>
-              {lang === 'id'
-                ? 'Overlay native Windows yang responsif dengan kontrol pemutaran, lirik berjalan, antrean, dan pemilih perangkat audio.'
-                : 'Native Windows top-edge overlay with playback controls, live lyrics, queue view, and audio output switcher.'}
+              {tr(lang, 'nav.releaseNotesItem4')}
             </li>
             <li>
-              {lang === 'id'
-                ? 'Kustomisasi penuh: mode tampilan (Ringkas, Satu Baris, Tersembunyi), ukuran, kepekatan, isi elemen, serta gaya progres (Tipis, Tebal, Titik, Gelombang).'
-                : 'Full customization: display styles, sizing, opacity, element toggles, and progress bar styles (Thin, Thick, Dots, Wave).'}
+              {tr(lang, 'nav.releaseNotesItem5')}
             </li>
           </ul>
         </div>
 
         <div class="space-y-1.5">
           <div class="font-bold uppercase tracking-wider text-[11px]" style="color: var(--md-sys-color-primary);">
-            {lang === 'id' ? 'Tampilan & Integrasi' : 'Design & Integrations'}
+            {tr(lang, 'nav.releaseNotesSec3')}
           </div>
           <ul class="list-disc pl-5 space-y-1" style="color: var(--md-sys-color-on-surface-variant);">
             <li>
-              {lang === 'id'
-                ? 'Antarmuka Material You adaptif dengan palet warna dinamis, mode gelap/terang, serta kontrol jarak jauh Velora Jam via Wi-Fi.'
-                : 'Adaptive Material You interface with dynamic color palettes, dark/light themes, and Velora Jam Wi-Fi remote control.'}
+              {tr(lang, 'nav.releaseNotesItem6')}
             </li>
           </ul>
         </div>
@@ -1416,7 +1755,7 @@
           onclick={() => (showReleaseNotesModal = false)}
           class="m3-btn-filled px-5 py-2 text-xs font-semibold rounded-full cursor-pointer"
         >
-          {lang === 'id' ? 'Tutup' : 'Close'}
+          {tr(lang, 'nav.close')}
         </button>
       </div>
     </ModalDialog>
@@ -1430,7 +1769,7 @@
       <div class="space-y-1.5 mb-4">
         <div class="flex items-center gap-2">
           <h2 id="update-modal-title" class="text-lg font-bold tracking-tight">
-            {lang === 'id' ? 'Pembaruan Tersedia' : 'Update Available'}
+            {tr(lang, 'nav.updateAvailableTitle')}
           </h2>
           {#if updateResult}
             <span
@@ -1443,9 +1782,7 @@
         </div>
         {#if updateResult}
           <p class="text-xs" style="color: var(--md-sys-color-on-surface-variant);">
-            {lang === 'id'
-              ? `Versi baru tersedia: v${updateResult.currentVersion} → v${updateResult.latestVersion}`
-              : `A new version is available: v${updateResult.currentVersion} → v${updateResult.latestVersion}`}
+            {tr(lang, 'nav.newVersionAvailable')}: v{updateResult.currentVersion} → v{updateResult.latestVersion}
           </p>
         {/if}
       </div>
@@ -1463,7 +1800,7 @@
           onclick={() => (showUpdateModal = false)}
           class="m3-btn-tonal px-4 py-2 text-xs font-semibold rounded-full cursor-pointer"
         >
-          {lang === 'id' ? 'Nanti' : 'Later'}
+          {tr(lang, 'nav.later')}
         </button>
         <button
           type="button"
@@ -1475,7 +1812,7 @@
           }}
           class="m3-btn-filled px-5 py-2 text-xs font-semibold rounded-full cursor-pointer"
         >
-          {lang === 'id' ? 'Unduh Pembaruan' : 'Download Update'}
+          {tr(lang, 'nav.downloadUpdate')}
         </button>
       </div>
     </ModalDialog>
@@ -1488,17 +1825,17 @@
     >
       <div class="mb-4">
         <h2 id="shortcuts-modal-title" class="text-lg font-bold tracking-tight">
-          {lang === 'id' ? 'Pintasan keyboard' : 'Keyboard shortcuts'}
+          {tr(lang, 'nav.keyboardShortcuts')}
         </h2>
       </div>
       <div class="divide-y text-xs" style="border-color: var(--md-sys-color-outline-variant);">
         {#each [
-          { keys: 'Space', label: lang === 'id' ? 'Putar / Jeda lagu' : 'Play / Pause track' },
-          { keys: '← / →', label: lang === 'id' ? 'Mundur / Maju 5 detik' : 'Seek backward / forward 5s' },
-          { keys: '↑ / ↓', label: lang === 'id' ? 'Naikkan / Turunkan volume' : 'Volume up / down' },
-          { keys: 'Ctrl + + / -', label: lang === 'id' ? 'Perbesar / Perkecil tampilan' : 'Zoom in / out' },
-          { keys: 'Ctrl + 0', label: lang === 'id' ? 'Reset skala tampilan 100%' : 'Reset display scale to 100%' },
-          { keys: 'Tab', label: lang === 'id' ? 'Fokus ke kotak pencarian' : 'Focus search bar' }
+          { keys: 'Space', label: tr(lang, 'nav.scPlayPause') },
+          { keys: '← / →', label: tr(lang, 'nav.scSeek') },
+          { keys: '↑ / ↓', label: tr(lang, 'nav.scVolume') },
+          { keys: 'Ctrl + + / -', label: tr(lang, 'nav.scZoom') },
+          { keys: 'Ctrl + 0', label: tr(lang, 'nav.scResetZoom') },
+          { keys: 'Tab', label: tr(lang, 'nav.scFocusSearch') }
         ] as sc (sc.keys)}
           <div class="py-2.5 flex items-center justify-between gap-4">
             <span style="color: var(--md-sys-color-on-surface-variant);">{sc.label}</span>
@@ -1517,7 +1854,7 @@
           onclick={() => (showShortcutsModal = false)}
           class="h-10 px-5 rounded-full bg-[var(--md-sys-color-surface-container)] hover:bg-[var(--md-sys-color-surface-container-highest)] text-xs font-semibold cursor-pointer transition-colors"
         >
-          {lang === 'id' ? 'Tutup' : 'Close'}
+          {tr(lang, 'nav.close')}
         </button>
       </div>
     </ModalDialog>
@@ -1532,13 +1869,11 @@
     >
       <div class="mb-3">
         <h2 id="reset-island-title" class="text-lg font-bold tracking-tight">
-          {lang === 'id' ? 'Atur ulang Dynamic Island?' : 'Reset Dynamic Island?'}
+          {tr(lang, 'nav.resetIslandTitle')}
         </h2>
       </div>
       <p id="reset-island-desc" class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
-        {lang === 'id'
-          ? 'Seluruh pengaturan tampilan dan perilaku Dynamic Island akan dikembalikan ke bawaan.'
-          : 'All Dynamic Island appearance and behavior settings will be restored to defaults.'}
+        {tr(lang, 'nav.resetIslandDesc')}
       </p>
       <div class="flex items-center justify-end gap-2 mt-6">
         <button
@@ -1546,7 +1881,7 @@
           onclick={() => (confirmResetIsland = false)}
           class="h-10 px-5 rounded-full bg-[var(--md-sys-color-surface-container)] hover:bg-[var(--md-sys-color-surface-container-highest)] text-xs font-semibold cursor-pointer transition-colors"
         >
-          {lang === 'id' ? 'Batal' : 'Cancel'}
+          {tr(lang, 'nav.cancel')}
         </button>
         <button
           type="button"
@@ -1571,13 +1906,11 @@
     >
       <div class="mb-3">
         <h2 id="clear-cache-title" class="text-lg font-bold tracking-tight">
-          {lang === 'id' ? 'Bersihkan semua cache?' : 'Clear all cache?'}
+          {tr(lang, 'nav.clearCacheTitle')}
         </h2>
       </div>
       <p id="clear-cache-desc" class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
-        {lang === 'id'
-          ? 'Sampul album sementara, cache stream, dan file transkode sementara akan dihapus.'
-          : 'Temporary artwork, stream cache, and temporary transcode files will be removed.'}
+        {tr(lang, 'nav.clearCacheDesc')}
       </p>
       <div class="flex items-center justify-end gap-2 mt-6">
         <button
@@ -1585,7 +1918,7 @@
           onclick={() => (confirmClearCache = false)}
           class="h-10 px-5 rounded-full bg-[var(--md-sys-color-surface-container)] hover:bg-[var(--md-sys-color-surface-container-highest)] text-xs font-semibold cursor-pointer transition-colors"
         >
-          {lang === 'id' ? 'Batal' : 'Cancel'}
+          {tr(lang, 'nav.cancel')}
         </button>
         <button
           type="button"
@@ -1596,6 +1929,61 @@
           class="h-10 px-7 rounded-full text-xs font-bold text-rose-300 bg-rose-500/15 hover:bg-rose-500/25 cursor-pointer transition-all duration-150 hover:scale-[1.03] active:scale-95"
         >
           {tr(lang, 'nav.clear')}
+        </button>
+      </div>
+    </ModalDialog>
+
+    <ModalDialog
+      open={showSupportModal}
+      onClose={() => (showSupportModal = false)}
+      ariaLabelledby="support-modal-title"
+      maxWidthClass="max-w-sm"
+      class="rounded-2xl p-6"
+    >
+      <div class="flex items-start justify-between gap-4 mb-4">
+        <div>
+          <h2 id="support-modal-title" class="text-base font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+            {tr(lang, 'nav.buyCoffee')}
+          </h2>
+          <p class="text-xs" style="color: var(--md-sys-color-on-surface-variant);">
+            {tr(lang, 'nav.buyCoffeeDesc')}
+          </p>
+        </div>
+        <button
+          type="button"
+          onclick={() => (showSupportModal = false)}
+          aria-label={tr(lang, 'nav.close')}
+          class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer shrink-0"
+        >
+          <Icon name="x" size={15} />
+        </button>
+      </div>
+
+      <div class="flex flex-col items-center text-center gap-3.5 py-2">
+        <div class="bg-white p-3 rounded-2xl shadow-md">
+          {#if supportQrDataUrl}
+            <img
+              src={supportQrDataUrl}
+              alt="QR Code SociaBuzz Yoapipp"
+              class="w-48 h-48 block rounded-lg"
+            />
+          {:else}
+            <div class="w-48 h-48 rounded-lg bg-neutral-100 flex items-center justify-center text-neutral-500">
+              <Icon name="qr-code" size={44} />
+            </div>
+          {/if}
+        </div>
+        <p class="text-xs leading-relaxed max-w-[260px]" style="color: var(--md-sys-color-on-surface-variant);">
+          {tr(lang, 'nav.scanSupportQrHint')}
+        </p>
+        <button
+          type="button"
+          onclick={() => api.openExternalUrl(SUPPORT_TRIBE_URL)}
+          class="w-full h-10 px-5 rounded-full text-xs font-bold inline-flex items-center justify-center gap-2 cursor-pointer transition-transform hover:scale-[1.02] active:scale-95"
+          style="background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);"
+        >
+          <span>{tr(lang, 'nav.openSociaBuzz')}</span>
+          <Icon name="arrow-up-right" size={14} />
         </button>
       </div>
     </ModalDialog>
@@ -1623,13 +2011,11 @@
 >
   <div class="mb-3">
     <h2 id="clear-history-title" class="text-lg font-bold tracking-tight">
-      {lang === 'id' ? 'Bersihkan semua riwayat?' : 'Clear all listening history?'}
+      {tr(lang, 'nav.clearHistoryTitle')}
     </h2>
   </div>
   <p id="clear-history-desc" class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
-    {lang === 'id'
-      ? 'Seluruh daftar lagu yang pernah diputar akan dihapus secara permanen.'
-      : 'All recently played tracks will be permanently removed.'}
+    {tr(lang, 'nav.clearHistoryDesc')}
   </p>
   <div class="flex items-center justify-end gap-2 mt-6">
     <button
@@ -1637,7 +2023,7 @@
       onclick={() => (confirmClearHistory = false)}
       class="h-10 px-5 rounded-full bg-[var(--md-sys-color-surface-container)] hover:bg-[var(--md-sys-color-surface-container-highest)] text-xs font-semibold cursor-pointer transition-colors"
     >
-      {lang === 'id' ? 'Batal' : 'Cancel'}
+      {tr(lang, 'nav.cancel')}
     </button>
     <button
       type="button"

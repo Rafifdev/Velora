@@ -73,7 +73,8 @@
     { id: 'favorite-artists', label: tr(lang, 'nav.favoriteArtists'), icon: 'user' },
     { id: 'playlists', label: tr(lang, 'nav.playlists'), icon: 'playlist', count: playlistsCount },
     { id: 'downloaded', label: tr(lang, 'nav.downloaded'), icon: 'download', count: downloadedCount },
-    { id: 'history', label: tr(lang, 'nav.history'), icon: 'clock-counter-clockwise' }
+    { id: 'history', label: tr(lang, 'nav.history'), icon: 'clock-counter-clockwise' },
+    { id: 'listening-stats', label: tr(lang, 'nav.stats'), icon: 'chart-bar' }
   ]);
 
   function isActive(name: string): boolean {
@@ -92,7 +93,10 @@
       );
     }
     if (name === 'history') {
-      return currentRoute.name === 'history' || currentRoute.name === 'listening-stats';
+      return currentRoute.name === 'history';
+    }
+    if (name === 'listening-stats') {
+      return currentRoute.name === 'listening-stats' || currentRoute.name === 'fire-streak';
     }
     return currentRoute.name === name;
   }
@@ -175,8 +179,8 @@
         <button
           type="button"
           onclick={onToggleCollapse}
-          title={collapsed ? 'Expand Menu' : 'Collapse Menu'}
-          aria-label={collapsed ? 'Expand Left Menu' : 'Collapse Menu'}
+          title={collapsed ? tr(lang, 'nav.expandMenu') : tr(lang, 'nav.collapseMenu')}
+          aria-label={collapsed ? tr(lang, 'nav.expandMenu') : tr(lang, 'nav.collapseMenu')}
           class="m3-icon-btn w-9 h-9 shrink-0 flex items-center justify-center cursor-pointer transition-transform duration-200 active:scale-90"
         >
           <span

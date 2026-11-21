@@ -131,7 +131,7 @@
         </div>
         <div class="min-w-0 flex-1">
           <div class="text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
-            {currentTrack?.title || 'Belum ada lagu diputar'}
+            {currentTrack?.title || tr(lang, 'nav.noSongPlaying')}
           </div>
           <div class="text-[11px] truncate" style="color: var(--md-sys-color-on-surface-variant);">
             {currentTrack?.artistName || 'Velora'}
@@ -157,7 +157,7 @@
         <button
           type="button"
           onclick={onTogglePlay}
-          aria-label={isPlaying ? 'Jeda' : 'Putar'}
+          aria-label={isPlaying ? tr(lang, 'nav.pause') : tr(lang, 'nav.play')}
           class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
           style="color: var(--md-sys-color-on-surface);"
         >
@@ -268,7 +268,7 @@
           type="button"
           onclick={() => onFocusRightCard('album')}
           class="relative w-14 h-14 p-0 rounded-md overflow-clip shrink-0 cursor-pointer transition-transform hover:scale-[1.03]"
-          title="Buka Panel Kanan"
+          title={tr(lang, 'nav.openRightPanel')}
         >
           {#if cover}
             <img
@@ -293,7 +293,7 @@
             onclick={() => onOpenTrackDetail?.(currentTrack)}
             class="text-left text-[14px] font-bold leading-snug truncate hover:underline cursor-pointer"
             style="color: var(--md-sys-color-on-surface);"
-            title="Lihat Detail Musik"
+            title={tr(lang, 'nav.viewTrackDetails')}
           >
             {currentTrack.title}
           </button>
@@ -302,7 +302,7 @@
             onclick={() => onOpenArtistDetail?.(currentTrack)}
             class="text-left text-[12px] font-normal leading-snug truncate mt-0.5 hover:underline cursor-pointer"
             style="color: var(--md-sys-color-on-surface-variant);"
-            title="Lihat Halaman Artis"
+            title={tr(lang, 'nav.viewArtistPage')}
           >
             {currentTrack.artistName}
           </button>
@@ -316,9 +316,9 @@
         </div>
         <div class="min-w-0 flex flex-col justify-center">
           <div class="text-[14px] font-bold leading-snug truncate" style="color: var(--md-sys-color-on-surface-variant);">
-            Belum ada lagu diputar
+            {tr(lang, 'nav.noSongPlaying')}
           </div>
-          <div class="text-[12px] leading-snug opacity-70 truncate mt-0.5">Pilih lagu lokal atau YouTube Music</div>
+          <div class="text-[12px] leading-snug opacity-70 truncate mt-0.5">{tr(lang, 'nav.pickSongHint')}</div>
         </div>
       {/if}
     </div>

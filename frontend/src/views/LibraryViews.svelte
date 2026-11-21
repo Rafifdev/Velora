@@ -133,7 +133,7 @@
 
   function formatFansCount(n: number): string {
     if (!n || n <= 0) return '';
-    return `${n.toLocaleString('id-ID')} penggemar`;
+    return `${n.toLocaleString(lang === 'id' ? 'id-ID' : 'en-US')} ${tr(lang, 'nav.fans')}`;
   }
 
   function isTrackActive(tr: Track): boolean {
@@ -163,13 +163,13 @@
   });
 
   type SearchFilterTab = 'song' | 'album' | 'artist' | 'playlist' | 'video';
-  const SEARCH_TABS: { id: SearchFilterTab; label: string }[] = [
-    { id: 'song', label: 'Lagu' },
-    { id: 'album', label: 'Album' },
-    { id: 'artist', label: 'Artis' },
-    { id: 'playlist', label: 'Playlist' },
-    { id: 'video', label: 'Video' }
-  ];
+  const SEARCH_TABS = $derived<{ id: SearchFilterTab; label: string }[]>([
+    { id: 'song', label: tr(lang, 'nav.songs') },
+    { id: 'album', label: tr(lang, 'nav.albums') },
+    { id: 'artist', label: tr(lang, 'nav.artists') },
+    { id: 'playlist', label: tr(lang, 'nav.playlists') },
+    { id: 'video', label: tr(lang, 'nav.videos') }
+  ]);
 
   let artistFilterText = $state('');
   let ytQuery = $state('');
@@ -319,7 +319,7 @@
               {tr(lang, 'nav.favoriteMusic')}
             </h1>
             <p class="text-xs tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
-              {likedTracks.length} lagu disukai • Local & YouTube Music
+              {likedTracks.length} {tr(lang, 'nav.likedSongsCount')}
             </p>
           </div>
         </div>
@@ -329,8 +329,8 @@
             type="button"
             disabled={likedTracks.length === 0}
             onclick={() => likedTracks[0] && onPlayTrack(likedTracks[0], likedTracks)}
-            title="Putar Semua"
-            aria-label="Putar Semua"
+            title={tr(lang, 'nav.playAll')}
+            aria-label={tr(lang, 'nav.playAll')}
             class="w-11 h-11 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] inline-flex items-center justify-center cursor-pointer transition-transform duration-150 hover:scale-[1.04] active:scale-95 disabled:opacity-40"
           >
             <Icon name="play" weight="fill" size={18} />
@@ -340,8 +340,8 @@
             type="button"
             disabled={likedTracks.length === 0}
             onclick={() => playShuffled(likedTracks)}
-            title="Acak (Shuffle)"
-            aria-label="Acak (Shuffle)"
+            title={tr(lang, 'nav.shuffle')}
+            aria-label={tr(lang, 'nav.shuffle')}
             class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors disabled:opacity-40"
             style="color: var(--md-sys-color-on-surface);"
           >
@@ -391,6 +391,7 @@
           {onDownloadTrack}
           {onRemoveDownload}
           {onOpenTrackAlbum}
+          {lang}
         />
       {/if}
     </div>
@@ -418,10 +419,10 @@
               Offline • Library
             </div>
             <h1 class="text-3xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-              Downloaded
+              {tr(lang, 'nav.downloaded')}
             </h1>
             <p class="text-xs tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
-              {downloadedTracks.length} lagu tersimpan • Siap diputar offline
+              {downloadedTracks.length} {tr(lang, 'nav.downloadedSongsCount')}
             </p>
           </div>
         </div>
@@ -431,8 +432,8 @@
             type="button"
             disabled={downloadedTracks.length === 0}
             onclick={() => downloadedTracks[0] && onPlayTrack(downloadedTracks[0], downloadedTracks)}
-            title="Putar Semua"
-            aria-label="Putar Semua"
+            title={tr(lang, 'nav.playAll')}
+            aria-label={tr(lang, 'nav.playAll')}
             class="w-11 h-11 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] inline-flex items-center justify-center cursor-pointer transition-transform duration-150 hover:scale-[1.04] active:scale-95 disabled:opacity-40"
           >
             <Icon name="play" weight="fill" size={18} />
@@ -442,8 +443,8 @@
             type="button"
             disabled={downloadedTracks.length === 0}
             onclick={() => playShuffled(downloadedTracks)}
-            title="Acak (Shuffle)"
-            aria-label="Acak (Shuffle)"
+            title={tr(lang, 'nav.shuffle')}
+            aria-label={tr(lang, 'nav.shuffle')}
             class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors disabled:opacity-40"
             style="color: var(--md-sys-color-on-surface);"
           >
@@ -460,7 +461,7 @@
       {#if activeDownloads.length > 0}
         <div class="rounded-xl p-4 space-y-2.5 bg-[var(--md-sys-color-surface-container)]">
           <div class="text-xs font-bold uppercase tracking-wider text-[var(--md-sys-color-primary)]">
-            Sedang Mengunduh ({activeDownloads.length})
+            {tr(lang, 'nav.downloading')} ({activeDownloads.length})
           </div>
           {#each activeDownloads as dl (dl.trackId)}
             <div class="flex items-center gap-3 text-xs">
@@ -470,7 +471,7 @@
                 </div>
                 {#if dl.status === 'failed'}
                   <div class="text-[11px] text-[var(--md-sys-color-error)] mt-0.5 truncate">
-                    Gagal: {dl.error || 'Terjadi kesalahan'}
+                    {dl.error || 'Error'}
                   </div>
                 {:else}
                   <div class="mt-1.5 h-1.5 w-full rounded-full overflow-hidden bg-[var(--md-sys-color-surface-container-highest)]">
@@ -488,7 +489,7 @@
                 <button
                   type="button"
                   onclick={() => onCancelDownload(dl.trackId)}
-                  title="Batalkan unduhan"
+                  title={tr(lang, 'nav.cancelDownload')}
                   class="m3-icon-btn w-7 h-7 flex items-center justify-center cursor-pointer"
                 >
                   <Icon name="x" size={14} />
@@ -504,8 +505,8 @@
           icon="download"
           iconWeight="fill"
           iconSize={38}
-          title="Belum ada lagu yang diunduh"
-          description="Unduh lagu favoritmu agar bisa diputar kapan saja tanpa koneksi internet."
+          title={tr(lang, 'nav.noDownloads')}
+          description={tr(lang, 'nav.noDownloadsDesc')}
         >
           <button
             type="button"
@@ -513,7 +514,7 @@
             class="mt-6 h-10 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
             style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
           >
-            Jelajahi lagu
+            {tr(lang, 'nav.exploreSongs')}
           </button>
         </EmptyState>
       {:else if downloadedTracks.length > 0}
@@ -535,6 +536,7 @@
           {onDownloadTrack}
           {onRemoveDownload}
           {onOpenTrackAlbum}
+          {lang}
         />
       {/if}
     </div>
@@ -569,10 +571,10 @@
               Favorites • Albums
             </div>
             <h1 class="text-3xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-              Favorite albums
+              {tr(lang, 'nav.favoriteAlbums')}
             </h1>
             <p class="text-xs tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
-              {favoriteAlbumsCount} album favorit • Local & YouTube Music
+              {favoriteAlbumsCount} {tr(lang, 'nav.favoriteAlbumsCount')}
             </p>
           </div>
         </div>
@@ -588,8 +590,8 @@
           icon="vinyl-record"
           iconWeight="fill"
           iconSize={38}
-          title="Belum ada album favorit"
-          description="Simpan album dengan mengetuk ikon hati."
+          title={tr(lang, 'nav.noFavAlbums')}
+          description={tr(lang, 'nav.noFavAlbumsDesc')}
         >
           <button
             type="button"
@@ -597,7 +599,7 @@
             class="mt-6 h-10 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
             style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
           >
-            Jelajahi album
+            {tr(lang, 'nav.exploreAlbums')}
           </button>
         </EmptyState>
       {:else}
@@ -643,7 +645,7 @@
                   {al.title}
                 </div>
                 <div class="text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-                  {al.trackCount > 0 ? `${al.artistName} • ${al.trackCount} lagu` : `${al.artistName} • YouTube Music`}
+                  {al.trackCount > 0 ? `${al.artistName} • ${al.trackCount} ${tr(lang, 'nav.songs').toLowerCase()}` : `${al.artistName} • YouTube Music`}
                 </div>
               </button>
 
@@ -692,10 +694,10 @@
               Favorites • Artists
             </div>
             <h1 class="text-3xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-              Favorite artists
+              {tr(lang, 'nav.favoriteArtists')}
             </h1>
             <p class="text-xs tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
-              {favoriteArtistsCount} artis favorit • Local & YouTube Music
+              {favoriteArtistsCount} {tr(lang, 'nav.favoriteArtistsCount')}
             </p>
           </div>
         </div>
@@ -711,8 +713,8 @@
           icon="user"
           iconWeight="fill"
           iconSize={38}
-          title="Belum ada artis favorit"
-          description="Simpan artis dengan mengetuk ikon hati."
+          title={tr(lang, 'nav.noFavArtists')}
+          description={tr(lang, 'nav.noFavArtistsDesc')}
         >
           <button
             type="button"
@@ -720,7 +722,7 @@
             class="mt-6 h-10 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
             style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
           >
-            Jelajahi artis
+            {tr(lang, 'nav.exploreArtists')}
           </button>
         </EmptyState>
       {:else}
@@ -766,7 +768,7 @@
                   {ar.name}
                 </div>
                 <div class="text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-                  {ar.trackCount > 0 ? `${ar.trackCount} lagu` : 'YouTube Music'}
+                  {ar.trackCount > 0 ? `${ar.trackCount} ${tr(lang, 'nav.songs').toLowerCase()}` : 'YouTube Music'}
                 </div>
               </button>
 
@@ -796,7 +798,7 @@
   {@const fansText = ytArtistDetail?.fansCount
     ? formatFansCount(ytArtistDetail.fansCount)
     : artistTracks.length > 0
-      ? `${artistTracks.length} lagu tersedia`
+      ? `${artistTracks.length} ${tr(lang, 'nav.songsAvailable')}`
       : ''}
   {@const isArtistFav = !!selectedArtist?.isFavorite}
   {@const isArtistPlaying = isPlaying && artistTracks.some((t) => isTrackActive(t))}
@@ -881,7 +883,7 @@
           <div class="min-w-0 space-y-1.5 sm:space-y-2">
             <div class="inline-flex items-center gap-1.5 text-xs font-semibold" style="color: var(--md-sys-color-on-surface);">
               <Icon name="seal-check" weight="fill" size={18} style="color: #3d91f4;" />
-              <span>Artis Terverifikasi</span>
+              <span>{tr(lang, 'nav.verifiedArtist')}</span>
             </div>
             <h1 class="text-3xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-none truncate" style="color: var(--md-sys-color-on-surface);">
               {artistName}
@@ -943,18 +945,18 @@
               ? 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'
               : undefined}
           >
-            {isArtistFav ? 'Mengikuti' : 'Ikuti'}
+            {isArtistFav ? tr(lang, 'nav.following') : tr(lang, 'nav.follow')}
           </button>
         </div>
 
         <section class="space-y-3">
           <h2 class="text-lg sm:text-xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-            Populer
+            {tr(lang, 'nav.popular')}
           </h2>
 
           {#if artistTracks.length === 0}
             <p class="text-xs py-4" style="color: var(--md-sys-color-on-surface-variant);">
-              Belum ada lagu populer untuk artis ini.
+              {tr(lang, 'nav.noPopularTracks')}
             </p>
           {:else}
             <TrackTable
@@ -975,6 +977,7 @@
               {onDownloadTrack}
               {onRemoveDownload}
               {onOpenTrackAlbum}
+              {lang}
             />
 
             {#if artistTracks.length > 5}
@@ -984,7 +987,7 @@
                 class="px-2 pt-1 text-xs font-bold cursor-pointer hover:underline"
                 style="color: var(--md-sys-color-on-surface-variant);"
               >
-                {showAllArtistTracks ? 'Tampilkan lebih sedikit' : 'Lihat lebih banyak'}
+                {showAllArtistTracks ? tr(lang, 'nav.showLess') : tr(lang, 'nav.seeMore')}
               </button>
             {/if}
           {/if}
@@ -993,7 +996,7 @@
         {#if artistAlbums.length > 0}
           <section class="space-y-3">
             <h2 class="text-lg sm:text-xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-              Album
+              {tr(lang, 'nav.albums')}
             </h2>
             <div class="flex items-start gap-2.5 sm:gap-3 overflow-x-auto no-scrollbar velora-shelf-scroll pb-1">
               {#each artistAlbums as alb (alb.id)}
@@ -1034,7 +1037,7 @@
         {#if relatedArtists.length > 0}
           <section class="space-y-3">
             <h2 class="text-lg sm:text-xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-              Penggemar juga menyukai
+              {tr(lang, 'nav.fansAlsoLike')}
             </h2>
             <div class="flex items-start gap-2.5 sm:gap-3 overflow-x-auto no-scrollbar velora-shelf-scroll pb-1">
               {#each relatedArtists as rel (rel.id)}
@@ -1061,7 +1064,7 @@
                     {rel.title}
                   </div>
                   <div class="text-[11px] truncate mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-                    Artis
+                    {tr(lang, 'nav.artist')}
                   </div>
                 </button>
               {/each}
@@ -1092,7 +1095,7 @@
           type="search"
           bind:value={ytQuery}
           oninput={() => runActiveSearch(ytQuery)}
-          placeholder="Apa yang ingin kamu putar?"
+          placeholder={tr(lang, 'nav.searchPlaceholder')}
           class="flex-1 min-w-0 bg-transparent border-0 outline-none ring-0 text-sm"
           style="color: var(--md-sys-color-on-surface);"
         />
@@ -1175,14 +1178,14 @@
                 {yt.title}
               </div>
               <div class="text-xs truncate mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-                Song • {yt.artist || 'YouTube Music'}
+                {tr(lang, 'nav.song')} • {yt.artist || 'YouTube Music'}
               </div>
             </div>
           </button>
           <button
             type="button"
             onclick={() => onSaveYTMusic(yt)}
-            aria-label="Simpan ke Library"
+            aria-label={tr(lang, 'nav.saveToLibrary')}
             class="w-9 h-9 rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
             style="color: var(--md-sys-color-on-surface-variant);"
           >
@@ -1225,7 +1228,7 @@
             class="p-6 rounded-xl text-xs flex items-center gap-2"
             style="background-color: var(--md-sys-color-surface-container-low); color: var(--md-sys-color-on-surface-variant);"
           >
-            <Icon name="disc" size={16} /> Tidak ada hasil album. Ketik kata kunci di kolom pencarian atas.
+            <Icon name="disc" size={16} /> {tr(lang, 'nav.noAlbumResultsHint')}
           </div>
         {:else}
           <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
@@ -1282,7 +1285,7 @@
             class="p-6 rounded-xl text-xs flex items-center gap-2"
             style="background-color: var(--md-sys-color-surface-container-low); color: var(--md-sys-color-on-surface-variant);"
           >
-            <Icon name="user" size={16} /> Tidak ada hasil artis. Ketik kata kunci di kolom pencarian atas.
+            <Icon name="user" size={16} /> {tr(lang, 'nav.noArtistResultsHint')}
           </div>
         {:else}
           <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
@@ -1301,7 +1304,7 @@
                   {/if}
                 </div>
                 <div class="text-sm font-semibold truncate" style="color: var(--md-sys-color-on-surface);">{card.title}</div>
-                <div class="text-xs truncate" style="color: var(--md-sys-color-on-surface-variant);">{card.subtitle || 'Artis'}</div>
+                <div class="text-xs truncate" style="color: var(--md-sys-color-on-surface-variant);">{card.subtitle || tr(lang, 'nav.artist')}</div>
               </button>
             {/each}
           </div>
@@ -1321,7 +1324,7 @@
             class="p-6 rounded-xl text-xs flex items-center gap-2"
             style="background-color: var(--md-sys-color-surface-container-low); color: var(--md-sys-color-on-surface-variant);"
           >
-            <Icon name="playlist" size={16} /> Tidak ada hasil playlist. Ketik kata kunci di kolom pencarian atas.
+            <Icon name="playlist" size={16} /> {tr(lang, 'nav.noPlaylistResultsHint')}
           </div>
         {:else}
           <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
@@ -1379,7 +1382,7 @@
           class="p-6 rounded-xl text-xs flex items-center gap-2"
           style="background-color: var(--md-sys-color-surface-container-low); color: var(--md-sys-color-on-surface-variant);"
         >
-          <Icon name="magnifying-glass" size={16} /> Ketik kata kunci di kolom pencarian atas untuk mencari lagu langsung dari YouTube Music.
+          <Icon name="magnifying-glass" size={16} /> {tr(lang, 'nav.searchYTHint')}
         </div>
       {:else}
         {@const topCover = resolveCoverUrl(topYTMatch.coverUrl, mediaBaseUrl)}
@@ -1391,7 +1394,7 @@
             <button
               type="button"
               onclick={() => (topActive && onTogglePlay ? onTogglePlay() : onPlayYTMusic(topYTMatch))}
-              aria-label={topActive && isPlaying ? `Jeda ${topYTMatch.title}` : `Putar ${topYTMatch.title}`}
+              aria-label={topActive && isPlaying ? `${tr(lang, 'nav.pause')} ${topYTMatch.title}` : `${tr(lang, 'nav.play')} ${topYTMatch.title}`}
               class="relative w-20 h-20 rounded-md overflow-clip shrink-0 bg-[var(--md-sys-color-surface-container-highest)] cursor-pointer"
             >
               <img
@@ -1411,7 +1414,7 @@
                 {topYTMatch.title}
               </button>
               <div class="text-sm truncate mt-1" style="color: var(--md-sys-color-on-surface-variant);">
-                Lagu • {topYTMatch.artist || 'YouTube Music'}
+                {tr(lang, 'nav.song')} • {topYTMatch.artist || 'YouTube Music'}
               </div>
             </div>
           </div>
@@ -1420,8 +1423,8 @@
             <button
               type="button"
               onclick={() => onSaveYTMusic(topYTMatch)}
-              title="Simpan ke Library"
-              aria-label="Simpan ke Library"
+              title={tr(lang, 'nav.saveToLibrary')}
+              aria-label={tr(lang, 'nav.saveToLibrary')}
               class="m3-icon-btn w-10 h-10 flex items-center justify-center cursor-pointer"
             >
               <Icon name="plus" weight="bold" size={18} />
@@ -1429,8 +1432,8 @@
             <button
               type="button"
               onclick={() => (topActive && onTogglePlay ? onTogglePlay() : onPlayYTMusic(topYTMatch))}
-              title={topActive && isPlaying ? 'Jeda' : 'Putar Sekarang'}
-              aria-label={topActive && isPlaying ? `Jeda ${topYTMatch.title}` : `Putar ${topYTMatch.title}`}
+              title={topActive && isPlaying ? tr(lang, 'nav.pause') : tr(lang, 'nav.playNow')}
+              aria-label={topActive && isPlaying ? `${tr(lang, 'nav.pause')} ${topYTMatch.title}` : `${tr(lang, 'nav.play')} ${topYTMatch.title}`}
               class="w-11 h-11 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer hover:brightness-105 transition-transform active:scale-95"
             >
               {#if topActive && isPlaying}
@@ -1457,7 +1460,7 @@
                   <button
                     type="button"
                     onclick={() => (ytActive && onTogglePlay ? onTogglePlay() : onPlayYTMusic(yt))}
-                    aria-label={ytActive && isPlaying ? `Jeda ${yt.title}` : `Putar ${yt.title}`}
+                    aria-label={ytActive && isPlaying ? `${tr(lang, 'nav.pause')} ${yt.title}` : `${tr(lang, 'nav.play')} ${yt.title}`}
                     class="relative w-12 h-12 rounded-md overflow-clip shrink-0 bg-[var(--md-sys-color-surface-container-high)] cursor-pointer"
                   >
                     <img
@@ -1485,7 +1488,7 @@
                   <button
                     type="button"
                     onclick={() => onDownloadYTMusic(yt)}
-                    title="Unduh untuk offline"
+                    title={tr(lang, 'nav.downloadOffline')}
                     class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer"
                   >
                     <Icon name="download" size={14} />
@@ -1494,7 +1497,7 @@
                 <button
                   type="button"
                   onclick={() => onSaveYTMusic(yt)}
-                  title="Simpan ke Library"
+                  title={tr(lang, 'nav.saveToLibrary')}
                   class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer"
                 >
                   <Icon name="plus" weight="bold" size={14} />
@@ -1502,8 +1505,8 @@
                 <button
                   type="button"
                   onclick={() => (ytActive && onTogglePlay ? onTogglePlay() : onPlayYTMusic(yt))}
-                  title={ytActive && isPlaying ? 'Jeda' : 'Putar Sekarang'}
-                  aria-label={ytActive && isPlaying ? `Jeda ${yt.title}` : `Putar ${yt.title}`}
+                  title={ytActive && isPlaying ? tr(lang, 'nav.pause') : tr(lang, 'nav.playNow')}
+                  aria-label={ytActive && isPlaying ? `${tr(lang, 'nav.pause')} ${yt.title}` : `${tr(lang, 'nav.play')} ${yt.title}`}
                   class="w-8 h-8 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer hover:brightness-105"
                 >
                   {#if ytActive && isPlaying}
@@ -1524,11 +1527,11 @@
 
     <section class="space-y-3">
       <h2 class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
-        Hasil di Library Velora ({searchMatchedLocal.length})
+        {tr(lang, 'nav.veloraLibraryResults')} ({searchMatchedLocal.length})
       </h2>
       {#if searchMatchedLocal.length === 0}
         <div class="p-6 rounded-lg text-xs flex items-center gap-2" style="background-color: var(--md-sys-color-surface-container-low); color: var(--md-sys-color-on-surface-variant);">
-          <Icon name="music-note" size={16} /> Tidak ditemukan lagu yang cocok di library tersimpan.
+          <Icon name="music-note" size={16} /> {tr(lang, 'nav.noLocalLibraryMatch')}
         </div>
       {:else}
         <TrackTable
@@ -1549,6 +1552,7 @@
           {onDownloadTrack}
           {onRemoveDownload}
           {onOpenTrackAlbum}
+          {lang}
         />
       {/if}
     </section>
