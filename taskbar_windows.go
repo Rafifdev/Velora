@@ -549,7 +549,6 @@ func loadCoverImage(coverURL string, artworkDir string) image.Image {
 		return nil
 	}
 
-	// Local artwork cache file
 	if idx := strings.Index(u, "/artwork/"); idx >= 0 && artworkDir != "" {
 		rel := strings.TrimPrefix(u[idx+len("/artwork/"):], "/")
 		if q := strings.IndexByte(rel, '?'); q >= 0 {
@@ -564,7 +563,6 @@ func loadCoverImage(coverURL string, artworkDir string) image.Image {
 		}
 	}
 
-	// Direct local file path
 	if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
 		if data, err := os.ReadFile(u); err == nil {
 			if img, _, err := image.Decode(bytes.NewReader(data)); err == nil {
@@ -574,7 +572,6 @@ func loadCoverImage(coverURL string, artworkDir string) image.Image {
 		return nil
 	}
 
-	// HTTP(S) cover URL
 	client := &http.Client{Timeout: 5 * time.Second}
 	req, err := http.NewRequest(http.MethodGet, u, nil)
 	if err != nil {
@@ -629,7 +626,6 @@ func buildThumbnailBitmap(src image.Image, w, h int) uintptr {
 		return hbmp
 	}
 
-	// 1. Cover-scale background across full w x h, then box-blur + darken so side edges blend seamlessly
 	bgBuf := make([]uint32, w*h)
 	scaleCoverW := w
 	scaleCoverH := w * sh / sw
@@ -654,7 +650,6 @@ func buildThumbnailBitmap(src image.Image, w, h int) uintptr {
 		}
 	}
 
-	// Fast separable box blur (radius 10, 2 passes) + 48% brightness tint for frosted glass look
 	tmpBuf := make([]uint32, w*h)
 	const radius = 10
 	for pass := 0; pass < 2; pass++ {
@@ -710,7 +705,6 @@ func buildThumbnailBitmap(src image.Image, w, h int) uintptr {
 		pixels[i] = (uint32(0xFF) << 24) | (r << 16) | (g << 8) | b
 	}
 
-	// 2. Fit crisp square album cover centered inside w x h
 	targetW := w
 	targetH := targetW * sh / sw
 	if targetH > h {
@@ -760,11 +754,9 @@ func createGlyphIcon(kind string) uintptr {
 
 	pixels := unsafe.Slice((*uint32)(bits), size*size)
 
-	// Sub-pixel 4x4 supersampling for crisp anti-aliased white icons
 	inside := func(x, y float64) bool {
 		switch kind {
 		case "play":
-			// Right-pointing triangle: x in [10, 24], y centered at 16
 			if x < 10 || x > 24 {
 				return false
 			}
@@ -816,7 +808,6 @@ func createGlyphIcon(kind string) uintptr {
 				}
 			}
 			alpha := uint32(hits * 255 / 16)
-			// Premultiplied white (R=G=B=alpha)
 			pixels[py*size+px] = (alpha << 24) | (alpha << 16) | (alpha << 8) | alpha
 		}
 	}

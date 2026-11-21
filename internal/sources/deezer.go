@@ -14,8 +14,6 @@ import (
 	"time"
 )
 
-// DeezerClient provides zero-config Hybrid Mode metadata from Deezer's Public API
-// while lazily resolving playable audio streams onto YouTube Music.
 type DeezerClient struct {
 	httpClient    *http.Client
 	mu            sync.RWMutex
@@ -255,8 +253,6 @@ func isBackgroundMusicName(s string) bool {
 	return false
 }
 
-// spreadAndShuffleTracks shuffles tracks, filters background/compilation spam,
-// caps tracks per artist, and schedules them so identical artists are never adjacent.
 func spreadAndShuffleTracks(tracks []YTMusicTrack, maxPerArtist int) []YTMusicTrack {
 	if len(tracks) <= 1 {
 		return tracks
@@ -336,7 +332,6 @@ func spreadAndShuffleTracks(tracks []YTMusicTrack, maxPerArtist int) []YTMusicTr
 		bestArtist := ""
 		bestCount := -1
 
-		// Prefer an artist not seen in the last 3 positions, with the most remaining items
 		for _, ar := range artists {
 			rem := len(byArtist[ar])
 			if rem == 0 {
@@ -354,7 +349,6 @@ func spreadAndShuffleTracks(tracks []YTMusicTrack, maxPerArtist int) []YTMusicTr
 				bestArtist = ar
 			}
 		}
-		// Fallback: at least avoid the immediately preceding artist
 		if bestArtist == "" {
 			last := ""
 			if len(recent) > 0 {
@@ -368,7 +362,6 @@ func spreadAndShuffleTracks(tracks []YTMusicTrack, maxPerArtist int) []YTMusicTr
 				}
 			}
 		}
-		// Last resort: any remaining artist
 		if bestArtist == "" {
 			for _, ar := range artists {
 				if len(byArtist[ar]) > 0 {
@@ -446,7 +439,6 @@ func (c *DeezerClient) fetchTopPlaylistTracks(ctx context.Context, queries []str
 	}
 	twg.Wait()
 
-	// Interleave playlist tracks for variety
 	var out []dzTrack
 	maxLen := 0
 	for _, b := range buckets {
@@ -527,7 +519,6 @@ func (c *DeezerClient) SearchTracks(ctx context.Context, query string) ([]YTMusi
 		}()
 		wg.Wait()
 
-		// Interleave playlist hits, Indonesian tracks, then Global chart
 		buckets := [][]dzTrack{plTracks, id1Tracks, chtTracks}
 		var interleaved []dzTrack
 		maxLen := 0
@@ -853,8 +844,6 @@ func (c *DeezerClient) SearchArtists(ctx context.Context, query string) ([]YTMus
 	return out, nil
 }
 
-// GetMoreArtists paginates through Deezer chart artists and genre artist lists
-// so "Load More" always returns real, unique artists on the first click.
 func (c *DeezerClient) GetMoreArtists(ctx context.Context, offset int, excludeBrowseIDs []string) ([]YTMusicCard, error) {
 	seen := make(map[string]struct{}, len(excludeBrowseIDs))
 	for _, id := range excludeBrowseIDs {
@@ -912,7 +901,6 @@ func (c *DeezerClient) GetMoreArtists(ctx context.Context, offset int, excludeBr
 		appendArtists(chartRes.Data)
 	}
 
-	// If chart pagination yielded fewer than 14 new singers, top up from Pop/R&B/Indie/Rock genre artists
 	genreIDs := []int{132, 165, 85, 116, 152, 113}
 	for i := 0; i < len(genreIDs) && len(out) < 14; i++ {
 		gid := genreIDs[(offset/28+i)%len(genreIDs)]
@@ -1168,9 +1156,6 @@ func (c *DeezerClient) GetHomeFeed(ctx context.Context) (YTMusicHomeFeed, error)
 	return YTMusicHomeFeed{Shelves: shelves, Tracks: tracks}, nil
 }
 
-// GetMoreTopSongs fetches genuine popular Top Songs from Deezer Global Charts,
-// curated Top Hits playlists, and Top Artists' top tracks, rotated by offset
-// and shuffled with no adjacent identical artists.
 func (c *DeezerClient) GetMoreTopSongs(ctx context.Context, offset int, excludeIDs []string, targetCount int) ([]YTMusicTrack, error) {
 	if targetCount <= 0 {
 		targetCount = 35
@@ -1286,8 +1271,6 @@ func (c *DeezerClient) GetMoreTopSongs(ctx context.Context, offset int, excludeI
 	return spread, nil
 }
 
-// GetRecommendedTracks builds a Spotify-style personalized + diverse track list
-// from user history seeds, related artists, and charts (max 1 per album, max 2 per artist).
 func (c *DeezerClient) GetRecommendedTracks(ctx context.Context, seeds []HistorySeed, excludeIDs []string, targetCount int) ([]YTMusicTrack, error) {
 	if targetCount <= 0 {
 		targetCount = 28
@@ -1300,7 +1283,6 @@ func (c *DeezerClient) GetRecommendedTracks(ctx context.Context, seeds []History
 		}
 	}
 
-	// Pick up to 4 distinct artist seeds from recent play history
 	var seedArtists []string
 	seenSeedArtist := make(map[string]struct{})
 	for _, s := range seeds {
@@ -1331,7 +1313,6 @@ func (c *DeezerClient) GetRecommendedTracks(ctx context.Context, seeds []History
 		popPool    []YTMusicTrack
 	)
 
-	// Fetch tracks for each seed artist (their top tracks + 1 related artist's top tracks)
 	for i, artistName := range seedArtists {
 		wg.Add(1)
 		go func(idx int, name string) {
@@ -1380,7 +1361,6 @@ func (c *DeezerClient) GetRecommendedTracks(ctx context.Context, seeds []History
 		}(i, artistName)
 	}
 
-	// Fetch diverse chart & Indonesian pop pools concurrently
 	wg.Add(3)
 	go func() {
 		defer wg.Done()
@@ -1404,7 +1384,6 @@ func (c *DeezerClient) GetRecommendedTracks(ctx context.Context, seeds []History
 		var res struct {
 			Data []dzTrack `json:"data"`
 		}
-		// Official Deezer Charts "Top Indonesia" playlist (ID 1116188761)
 		if err := c.apiGet(ctx, "/playlist/1116188761/tracks?limit=50", &res); err == nil && len(res.Data) > 0 {
 			var list []YTMusicTrack
 			for _, tr := range res.Data {
@@ -1419,7 +1398,6 @@ func (c *DeezerClient) GetRecommendedTracks(ctx context.Context, seeds []History
 	}()
 	go func() {
 		defer wg.Done()
-		// Popular Indonesian & English artists in Indonesia (curated rotating pool)
 		popArtists := []string{"Bernadya", "Hindia", "Tulus", "Juicy Luicy", "Mahalini", "Nadin Amizah", "LANY", "Bruno Mars", "Billie Eilish", "Sabrina Carpenter", "Taylor Swift", "The Weeknd"}
 		var list []YTMusicTrack
 		var pMu sync.Mutex
@@ -1455,7 +1433,6 @@ func (c *DeezerClient) GetRecommendedTracks(ctx context.Context, seeds []History
 	}()
 	wg.Wait()
 
-	// Interleave all buckets round-robin so every row is diverse
 	var allBuckets [][]YTMusicTrack
 	for _, b := range seedBuckets {
 		if len(b) > 0 {
@@ -1487,7 +1464,6 @@ func (c *DeezerClient) GetRecommendedTracks(ctx context.Context, seeds []History
 		}
 	}
 
-	// Enforce Spotify-style diversity: max 1 track per album, max 2 tracks per artist
 	out := make([]YTMusicTrack, 0, targetCount)
 	seenTitleArtist := make(map[string]struct{})
 	albumCount := make(map[string]int)
@@ -1530,7 +1506,6 @@ func (c *DeezerClient) GetRecommendedTracks(ctx context.Context, seeds []History
 		}
 		tryAdd(tr, true)
 	}
-	// If strict caps yielded fewer than targetCount, relax caps for remaining slots
 	if len(out) < targetCount {
 		for _, tr := range interleaved {
 			if len(out) >= targetCount {

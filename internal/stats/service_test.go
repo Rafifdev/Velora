@@ -34,21 +34,17 @@ func TestFireStreakAndListeningStats(t *testing.T) {
 	svc := NewService(store)
 	now := time.Date(2026, 11, 14, 21, 30, 0, 0, time.Local)
 
-	// Day -4 (broken gap before day -2)
 	if err := svc.RecordListen(tr1.ID, 660, true, now.AddDate(0, 0, -4)); err != nil {
 		t.Fatalf("record day-4: %v", err)
 	}
-	// Day -2: 3 tracks -> meets track goal (3)
 	for i := 0; i < 3; i++ {
 		if err := svc.RecordListen(tr1.ID, 60, true, now.AddDate(0, 0, -2)); err != nil {
 			t.Fatalf("record day-2: %v", err)
 		}
 	}
-	// Day -1: 650s -> meets minute goal (10m = 600s)
 	if err := svc.RecordListen(tr1.ID, 650, true, now.AddDate(0, 0, -1)); err != nil {
 		t.Fatalf("record day-1: %v", err)
 	}
-	// Today: 620s -> meets minute goal -> current streak should be 3, longest should be 3
 	if err := svc.RecordListen(tr1.ID, 620, true, now); err != nil {
 		t.Fatalf("record today: %v", err)
 	}
@@ -64,7 +60,6 @@ func TestFireStreakAndListeningStats(t *testing.T) {
 		t.Fatalf("expected 30 calendar days, got %d", len(streak.Last30Days))
 	}
 
-	// Test ListeningStats aggregation
 	ls, err := svc.GetListeningStats()
 	if err != nil {
 		t.Fatalf("get listening stats: %v", err)

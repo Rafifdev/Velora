@@ -252,7 +252,6 @@ func (c *YTMusicClient) Search(ctx context.Context, query string) ([]YTMusicTrac
 	return results, nil
 }
 
-// SearchPlaylists searches YouTube Music for playlists (featured & community).
 func (c *YTMusicClient) SearchPlaylists(ctx context.Context, query string) ([]YTMusicCard, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
@@ -290,7 +289,6 @@ func (c *YTMusicClient) SearchPlaylists(ctx context.Context, query string) ([]YT
 	return results, nil
 }
 
-// SearchAlbums searches YouTube Music for albums (plus new releases when query is empty/default).
 func (c *YTMusicClient) SearchAlbums(ctx context.Context, query string) ([]YTMusicCard, error) {
 	query = strings.TrimSpace(query)
 	var results []YTMusicCard
@@ -326,7 +324,6 @@ func (c *YTMusicClient) SearchAlbums(ctx context.Context, query string) ([]YTMus
 	return results, nil
 }
 
-// SearchArtists searches YouTube Music for artists (defaulting to Indonesian & English popular artists).
 func (c *YTMusicClient) SearchArtists(ctx context.Context, query string) ([]YTMusicCard, error) {
 	query = strings.TrimSpace(query)
 	queries := []string{query}
@@ -718,7 +715,6 @@ func (c *YTMusicClient) GetHomeFeed(ctx context.Context) (YTMusicHomeFeed, error
 	return feed, nil
 }
 
-// GetTop100Tracks fetches up to 100 top songs from YouTube Music (cached for 30 minutes).
 func (c *YTMusicClient) GetTop100Tracks(ctx context.Context) ([]YTMusicTrack, error) {
 	c.mu.RLock()
 	if len(c.top100Cache) > 0 && time.Now().Before(c.top100Expires) {
@@ -776,7 +772,6 @@ func (c *YTMusicClient) GetTop100Tracks(ctx context.Context) ([]YTMusicTrack, er
 	return results, nil
 }
 
-// GetTop100Recommended picks 10 random tracks from Top 100 YouTube Music and enriches their album metadata.
 func (c *YTMusicClient) GetTop100Recommended(ctx context.Context, excludeVideoIDs []string) ([]YTMusicTrack, error) {
 	all, err := c.GetTop100Tracks(ctx)
 	if err != nil {
@@ -827,7 +822,6 @@ type HistorySeed struct {
 	Artist  string
 }
 
-// GetHistoryBasedRecommended finds 10 genre-similar tracks using YouTube Music Radio ("next" RDAMVM) seeded from play history.
 func (c *YTMusicClient) GetHistoryBasedRecommended(ctx context.Context, seeds []HistorySeed, excludeVideoIDs []string) ([]YTMusicTrack, error) {
 	if len(seeds) == 0 {
 		return c.GetTop100Recommended(ctx, excludeVideoIDs)
@@ -1062,8 +1056,6 @@ func (c *YTMusicClient) GetCollectionTracks(ctx context.Context, browseID, playl
 
 var yearRegex = regexp.MustCompile(`\b(19|20)\d{2}\b`)
 
-// GetTrackAlbumDetail resolves the official YouTube Music album (MPREb_...) for a track
-// or browseId, returning its full tracklist and other albums by the same artist.
 func (c *YTMusicClient) GetTrackAlbumDetail(ctx context.Context, videoID, browseID, fallbackTitle, fallbackArtist, fallbackAlbum, fallbackCover string) (YTMusicAlbumDetail, error) {
 	albumBrowseID := strings.TrimSpace(browseID)
 	artistBrowseID := ""
@@ -1181,7 +1173,6 @@ func (c *YTMusicClient) GetTrackAlbumDetail(ctx context.Context, videoID, browse
 		}
 	}
 
-	// Fetch other albums from the same artist
 	var otherAlbums []YTMusicCard
 	seenAlbums := map[string]struct{}{}
 	if detail.BrowseID != "" {
@@ -1740,7 +1731,6 @@ func parseResponsiveListItem(r map[string]any) (YTMusicTrack, bool) {
 			title = extractColumnText(cols[0])
 		}
 		if len(cols) > 2 {
-			// Playlist / chart table layout: col 1 = artist(s), col 2 = album or play count
 			col1Text := strings.TrimSpace(extractColumnText(cols[1]))
 			if col1Text != "" {
 				artist = col1Text
@@ -2028,7 +2018,6 @@ func (c *YTMusicClient) ResolveStreamWindow(ctx context.Context, videoID, qualit
 		c.mu.RUnlock()
 	}
 
-	// Try InnerTube ANDROID / IOS / ANDROID_VR player clients first
 	if info, err := c.resolveViaInnerTube(ctx, videoID, quality, startTimeSecs); err == nil && info.URL != "" {
 		if startTimeSecs <= 0 {
 			c.mu.Lock()
@@ -2045,7 +2034,6 @@ func (c *YTMusicClient) ResolveStreamWindow(ctx context.Context, videoID, qualit
 		return info, nil
 	}
 
-	// Fallback to yt-dlp if installed on PATH
 	if ytdlpPath, err := exec.LookPath("yt-dlp"); err == nil {
 		cmdCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
@@ -2221,8 +2209,7 @@ func (c *YTMusicClient) resolveViaInnerTube(ctx context.Context, videoID, qualit
 					score += 40_000
 				}
 			} else {
-				// High quality: prioritize Opus (itag 251 / ~160kbps VBR 48kHz) or high-bitrate AAC (itag 141)
-				// Opus at 160kbps VBR provides superior high-frequency clarity & stereo imaging over 128kbps AAC.
+				// Prefer Opus 160kbps (itag 251) or AAC 256kbps (itag 141)
 				if isOpus {
 					score += 120_000
 					if f.Itag == 251 {
@@ -2267,7 +2254,6 @@ func (c *YTMusicClient) resolveViaInnerTube(ctx context.Context, videoID, qualit
 	return StreamInfo{}, lastErr
 }
 
-// GetLyricsByVideoID fetches official YouTube Music lyrics via InnerTube next -> browse (MPLYt_...).
 func (c *YTMusicClient) GetLyricsByVideoID(ctx context.Context, videoID string) (string, bool) {
 	vid := strings.TrimSpace(videoID)
 	if vid == "" {

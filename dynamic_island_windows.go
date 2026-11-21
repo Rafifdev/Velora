@@ -34,8 +34,6 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-// Embedded Poppins TrueType fonts extracted from @fontsource/poppins
-//
 //go:embed internal/assets/fonts/Poppins-Regular.ttf
 var poppinsRegularTTF []byte
 
@@ -45,8 +43,6 @@ var poppinsSemiBoldTTF []byte
 //go:embed internal/assets/fonts/Poppins-Bold.ttf
 var poppinsBoldTTF []byte
 
-// Embedded Phosphor Icons TrueType fonts matching the Velora app
-//
 //go:embed internal/assets/fonts/Phosphor.ttf
 var phosphorRegularTTF []byte
 
@@ -86,7 +82,6 @@ type DynamicIslandSyncPayload struct {
 }
 
 const (
-	// Logical dp canvas size (fits dynamic closed lyrics + 520dp lyrics notch + 272dp queue notch + ears)
 	diLogicalW = 640
 	diLogicalH = 280
 
@@ -396,7 +391,6 @@ type diSpDevInfoData struct {
 	Reserved  uintptr
 }
 
-// Velora Brand Color Palette (synced with active theme & album cover)
 type veloraBrandPalette struct {
 	BgDeep       color.RGBA // #090A0C
 	BgSurface    color.RGBA // #101113
@@ -430,19 +424,16 @@ type dynamicIslandController struct {
 	dragStartY   int
 	lastHWheelAt time.Time
 
-	// Physical DPI scaling (e.g. 1.25 on 120 DPI display)
 	dpiScale float64
 	physW    int
 	physH    int
 
-	// Embedded Poppins & Phosphor GDI+ Font Collection & Families
 	fontColl        uintptr
 	famRegular      uintptr // "Poppins" (Regular 0, Bold 1)
 	famSemiBold     uintptr // "Poppins SemiBold" (Regular 0)
 	famPhosphorReg  uintptr // "Phosphor"
 	famPhosphorFill uintptr // "Phosphor-Fill"
 
-	// Direct2D + DirectWrite HD ClearType text renderer (with GDI+ fallback)
 	d2dFactory      uintptr
 	d2dDCRT         uintptr
 	d2dBrush        uintptr
@@ -453,7 +444,6 @@ type dynamicIslandController struct {
 	d2dAlphaScratch []byte
 	lang            string
 
-	// Exact CSS transition state
 	lyricsOpen           bool
 	queueOpen            bool
 	headphonesOpen       bool
@@ -550,7 +540,6 @@ type dynamicIslandController struct {
 	lastActivityAt       time.Time
 	hideLineProg         float64
 
-	// Real-time Velora playback & brand state
 	title         string
 	artist        string
 	album         string
@@ -569,7 +558,6 @@ type dynamicIslandController struct {
 	streakDays    int
 	lyricsLoading bool
 
-	// Real-time Windows Audio / Bluetooth / Network hardware state
 	audioDeviceName string
 	audioConnType   string // "bluetooth", "wired", "speaker"
 	btBatteryPct    int    // -1 if wired/speakers, 0..100 if Bluetooth hands-free battery reported
@@ -631,7 +619,6 @@ func nusaModeDims(mode string) (w, h, r, e float64) {
 	}
 }
 
-// Analytical CSS cubic-bezier(x1, y1, x2, y2) evaluator using Newton-Raphson
 func evalCubicBezier(x1, y1, x2, y2, t float64) float64 {
 	if t <= 0 {
 		return 0
@@ -1090,10 +1077,8 @@ func resolveMonitorRect(useCursor bool) (left, top, width int) {
 	if useCursor {
 		var pt diPoint
 		_, _, _ = diProcGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
-		// MONITOR_DEFAULTTONEAREST = 2
 		hMon, _, _ = diProcMonitorFromPoint.Call(uintptr(pt.X), uintptr(pt.Y), 2)
 	} else {
-		// MONITOR_DEFAULTTOPRIMARY = 1
 		hMon, _, _ = diProcMonitorFromPoint.Call(0, 0, 1)
 	}
 	if hMon != 0 {
@@ -1489,7 +1474,6 @@ func (a *App) updateDynamicIslandState(title, artist, coverURL string, isPlaying
 	}
 }
 
-// Query real Windows Audio Output Device & Bluetooth Hands-Free Battery Percentage
 func (c *dynamicIslandController) pollAudioHardware(allowAutoPopup bool) {
 	now := time.Now()
 	c.mu.Lock()
@@ -1512,7 +1496,6 @@ func (c *dynamicIslandController) pollAudioHardware(allowAutoPopup bool) {
 	connType := "speaker"
 	isBt := false
 
-	// 1. Check active waveOut audio device 0 (primary active Windows output endpoint)
 	numDevs, _, _ := diProcWaveOutGetNumDevs.Call()
 	if numDevs > 0 {
 		var caps diWaveOutCapsW
@@ -1533,7 +1516,7 @@ func (c *dynamicIslandController) pollAudioHardware(allowAutoPopup bool) {
 		}
 	}
 
-	// 2. Query Bluetooth Battery via SetupAPI (DEVPKEY_Bluetooth_Battery {104EA319-6EE2-4701-BD47-8DDBF425BBE5}, pid 2)
+	// DEVPKEY_Bluetooth_Battery {104EA319-6EE2-4701-BD47-8DDBF425BBE5} pid 2
 	btBat, btFriendly := queryBluetoothAudioBattery()
 	if btBat >= 0 && btBat <= 100 {
 		isBt = true
@@ -1546,7 +1529,6 @@ func (c *dynamicIslandController) pollAudioHardware(allowAutoPopup bool) {
 		devName = "Speakers (System Audio)"
 	}
 
-	// 3. Query Windows System/Laptop Battery via GetSystemPowerStatus
 	sysBat := -1
 	type systemPowerStatus struct {
 		ACLineStatus        byte
@@ -1606,7 +1588,6 @@ func queryWifiConnected() bool {
 	if num == 0 {
 		return false
 	}
-	// WLAN_INTERFACE_INFO_LIST header is 8 bytes; each WLAN_INTERFACE_INFO has 16-byte GUID + 512-byte WCHAR[256] + 4-byte state
 	for i := uint32(0); i < num && i < 8; i++ {
 		itemPtr := pList + 8 + uintptr(i)*(16+512+4)
 		state := *(*uint32)(unsafe.Pointer(itemPtr + 16 + 512))
@@ -1696,7 +1677,6 @@ foreach ($r in $radios) {
 }
 
 func cleanAudioDeviceName(raw string) string {
-	// e.g. "Headphones (soundcore R50i)" -> "soundcore R50i" or "Speakers (Senary Audio)" -> "Senary Audio Speakers"
 	if idx := strings.Index(raw, "("); idx != -1 {
 		prefix := strings.TrimSpace(raw[:idx])
 		inner := strings.TrimSpace(raw[idx+1:])
@@ -1718,7 +1698,6 @@ func cleanAudioDeviceName(raw string) string {
 
 func queryBluetoothAudioBattery() (int, string) {
 	enumStr, _ := windows.UTF16PtrFromString("BTHENUM")
-	// DIGCF_PRESENT (0x02) | DIGCF_ALLCLASSES (0x04)
 	hDev, _, _ := diProcSetupDiGetClassDevsW.Call(0, uintptr(unsafe.Pointer(enumStr)), 0, 0x02|0x04)
 	if hDev == 0 || hDev == ^uintptr(0) {
 		return -1, ""
@@ -1820,17 +1799,15 @@ func isForegroundFullscreen(islandHwnd uintptr) bool {
 	}
 	var qState uint32
 	if hr, _, _ := diProcSHQueryUserNotificationState.Call(uintptr(unsafe.Pointer(&qState))); hr == 0 {
-		// 3 = QUNS_RUNNING_D3D_FULL_SCREEN (Valorant/D3D games), 4 = QUNS_PRESENTATION_MODE
+		// 3 = D3D fullscreen, 4 = presentation mode
 		if qState == 3 || qState == 4 {
 			return true
 		}
 	}
-	// GWL_STYLE = -16; WS_CAPTION = 0x00C00000
 	gwlStyle := int32(-16)
 	style, _, _ := diProcGetWindowLongW.Call(fg, uintptr(uint32(gwlStyle)))
 	const wsCaption = 0x00C00000
 	if (uint32(style) & wsCaption) == wsCaption {
-		// Maximized normal/browser window (even with auto-hide taskbar) still has WS_CAPTION -> not true fullscreen
 		return false
 	}
 	var winRect diRect
@@ -1838,7 +1815,6 @@ func isForegroundFullscreen(islandHwnd uintptr) bool {
 	if okR == 0 {
 		return false
 	}
-	// MONITOR_DEFAULTTONEAREST = 2
 	hMon, _, _ := diProcMonitorFromWindow.Call(fg, 2)
 	if hMon == 0 {
 		return false
@@ -1883,9 +1859,6 @@ func shouldDynamicIslandShow(islandHwnd uintptr) bool {
 		return true
 	}
 	fg, _, _ := diProcGetForegroundWindow.Call()
-	// Show whenever Velora is not the active foreground window (e.g. user switched apps/tabs)
-	// Keep visible if the Dynamic Island overlay itself received focus/click.
-	// Do not pop up when the user only clicked the Windows Taskbar/Tray while Velora is still open.
 	if fg != 0 && fg != tb.hwnd && fg != islandHwnd {
 		var clsBuf [128]uint16
 		n, _, _ := diProcGetClassNameW.Call(fg, uintptr(unsafe.Pointer(&clsBuf[0])), uintptr(len(clsBuf)))
@@ -1903,7 +1876,6 @@ func shouldDynamicIslandShow(islandHwnd uintptr) bool {
 
 func getWindowsFormattedTime() string {
 	var buf [64]uint16
-	// LOCALE_NAME_USER_DEFAULT = 0, TIME_NOSECONDS = 0x00000002
 	n, _, _ := diProcGetTimeFormatEx.Call(0, 2, 0, 0, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
 	if n > 1 {
 		s := strings.TrimSpace(windows.UTF16ToString(buf[:n]))
@@ -2198,7 +2170,6 @@ func (c *dynamicIslandController) runWindowLoop() {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
-	// Enable Per-Monitor V2 DPI Awareness on this thread so Windows never bitmap-stretches our window!
 	_, _, _ = diProcSetThreadDpiAwarenessContext.Call(^uintptr(3)) // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 (-4)
 
 	u := queryMonitorDpiScale()
@@ -3180,12 +3151,10 @@ func (c *dynamicIslandController) hitTestLocked(mxPhys, myPhys int) (int, float6
 		return diHitBody, 0, -1
 	}
 
-	// Circular Album art (left:22, top:33, 46x46) -> click to unminimize Velora
 	if rx >= 20 && rx <= 70 && ry >= 31 && ry <= 81 {
 		return diHitArt, 0, -1
 	}
 
-	// Page dots at bottom (y=169) — 3 slide pages (0: Music/Lyrics, 1: Queue, 2: Headphones)
 	if mode == diModeMusic && ry >= 157 && ry <= 180 && rx >= 186 && rx <= 234 {
 		rel := rx - 192
 		idx := int(rel / 12.0)
@@ -3208,7 +3177,6 @@ func (c *dynamicIslandController) hitTestLocked(mxPhys, myPhys int) (int, float6
 	}
 
 	if mode == diModeMusic {
-		// Row 1 Right: System Connectivity Icons (Wi-Fi, GPS, Bluetooth)
 		if math.Hypot(rx-344, ry-18) <= 11 {
 			return diHitWifi, 0, -1
 		}
@@ -3218,18 +3186,15 @@ func (c *dynamicIslandController) hitTestLocked(mxPhys, myPhys int) (int, float6
 		if math.Hypot(rx-392, ry-18) <= 11 {
 			return diHitBt, 0, -1
 		}
-		// Top-right 2 circular quick buttons (y=56): Love (342, 56) & Headphones (383, 56)
 		if math.Hypot(rx-342, ry-56) <= 17 {
 			return diHitFav, 0, -1
 		}
 		if math.Hypot(rx-383, ry-56) <= 17 {
 			return diHitArrow, 0, -1
 		}
-		// Seek bar (22..398, y=98)
 		if ry >= 88 && ry <= 108 && rx >= 22 && rx <= 398 {
 			return diHitSeek, clamp01((rx - 22) / 376.0), -1
 		}
-		// Bottom 5 circular controls (y=134)
 		if ry >= 114 && ry <= 152 {
 			if math.Hypot(rx-41, ry-134) <= 19 {
 				return diHitBubble, 0, -1
@@ -3535,7 +3500,6 @@ func (c *dynamicIslandController) tickAndRender() {
 	c.curR = c.fromR + (c.toR-c.fromR)*reEase
 	c.curE = c.fromE + (c.toE-c.fromE)*reEase
 
-	// Immediate/short-hold (~180ms) drag activation + keep island inside screen edges when expanding
 	var promoteMoveCur uintptr
 	if c.holdPending && !c.winDragActive {
 		u := c.dpiScale
@@ -3557,7 +3521,6 @@ func (c *dynamicIslandController) tickAndRender() {
 			promoteMoveCur = c.cursorMove
 		}
 	}
-	// dt-normalized smooth liquid glide (jitter-free across SetTimer intervals, zero bounce-back)
 
 	uVal := c.dpiScale
 	if c.sizeScale > 0 {
@@ -3621,7 +3584,6 @@ func (c *dynamicIslandController) tickAndRender() {
 		c.curE += absSkew * 0.22
 	}
 
-	// Verify hover reliably using screen cursor coords to prevent corner SetWindowPos flicker
 	if c.hovered && !c.winDragActive && !c.holdPending && c.winShown {
 		var ptHover diPoint
 		_, _, _ = diProcGetCursorPos.Call(uintptr(unsafe.Pointer(&ptHover)))
@@ -3650,7 +3612,6 @@ func (c *dynamicIslandController) tickAndRender() {
 		}
 	}
 
-	// Recompute docked target after liquid stretch so glued corner never detaches
 	nxBasePost := (float64(diLogicalW) - c.curW) / 2.0
 	if c.dockSide < 0 {
 		c.winXFloat = float64(c.screenLeft - int(math.Round(nxBasePost*uVal)))
@@ -3662,7 +3623,6 @@ func (c *dynamicIslandController) tickAndRender() {
 		c.winX = newWinX
 	}
 
-	// Smoothly dock left/right notch edges when flush against screen corners (notch mode only)
 	if c.pillMode {
 		c.dockLeftProg = 0
 		c.dockRightProg = 0
@@ -3830,7 +3790,6 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	easeAppear := nusaCssEase(appear)
 	h := c.curH * easeAppear
 	r := math.Min(c.curR, h)
-	// Scale concave ears proportionally as h shrinks so no black side-ear artifacts ever linger!
 	e := c.curE * clamp01(h/math.Max(1.0, c.curH))
 	if h < 1.5 {
 		e = 0
@@ -3918,7 +3877,6 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	showProgress := c.showProgress
 	progressStyle := c.progressStyle
 	if pillMode && easeAppear < 0.999 {
-		// Slide floating pill smoothly up to & past the top edge of the screen as it hides
 		slideUp := (1.0 - easeAppear) * (float64(c.winY) + c.curH*u*0.55)
 		curWinY = int(math.Round(float64(c.winY) - slideUp))
 	}
@@ -3991,18 +3949,15 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	eR := e * (1.0 - dockRightProg)
 	eBotR := e * dockRightProg
 
-	// 1. Draw Velora Obsidian Carbon Notch / Floating Pill Shape + Brand Ambient Gradients
 	if mode == diModeFullscreenHide {
 		maxAlpha := 255.0 * clamp01(float64(opacityPct)/100.0)
 		if easeAppear < 0.45 {
 			maxAlpha *= clamp01(easeAppear / 0.45)
 		}
 		if h > 10.0 {
-			// Still shrinking from open Dynamic Island: shrink & fade out the normal dark notch
 			drawVeloraNotchShapePhys(pix, physW, physH, nx*u, w*u, h*u, rL*u, eL*u, eBotL*u, rR*u, eR*u, eBotR*u, pillMode, pal)
 			maxAlpha *= clamp01((h - 10.0) / 22.0)
 		} else {
-			// Notch finished disappearing: animate in/out the sleek thin hide line at the top edge
 			lineEase := nusaCssEase(clamp01(hideLineProg))
 			lineOp := lineEase * 0.90
 			lineW := w * (0.62 + 0.38*lineEase)
@@ -4050,7 +4005,6 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	mapW := func(lw float64) float64 { return lw * contentScaleX * u }
 	mapH := func(lh float64) float64 { return lh * contentScaleY * u }
 
-	// 2. Open GDI+ High-Quality Graphics Context for Vector Icons, Rings, and Poppins Typography
 	var g uintptr
 	_, _, _ = diProcGdipCreateFromHDC.Call(c.memDC, uintptr(unsafe.Pointer(&g)))
 	if g == 0 {
@@ -4079,7 +4033,6 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 		leftCov := int(math.Round((nx+20.0)*u - float64(miniPx)/2.0))
 		cyExact := float64(topCov) + float64(miniPx)/2.0
 
-		// Left (cx = nx + 20): Circular Song Artwork (exact miniPx height)
 		miniArt := coverImgMini
 		isFallbackMini := false
 		if miniArt == nil {
@@ -4092,7 +4045,6 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 				c.drawPhosphorGlyphGdip(g, false, 0xE33C, (nx+20.0)*u, cyExact, 11.0*u, rgbaToARGB(pal.TextVariant, 0.55))
 			}
 		}
-		// Right (cx = nx + w - 20): Circular Progress Ring with exact same pixel height (miniPx)
 		if showProgress {
 			ringProg := progRatio
 			if ringProg < 0.02 && playing {
@@ -4106,7 +4058,6 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 
 	case diModeHeadphones:
 		if contentOp > 0.02 {
-			// Row 1 Right: Live System Connectivity Icons (Wi-Fi, GPS, Bluetooth) - static X
 			if showStatus {
 				c.drawSystemStatusIconsGdip(g, mapXStatic(w-76), mapXStatic(w-52), mapXStatic(w-28), mapY(18), u, wifiOn, gpsOn, btOn, hoverZone, contentOp, pal)
 			}
@@ -4134,7 +4085,6 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 				}
 			}
 
-			// Nusa-style Active Device Summary (click anywhere on row to toggle dropdown)
 			if hoverZone == diHitHpToggle {
 				drawFilledPillGdip(g, mapX(18), mapY(32), mapW(384), mapH(52), 12.0*u, rgbaToARGB(color.RGBA{R: 0x1C, G: 0x20, B: 0x26, A: 255}, 0.60*contentOp))
 			}
@@ -4157,7 +4107,6 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 				rgbaToRGBHex(pal.Accent), rgbaToARGB(pal.Accent, 0.22))
 			c.drawPhosphorGlyphGdip(g, false, activeGlyph, mapX(40), mapY(58), 14.5*u, rgbaToARGB(pal.TextMain, contentOp))
 
-			// Right side: borderless headset icon as dropdown toggle indicator (orange when hovered/open)
 			hpCol := pal.TextMain
 			hpSize := 19.5 + 1.8*hpListProg
 			if hoverZone == diHitHpToggle || hpListOpen {
@@ -4170,12 +4119,10 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 
 			others := diOtherAudioIndices(outputs)
 			if hpListProg > 0.01 && len(others) > 0 {
-				// Short centered orange pill divider (exact 16x4 dp size matching active page dot) with top/bottom breathing space
 				listEase := nusaCssEase(hpListProg)
 				divW := 16.0 * listEase
 				drawFilledPillGdip(g, mapX(210.0-divW/2.0), mapY(91.0)-2.0*u, mapW(divW), 4.0*u, 2.0*u, rgbaToARGB(pal.Accent, listEase*contentOp))
 
-				// Clip animated dropdown rows cleanly below divider
 				_, _, _ = diProcGdipSetClipRect.Call(
 					g,
 					uintptr(math.Float32bits(float32(mapX(14)))),
@@ -4209,7 +4156,6 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 						iconGlyph = 0xE2A6
 					}
 
-					// Inactive device: empty muted ring + greyish icon
 					drawPkRingGdip(g, mapX(40), mapY(cy), 14.5*u, 2.8*u, 0.0, rowOp,
 						rgbaToRGBHex(pal.TextVariant), rgbaToARGB(pal.TextVariant, 0.24))
 					iconCol := pal.TextVariant
@@ -4220,7 +4166,6 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 					}
 					c.drawPhosphorGlyphGdip(g, false, iconGlyph, mapX(40), mapY(cy), 14.5*u, rgbaToARGB(iconCol, iconOp))
 
-					// Right-side unselected radio circle (muted grey)
 					radioCol := pal.TextVariant
 					radioAlpha := 0.35 * rowOp
 					if rowHovered {
@@ -4239,12 +4184,10 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 
 	case diModeMusic:
 		if contentOp > 0.02 {
-			// Row 1 Right: Live System Connectivity Icons (Wi-Fi, GPS, Bluetooth) - static X
 			if showStatus {
 				c.drawSystemStatusIconsGdip(g, mapXStatic(344), mapXStatic(368), mapXStatic(392), mapY(18), u, wifiOn, gpsOn, btOn, hoverZone, contentOp, pal)
 			}
 
-			// Row 2 Left: Square Rounded Album Art (left:22, top:33, 46x46, radius:8dp)
 			art := coverImg
 			isFallbackArt := false
 			if art == nil {
@@ -4259,7 +4202,6 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 				drawRoundedRectStrokeGdip(g, mapX(22), mapY(33), mapW(46), mapH(46), 8.0*u, 1.0*u, rgbaToARGB(pal.TextMain, 0.14*contentOp))
 			}
 
-			// Row 2 Right: 2 Circular Quick Action Buttons (Love + Headphones)
 			if showHeart {
 				drawCircleButtonBgGdip(g, mapX(342), mapY(56), 16.5*u, hoverZone == diHitFav, false, contentOp, pal)
 				favCol := pal.TextVariant
@@ -4278,12 +4220,10 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 			}
 			c.drawPhosphorGlyphGdip(g, false, 0xE2A6, mapX(383), mapY(56), 16.5*u, rgbaToARGB(hpCol, contentOp))
 
-			// Row 3: Full-width Seekbar (left:22, top:98, width:376, height:4.5)
 			if showProgress {
 				drawVeloraProgressBarGdip(g, mapX(22), mapY(98), mapW(376), 4.5*u, progRatio, hoverZone == diHitSeek, hoverRatio, contentOp, progressStyle, playing, now, u, pal)
 			}
 
-			// Row 4: 5 Control Buttons at y=134 (Lyric, Prev, Play, Next, Queue)
 			if showLyric {
 				drawCircleButtonBgGdip(g, mapX(41), mapY(134), 17.5*u, hoverZone == diHitBubble, false, contentOp, pal)
 				micCol := pal.TextMain
@@ -4300,7 +4240,6 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 			}
 			c.drawPhosphorGlyphGdip(g, true, 0xE5A4, mapX(162), mapY(134), 18.0*u, rgbaToARGB(prevCol, contentOp))
 
-			// Main Play/Pause Button: App .m3-fab (tertiary #FF9E64 background + #341100 icon)
 			playBg := pal.Accent
 			if hoverZone == diHitPlay {
 				playBg = lerpColor(pal.Accent, color.RGBA{R: 255, G: 255, B: 255, A: 255}, 0.14)
@@ -4327,7 +4266,6 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 			}
 			c.drawPhosphorGlyphGdip(g, false, 0xE6AC, mapX(379), mapY(134), 17.5*u, rgbaToARGB(qCol, contentOp))
 
-			// 4 Interactive Page Dots at (210, 169) with generous top spacing
 			if showDots {
 				drawVelora5DotsGdip(g, mapX(210), mapY(169), u, 0, hoverZone, contentOp, pal)
 			}
@@ -4335,7 +4273,6 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 
 	case diModeLyrics:
 		if contentOp > 0.02 {
-			// Row 1 Right: Live System Connectivity Icons (Wi-Fi, GPS, Bluetooth) - static X
 			if showStatus {
 				c.drawSystemStatusIconsGdip(g, mapXStatic(w-76), mapXStatic(w-52), mapXStatic(w-28), mapY(18), u, wifiOn, gpsOn, btOn, hoverZone, contentOp, pal)
 			}
@@ -4392,18 +4329,15 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 				drawVelora5DotsGdip(g, mapX(132), mapY(169), u, 0, hoverZone, contentOp, pal)
 			}
 
-			// Right Half: 1:1 Velora App Lyrics Card (aligned pixel-perfectly with left side: top=33, bottom=151.5)
 			drawFilledPillGdip(g, mapX(250), mapY(33), mapW(254), mapH(118.5), 10.0*u, rgbaToARGB(pal.PrimaryDim, 0.94*contentOp))
 		}
 
 	case diModeQueue:
 		if contentOp > 0.02 {
-			// Row 1 Right: Live System Connectivity Icons (Wi-Fi, GPS, Bluetooth) - static X
 			if showStatus {
 				c.drawSystemStatusIconsGdip(g, mapXStatic(w-76), mapXStatic(w-52), mapXStatic(w-28), mapY(18), u, wifiOn, gpsOn, btOn, hoverZone, contentOp, pal)
 			}
 
-			// Row 2: Shuffle (38, 54) & Play/Pause (385.5, 54)
 			drawCircleButtonBgGdip(g, mapX(38), mapY(54), 16.5*u, hoverZone == diHitShuffle, shuffle, contentOp, pal)
 			shufCol := pal.TextMain
 			if shuffle {
@@ -4425,7 +4359,6 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 			onTertiaryQ := color.RGBA{R: 0x34, G: 0x11, B: 0x00, A: 255}
 			c.drawPhosphorGlyphGdip(g, true, qPlayGlyph, mapX(385.5), mapY(54), 15.5*u, rgbaToARGB(onTertiaryQ, contentOp))
 
-			// Row 3..N: Smooth Inner Scroll Queue Viewport (y = 78..242)
 			const qViewTop = 78.0
 			const qViewBot = 242.0
 			clipTopPx := int(math.Round(mapY(qViewTop)))
@@ -4452,7 +4385,6 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 				isCur := itemIdx == qIndex
 				rowHovered := (hoverZone == diHitQueueRow || hoverZone == diHitQueueFav) && hoverQueueIdx == itemIdx
 
-				// Unified Row Container (like Velora Track Table Row)
 				rowBg := color.RGBA{R: 0x14, G: 0x16, B: 0x18, A: 255}
 				rowAlpha := 0.85 * contentOp
 				if isCur {
@@ -4464,7 +4396,6 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 				}
 				drawFilledPillGdip(g, mapX(18), mapY(cy-24), mapW(374), mapH(48), 10.0*u, rgbaToARGB(rowBg, rowAlpha))
 
-				// Square Rounded 38x38 thumbnail (6dp radius) inside the row
 				c.mu.Lock()
 				qArt := c.queueArtCache[item.CoverURL]
 				if qArt == nil && item.CoverURL != "" && !c.queueArtPend[item.CoverURL] {
@@ -4488,7 +4419,6 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 						c.drawPhosphorGlyphGdip(g, false, 0xE33C, mapX(44), mapY(cy), 16.0*u, rgbaToARGB(pal.TextVariant, 0.50*contentOp))
 					}
 				}
-				// On current track: dark translucent overlay aligned pixel-exact with qArt + centered Pause/Play glyph
 				if isCur {
 					artX := int(math.Round(mapX(25)))
 					ovW := mapW(38)
@@ -4505,7 +4435,6 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 					c.drawPhosphorGlyphGdip(g, true, gRune, float64(artX)+ovW/2.0, mapY(cy), 15.0*u, rgbaToARGB(pal.TextMain, contentOp))
 				}
 
-				// Heart (Love) icon directly inside the same row container at (372, cy)
 				qFavCol := pal.TextVariant
 				if item.IsFavorite {
 					qFavCol = pal.Accent
@@ -4520,7 +4449,6 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 				go c.loadQueueArtAsync(lURL)
 			}
 
-			// Slim Inner Scrollbar at x=398.5 (right edge 402dp = symmetric 18dp margin) when queue > 3 items
 			if len(qItems) > 3 {
 				trackTop := 82.0
 				trackH := 156.0
@@ -4537,14 +4465,12 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 				drawFilledPillGdip(g, mapX(398.5), mapY(thumbY), mapW(3.5), mapH(thumbH), 1.75*u, rgbaToARGB(thumbCol, thumbAlpha))
 			}
 
-			// 3 Interactive Page Dots at (210, 260)
 			if showDots {
 				drawVelora5DotsGdip(g, mapX(210), mapY(260), u, 1, hoverZone, contentOp, pal)
 			}
 		}
 	}
 
-	// 3. Draw Poppins Typography via Direct2D + DirectWrite ClearType (fallback to GDI+ if unavailable)
 	if !c.drawVeloraTextD2D(
 		pix, physW, physH, nx, w, h, u, mode, contentOp, mapX, mapXStatic, mapY, mapW, mapH,
 		title, artist, pos, dur, playing, lyricsOpen, vol, muted, eqPreset, streakDays,
@@ -4561,19 +4487,16 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 		)
 	}
 
-	// 4. Per-pixel smooth top/bottom scroll fade for Queue list (fades rows, thumbnails & text without banding)
 	if mode == diModeQueue && contentOp > 0.02 && len(qItems) > 0 {
 		maxScrollDp := math.Max(0.0, float64(len(qItems))*54.0-162.0)
 		drawQueueScrollFadePhys(pix, physW, physH, mapX(14), mapW(382), mapY(78), mapY(242), u, qScrollDp, maxScrollDp, contentOp, pal)
 	}
 
-	// 5. Per-pixel smooth black edge gradient (zero banding/lines) + borderless gray edge nav button
 	if (edgeLeftProg > 0.02 || edgeRightProg > 0.02) && (mode == diModeMusic || mode == diModeLyrics || mode == diModeQueue || mode == diModeHeadphones) {
 		drawEdgeGradientPhys(pix, physW, physH, nx*u, w*u, h*u, u, curPage, edgeLeftProg, edgeRightProg, contentOp, pal)
 		c.drawEdgePeekGdip(g, nx, w, h, u, curPage, edgeLeftProg, edgeRightProg, contentOp, pal)
 	}
 
-	// 6. Clip outside the notch / pill SDF
 	clipOutsideNotchPhys(pix, physW, physH, nx*u, w*u, h*u, rL*u, eL*u, eBotL*u, rR*u, eR*u, eBotR*u, pillMode, pal.TextOutline)
 
 	sizeDst := diSize{Cx: int32(physW), Cy: int32(physH)}
@@ -4616,19 +4539,16 @@ func rgbaToRGBHex(c color.RGBA) uint32 {
 	return (uint32(c.R) << 16) | (uint32(c.G) << 8) | uint32(c.B)
 }
 
-// Velora Official V-Sonic Brand Emblem (1:1 vector match with velora-logo-light.svg)
 func drawVeloraLogoGdip(g uintptr, cx, cy, size float64, pal veloraBrandPalette, op float64) {
 	s := size / 512.0
 	ox := cx - size/2.0
 	oy := cy - size/2.0
 
-	// 1. Concentric Arc Earcups (#FF9E64)
 	var penAccent uintptr
 	_, _, _ = diProcGdipCreatePen1.Call(uintptr(rgbaToARGB(pal.Accent, op)), uintptr(math.Float32bits(float32(math.Max(1.4, 42.0*s)))), 2, uintptr(unsafe.Pointer(&penAccent)))
 	if penAccent != 0 {
 		_, _, _ = diProcGdipSetPenStartCap.Call(penAccent, 2)
 		_, _, _ = diProcGdipSetPenEndCap.Call(penAccent, 2)
-		// Left & right earcup arcs around center (256, 232) with radius 176
 		rArc := 176.0 * s
 		_, _, _ = diProcGdipDrawArc.Call(
 			g, penAccent,
@@ -4651,7 +4571,6 @@ func drawVeloraLogoGdip(g uintptr, cx, cy, size float64, pal veloraBrandPalette,
 		_, _, _ = diProcGdipDeletePen.Call(penAccent)
 	}
 
-	// 2. Center V-Ring Arms (#B8EAFF)
 	var penPrim uintptr
 	_, _, _ = diProcGdipCreatePen1.Call(uintptr(rgbaToARGB(pal.Primary, op)), uintptr(math.Float32bits(float32(math.Max(1.5, 42.0*s)))), 2, uintptr(unsafe.Pointer(&penPrim)))
 	if penPrim != 0 {
@@ -4672,7 +4591,6 @@ func drawVeloraLogoGdip(g uintptr, cx, cy, size float64, pal veloraBrandPalette,
 		_, _, _ = diProcGdipDeletePen.Call(penPrim)
 	}
 
-	// 3. Center Head Circle (#FF9E64, cx=256, cy=232, r=64)
 	var brushAcc uintptr
 	_, _, _ = diProcGdipCreateSolidFill.Call(uintptr(rgbaToARGB(pal.Accent, op)), uintptr(unsafe.Pointer(&brushAcc)))
 	if brushAcc != 0 {
@@ -4874,7 +4792,6 @@ func drawVelora5DotsGdip(g uintptr, cx, cy, u float64, activeIdx, hoverZone int,
 }
 
 func drawVeloraProgressBarGdip(g uintptr, x, cy, w, h, ratio float64, hovered bool, hoverRatio, op float64, style string, playing bool, now time.Time, u float64, pal veloraBrandPalette) {
-	// Matches PlayerBar.svelte .velora-seekbar: var(--md-sys-color-primary) fill on var(--md-sys-color-surface-container-highest) (#2C3037)
 	trackCol := color.RGBA{R: 0x2C, G: 0x30, B: 0x37, A: 255}
 	clampedRatio := clamp01(ratio)
 
@@ -4885,7 +4802,6 @@ func drawVeloraProgressBarGdip(g uintptr, x, cy, w, h, ratio float64, hovered bo
 		}
 		y := cy - barH/2.0
 		fw := w * clampedRatio
-		// Unplayed right portion: straight track pill
 		if fw < w {
 			remX := x + fw
 			remW := w - fw
@@ -4897,7 +4813,6 @@ func drawVeloraProgressBarGdip(g uintptr, x, cy, w, h, ratio float64, hovered bo
 				}
 			}
 		}
-		// Played left portion: animated sine wave matching PlayerBar.svelte (24dp wavelength, ~2dp amp)
 		if fw >= 2.0*u {
 			var path uintptr
 			_, _, _ = diProcGdipCreatePath.Call(0, uintptr(unsafe.Pointer(&path)))
@@ -5033,7 +4948,6 @@ func drawVeloraProgressBarGdip(g uintptr, x, cy, w, h, ratio float64, hovered bo
 }
 
 func drawCircleButtonBgGdip(g uintptr, cx, cy, r float64, hovered, active bool, op float64, pal veloraBrandPalette) {
-	// Matches Velora app .m3-icon-btn: transparent default, subtle state-hover on hover, tonal on active
 	if active {
 		col := pal.PrimaryDim
 		if hovered {
@@ -5072,7 +4986,6 @@ func (c *dynamicIslandController) drawSystemStatusIconsGdip(g uintptr, xWifi, xG
 	}
 	c.drawPhosphorGlyphGdip(g, false, wifiGlyph, xWifi, cy, size, wifiCol)
 
-	// GPS: Phosphor map-pin (0xE316), with slash line when off
 	gpsCol := activeCol
 	if !gpsOn {
 		gpsCol = inactiveCol
@@ -5244,7 +5157,6 @@ func drawCircleStrokeGdip(g uintptr, cx, cy, r, strokeW float64, argb uint32) {
 	)
 }
 
-// Phosphor-style Microphone icon
 func drawPhosphorMicGdip(g uintptr, cx, cy, size float64, active bool, op float64, pal veloraBrandPalette) {
 	col := pal.TextMain
 	if active {
@@ -5264,13 +5176,11 @@ func drawPhosphorMicGdip(g uintptr, cx, cy, size float64, active bool, op float6
 	_, _, _ = diProcGdipSetPenEndCap.Call(pen, 2)
 	_, _, _ = diProcGdipSetPenLineJoin.Call(pen, 2)
 
-	// Capsule mic head (x:9..15, y:3..13, r=3)
 	capPath := createRoundedRectPath(ox+9*s, oy+3*s, 6*s, 10*s, 3*s)
 	if capPath != 0 {
 		_, _, _ = diProcGdipDrawPath.Call(g, pen, capPath)
 		_, _, _ = diProcGdipDeletePath.Call(capPath)
 	}
-	// Outer U-cradle arc (x:6..18, y:5..17)
 	_, _, _ = diProcGdipDrawArc.Call(
 		g, pen,
 		uintptr(math.Float32bits(float32(ox+6*s))),
@@ -5280,7 +5190,6 @@ func drawPhosphorMicGdip(g uintptr, cx, cy, size float64, active bool, op float6
 		uintptr(math.Float32bits(0.0)),
 		uintptr(math.Float32bits(180.0)),
 	)
-	// Stem & base
 	_, _, _ = diProcGdipDrawLine.Call(g, pen,
 		uintptr(math.Float32bits(float32(ox+12*s))), uintptr(math.Float32bits(float32(oy+16.5*s))),
 		uintptr(math.Float32bits(float32(ox+12*s))), uintptr(math.Float32bits(float32(oy+20.5*s))))
@@ -5289,7 +5198,6 @@ func drawPhosphorMicGdip(g uintptr, cx, cy, size float64, active bool, op float6
 		uintptr(math.Float32bits(float32(ox+15*s))), uintptr(math.Float32bits(float32(oy+20.5*s))))
 }
 
-// Phosphor-style Headphones icon
 func drawPhosphorHeadphonesGdip(g uintptr, cx, cy, size float64, hovered bool, op float64, pal veloraBrandPalette) {
 	col := pal.TextMain
 	if hovered {
@@ -5334,7 +5242,6 @@ func drawPhosphorHeadphonesGdip(g uintptr, cx, cy, size float64, hovered bool, o
 	}
 }
 
-// Phosphor-style SkipBack icon (fill)
 func drawPhosphorSkipBackGdip(g uintptr, cx, cy, size float64, hovered bool, op float64, pal veloraBrandPalette) {
 	col := pal.TextMain
 	if hovered {
@@ -5367,7 +5274,6 @@ func drawPhosphorSkipBackGdip(g uintptr, cx, cy, size float64, hovered bool, op 
 	}
 }
 
-// Phosphor-style SkipForward icon (fill)
 func drawPhosphorSkipForwardGdip(g uintptr, cx, cy, size float64, hovered bool, op float64, pal veloraBrandPalette) {
 	col := pal.TextMain
 	if hovered {
@@ -5400,7 +5306,6 @@ func drawPhosphorSkipForwardGdip(g uintptr, cx, cy, size float64, hovered bool, 
 	}
 }
 
-// Phosphor-style Play / Pause glyph
 func drawVeloraPlayGlyphGdip(g uintptr, cx, cy, size float64, playing, hovered bool, op float64, pal veloraBrandPalette) {
 	col := pal.TextMain
 	if playing {
@@ -5443,7 +5348,6 @@ func drawVeloraPlayGlyphGdip(g uintptr, cx, cy, size float64, playing, hovered b
 	}
 }
 
-// Phosphor-style List / Queue icon (3 horizontal rounded lines)
 func drawPhosphorQueueGdip(g uintptr, cx, cy, size float64, hovered bool, op float64, pal veloraBrandPalette) {
 	col := pal.TextMain
 	if hovered {
@@ -5574,7 +5478,6 @@ func drawNextSvgGdip(g uintptr, cx, cy, size float64, hovered bool, op float64, 
 	_, _, _ = diProcGdipFillPath.Call(g, brush, path)
 }
 
-// Velora Circular Accent Play/Pause Button
 func drawVeloraPlayButtonGdip(g uintptr, cx, cy, btnSize float64, playing, hovered bool, op float64, pal veloraBrandPalette) {
 	bgCol := pal.Accent
 	if hovered {
@@ -6001,7 +5904,6 @@ func (c *dynamicIslandController) drawPhosphorGlyphGdip(g uintptr, filled bool, 
 		return
 	}
 
-	// Render Phosphor glyph as a true GDI+ Vector GraphicsPath and center its exact bounding box!
 	var path uintptr
 	_, _, _ = diProcGdipCreatePath.Call(0, uintptr(unsafe.Pointer(&path)))
 	if path == 0 {
@@ -6034,7 +5936,6 @@ func (c *dynamicIslandController) drawPhosphorGlyphGdip(g uintptr, filled bool, 
 	pathCenterX := float64(bounds.X) + float64(bounds.Width)/2.0
 	pathCenterY := float64(bounds.Y) + float64(bounds.Height)/2.0
 	targetX := cx
-	// Optical centering for right-pointing Play triangle (0xE3D0): shift visual center of mass slightly right
 	if codepoint == 0xE3D0 {
 		targetX += sizePx * 0.065
 	}
@@ -6065,9 +5966,6 @@ func (c *dynamicIslandController) drawPhosphorGlyphGdip(g uintptr, filled bool, 
 	_, _, _ = diProcGdipFillPath.Call(g, brush, path)
 }
 
-// drawCenteredVectorTextGdip renders a text string as a pure vector GraphicsPath
-// scaled so its exact glyph bounding-box height matches targetHeightPx and its
-// vertical & horizontal center lands at (cx, cy) with pixel-perfect alignment.
 func (c *dynamicIslandController) drawCenteredVectorTextGdip(
 	g uintptr,
 	fam uintptr,
@@ -6241,7 +6139,6 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 		}
 	}
 
-	// Poppins fonts at Physical DPI scale (u = dpi / 96.0)
 	var f14Bold, f14Semi, f13Semi, f115Reg, f115Semi, f115Bold, f11Var, f10Bold, fLyrOn, fLyrOff uintptr
 	_, _, _ = diProcGdipCreateFont.Call(famReg, uintptr(math.Float32bits(float32(14.5*u))), 1, 2, uintptr(unsafe.Pointer(&f14Bold)))
 	_, _, _ = diProcGdipCreateFont.Call(famSemi, uintptr(math.Float32bits(float32(14.2*u))), 0, 2, uintptr(unsafe.Pointer(&f14Semi)))
@@ -6307,7 +6204,6 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 		if tCycle < pauseStart {
 			offPx = 0.0
 		} else if tCycle < pauseStart+scrollDur {
-			// Constant-speed left scroll
 			p := (tCycle - pauseStart) / scrollDur
 			offPx = overflowPx * p
 		} else if tCycle < pauseStart+scrollDur+pauseEnd {
@@ -6407,7 +6303,6 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 		}
 
 	case diModeHeadphones:
-		// Row 1 Left: Windows Locale Time (static X)
 		drawStrPhys(timeStr, f13Semi, brushMain, sfLeft, mapXStatic(22), mapY(8), mapW(140), 22*u)
 
 		outputs := audioOutputs
@@ -6483,12 +6378,10 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 		}
 
 	case diModeMusic:
-		// Row 1 Left: Larger Windows Locale Time (static X)
 		if showStatus {
 			drawStrPhys(timeStr, f13Semi, brushMain, sfLeft, mapXStatic(22), mapY(8), mapW(140), 22*u)
 		}
 
-		// Row 2: Track Title (TOP, bold) & Artist/Album (BOTTOM, subtle) with constant-speed marquee if long
 		mTextX := 78.0
 		mTextW := 238.0
 		if !showCover {
@@ -6501,12 +6394,10 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 		}
 
 	case diModeLyrics:
-		// Row 1 Left: Windows Locale Time (static X)
 		if showStatus {
 			drawStrPhys(timeStr, f13Semi, brushMain, sfLeft, mapXStatic(22), mapY(8), mapW(140), 22*u)
 		}
 
-		// Left Half: Track Title (TOP), Artist/Album (BOTTOM) with constant-speed marquee if long
 		lTextX := 76.0
 		lTextW := 164.0
 		if !showCover {
@@ -6518,7 +6409,6 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 			drawMarqueePhys(artist, f11Var, brushVar, pal.TextVariant, 0.85*contentOp, mapX(lTextX), mapY(56), mapW(lTextW), 18*u)
 		}
 
-		// Right Half: 1:1 Velora App Lyrics Card (wrapped multi-line lyrics, no header, no "...")
 		onPrimCont := color.RGBA{R: 0xD8, G: 0xF3, B: 0xFF, A: 255}
 		if len(lyrics) == 0 {
 			msgTitle := diStr.NoLyrics
@@ -6580,7 +6470,6 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 			curTopDp += hDp + 6.0
 		}
 
-		// Smoothly and quickly glide scroll center from prevLyricIdx to lyricIdx
 		activeTargetDp := 0.0
 		if lyricIdx >= 0 && lyricIdx < len(lyrics) {
 			activeTargetDp = lineTops[lyricIdx] + lineHeights[lyricIdx]/2.0
@@ -6649,10 +6538,8 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 		_, _, _ = diProcGdipResetClip.Call(g)
 
 	case diModeQueue:
-		// Row 1 Left: Larger Windows Locale Time (static X)
 		drawStrPhys(timeStr, f13Semi, brushMain, sfLeft, mapXStatic(22), mapY(8), mapW(140), 22*u)
 
-		// Row 2 Center: Queue / Playlist Header Title
 		hdrTitle := qTitle
 		if hdrTitle == "" || strings.EqualFold(hdrTitle, "Queue") || strings.EqualFold(hdrTitle, "Antrean") {
 			hdrTitle = diStr.QueueTitle
@@ -6939,7 +6826,6 @@ func drawConicRingPhys(pix []byte, cw, ch int, cx, cy, rOuter, rInner, progress 
 	}
 }
 
-// Velora Branded Fallback Album Art (Obsidian Carbon + Titanium Cyan & Sunset Tangerine Sonic Emblem)
 func buildVeloraFallbackArt(w, h int, radius float64, pal veloraBrandPalette) *image.RGBA {
 	dst := image.NewRGBA(image.Rect(0, 0, w, h))
 	cx := float64(w) / 2.0
@@ -6962,7 +6848,6 @@ func buildVeloraFallbackArt(w, h int, radius float64, pal veloraBrandPalette) *i
 				continue
 			}
 			cov := clamp01(0.5 - dist/1.5)
-			// Match Velora app placeholder: var(--md-sys-color-surface-container-highest) (#2C3037)
 			col := color.RGBA{R: 0x2C, G: 0x30, B: 0x37, A: uint8(255.0 * cov)}
 			dst.SetRGBA(x, y, col)
 		}
@@ -7042,7 +6927,6 @@ func blitPremulRGBAWithOpClipSubY(pix []byte, cw, ch int, src *image.RGBA, dx in
 	topLim := maxInt(0, clipTop)
 	botLim := minInt(ch, clipBot)
 	invFrac := 1.0 - frac
-	// Output rows cover baseY .. baseY+srcH
 	for ry := 0; ry <= srcH; ry++ {
 		ty := baseY + ry
 		if ty < topLim || ty >= botLim {

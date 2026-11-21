@@ -50,7 +50,6 @@ func TestResolveStreamWindowAndStartTime(t *testing.T) {
 		t.Fatalf("unexpected StreamInfo: %+v", info0)
 	}
 
-	// Second call at 0 should hit cache without another HTTP call
 	if _, err := yt.ResolveStreamWindow(ctx, "5F28ye50-Kc", "high", 0); err != nil {
 		t.Fatalf("cached ResolveStreamWindow(0) error: %v", err)
 	}
@@ -58,7 +57,6 @@ func TestResolveStreamWindowAndStartTime(t *testing.T) {
 		t.Fatalf("expected 1 upstream call after cached hit, got %d", len(seenStartTimes))
 	}
 
-	// Windowed call at startTimeSecs=60 must bypass t=0 cache and send startTimeSecs=60
 	if _, err := yt.ResolveStreamWindow(ctx, "5F28ye50-Kc", "high", 60); err != nil {
 		t.Fatalf("ResolveStreamWindow(60) error: %v", err)
 	}

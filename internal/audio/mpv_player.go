@@ -578,7 +578,6 @@ func (p *PlayerController) SetCurrentTrack(tr db.Track) {
 }
 
 func (p *PlayerController) sendMpvCommand(action string, value float64) {
-	// Best-effort IPC command when mpv is running; WebView2 HTML5 <audio> handles playback seamlessly otherwise.
 	if p.mpvCmd == nil {
 		return
 	}
@@ -649,7 +648,6 @@ func (p *PlayerController) handleCoverProxy(w http.ResponseWriter, r *http.Reque
 	mu.Lock()
 	defer mu.Unlock()
 
-	// Re-check after acquiring per-key lock
 	if data, err := os.ReadFile(cachePath); err == nil && len(data) > 0 {
 		w.Header().Set("Content-Type", http.DetectContentType(data))
 		w.Header().Set("Cache-Control", "public, max-age=604800, immutable")

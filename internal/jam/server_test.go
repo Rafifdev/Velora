@@ -33,7 +33,6 @@ func TestJamServerLifecycleAndEndpoints(t *testing.T) {
 
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", st.Port)
 
-	// 1. GET /jam
 	resp, err := http.Get(baseURL + "/jam")
 	if err != nil {
 		t.Fatalf("GET /jam failed: %v", err)
@@ -43,7 +42,6 @@ func TestJamServerLifecycleAndEndpoints(t *testing.T) {
 		t.Fatalf("GET /jam status = %d", resp.StatusCode)
 	}
 
-	// 2. UpdateState + GET /api/state
 	srv.UpdateState(PlaybackSnapshot{
 		TrackID:     42,
 		Title:       "Test Song",
@@ -70,7 +68,6 @@ func TestJamServerLifecycleAndEndpoints(t *testing.T) {
 		t.Fatalf("unexpected state: %+v", got)
 	}
 
-	// 3. POST /api/playback/seek
 	seekResp, err := http.Post(baseURL+"/api/playback/seek", "application/json", bytes.NewBufferString(`{"value":64}`))
 	if err != nil {
 		t.Fatalf("POST /api/playback/seek failed: %v", err)
@@ -89,7 +86,6 @@ func TestJamServerLifecycleAndEndpoints(t *testing.T) {
 		t.Fatal("timed out waiting for seek command")
 	}
 
-	// 4. GET /api/events (SSE)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	sseReq, _ := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/api/events", nil)

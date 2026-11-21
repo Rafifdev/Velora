@@ -109,7 +109,6 @@ func listWindowsAudioOutputs(btBat int, btFriendly string) []windowsAudioEndpoin
 	}
 
 	var colPtr uintptr
-	// eRender=0, DEVICE_STATE_ACTIVE=1
 	hrCol, _, _ := syscall.SyscallN(enumObj.vtbl[3], enumPtr, 0, 1, uintptr(unsafe.Pointer(&colPtr)))
 	if hrCol != 0 || colPtr == 0 {
 		return nil

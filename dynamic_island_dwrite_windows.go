@@ -15,9 +15,6 @@ import (
 	"velora/internal/sources"
 )
 
-// Direct2D 1.0 & DirectWrite COM interop for crisp ClearType HD text rendering
-// in the Windows Dynamic Island layered window.
-
 var (
 	diModD2D1                 = windows.NewLazySystemDLL("d2d1.dll")
 	diProcD2D1CreateFactory   = diModD2D1.NewProc("D2D1CreateFactory")
@@ -256,7 +253,6 @@ func (c *dynamicIslandController) initDWriteEmbeddedFonts() {
 			continue
 		}
 		var fontFile uintptr
-		// IDWriteInMemoryFontFileLoader::CreateInMemoryFontFileReference [4]
 		hr = comVtblCall(
 			memLoader,
 			4,
@@ -349,7 +345,6 @@ func (c *dynamicIslandController) getDWriteTextFormat(
 		return ptr
 	}
 
-	// Keep cache bounded if DPI changes across monitors
 	if len(c.d2dFmtCache) > 96 {
 		for k, ptr := range c.d2dFmtCache {
 			comRelease(ptr)
@@ -362,7 +357,6 @@ func (c *dynamicIslandController) getDWriteTextFormat(
 	switch familyKind {
 	case 1:
 		if c.dwFontColl != 0 {
-			// Embedded Poppins-SemiBold.ttf has Name ID 1 = "Poppins SemiBold", weight 400
 			famName = "Poppins SemiBold"
 			weight = dwFontWeightNormal
 		} else {
@@ -560,8 +554,7 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 	c.mu.Unlock()
 	diStr := getDIStrings(diLang)
 
-	// Preserve existing alpha mask inside pix because D2D1_ALPHA_MODE_IGNORE
-	// may zero alpha bytes on the bound DIB rect during EndDraw.
+	// Preserve alpha mask cleared by D2D1_ALPHA_MODE_IGNORE
 	numPx := physW * physH
 	if len(pix) < numPx*4 {
 		return false
@@ -590,13 +583,11 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 	defer func() {
 		var t1, t2 uint64
 		endHr := comVtblCall(c.d2dDCRT, 49, uintptr(unsafe.Pointer(&t1)), uintptr(unsafe.Pointer(&t2))) // EndDraw
-		// Restore alpha mask for UpdateLayeredWindow (ClearType RGB stays intact)
 		for i := 0; i < numPx; i++ {
 			if a := c.d2dAlphaScratch[i]; a != 0 {
 				pix[i*4+3] = a
 			}
 		}
-		// D2DERR_RECREATE_TARGET = 0x8899000C
 		if uint32(endHr) == 0x8899000C {
 			c.destroyD2DText()
 		}

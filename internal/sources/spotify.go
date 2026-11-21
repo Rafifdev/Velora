@@ -33,7 +33,6 @@ var (
 	spotifyNextDataRe   = regexp.MustCompile(`(?s)<script id="__NEXT_DATA__" type="application/json">(.*?)</script>`)
 )
 
-// ExtractSpotifyPlaylistID resolves a Spotify playlist URL (including spotify.link redirects) to its playlist ID.
 func ExtractSpotifyPlaylistID(ctx context.Context, rawURL string) (string, error) {
 	u := strings.TrimSpace(rawURL)
 	if u == "" {
@@ -59,7 +58,6 @@ func ExtractSpotifyPlaylistID(ctx context.Context, rawURL string) (string, error
 	return "", fmt.Errorf("link playlist Spotify tidak valid (contoh: https://open.spotify.com/playlist/...)")
 }
 
-// FetchSpotifyPlaylist fetches public playlist metadata and tracks from Spotify's embed page.
 func FetchSpotifyPlaylist(ctx context.Context, rawURL string) (SpotifyPlaylistData, error) {
 	pid, err := ExtractSpotifyPlaylistID(ctx, rawURL)
 	if err != nil {
@@ -165,8 +163,6 @@ func FetchSpotifyPlaylist(ctx context.Context, rawURL string) (SpotifyPlaylistDa
 	}, nil
 }
 
-// ResolveSpotifyTracksToYTMusic matches Spotify tracks onto playable YouTube Music tracks concurrently.
-// Unresolved tracks are preserved with an "sp:import:" ExternalID so they can be lazily resolved on playback.
 func ResolveSpotifyTracksToYTMusic(ctx context.Context, yt *YTMusicClient, spTracks []SpotifyTrack) []YTMusicTrack {
 	out := make([]YTMusicTrack, len(spTracks))
 	sem := make(chan struct{}, 8)
@@ -211,7 +207,6 @@ func ResolveSpotifyTracksToYTMusic(ctx context.Context, yt *YTMusicClient, spTra
 				}
 			}
 
-			// Fallback: preserve metadata with lazy hybrid ID so it can still be imported and resolved on play
 			out[idx] = YTMusicTrack{
 				VideoID:     fmt.Sprintf("sp:import:%d:%s", idx, strings.TrimSpace(tr.Title)),
 				Title:       tr.Title,
@@ -233,8 +228,6 @@ func ResolveSpotifyTracksToYTMusic(ctx context.Context, yt *YTMusicClient, spTra
 	return filtered
 }
 
-// SpotifyClient provides Hybrid Mode metadata from Spotify Web API v1 (Client Credentials)
-// while lazily resolving playable audio streams onto YouTube Music.
 type SpotifyClient struct {
 	httpClient    *http.Client
 	mu            sync.RWMutex
