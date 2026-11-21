@@ -35,7 +35,6 @@
 }
 
 :root {
-  /* Physics-based CSS linear() spring & Material Emphasized Decelerate curves */
   --ease-spring: linear(
     0, 0.009, 0.035 2.1%, 0.141, 0.281 6.7%, 0.723 12.9%, 0.938 16.7%,
     1.017, 1.077, 1.121, 1.149 24.3%, 1.159, 1.163, 1.161, 1.154 29.9%,
@@ -84,7 +83,6 @@ body,
   --wails-draggable: no-drag;
 }
 
-/* Google Material Design 3 Component Primitives */
 .m3-card {
   background-color: var(--md-sys-color-surface-container);
   color: var(--md-sys-color-on-surface);
@@ -124,7 +122,6 @@ body,
   transform: scale(0.92);
 }
 
-/* Native Windows 10/11 top-right window caption buttons */
 .win-caption-btn {
   display: inline-flex;
   align-items: center;
@@ -281,7 +278,6 @@ select.m3-input option:checked {
   color: var(--md-sys-color-on-primary-container);
 }
 
-/* Custom sleek M3 inset scrollbar (always stays inside component bounds) */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -404,7 +400,6 @@ img.velora-yt-video-thumb {
   transform: none;
 }
 
-/* State-aware sticky category pills header */
 .velora-sticky-pills-container {
   position: sticky;
   top: 0;
@@ -449,7 +444,6 @@ img.velora-yt-video-thumb {
   opacity: 1;
 }
 
-/* Mandatory modal scroll containment + smooth enter/exit transitions */
 dialog:modal {
   overscroll-behavior: contain;
   opacity: 0;
@@ -495,7 +489,6 @@ dialog[open]::backdrop {
   }
 }
 
-/* Material 3 Slider */
 input[type='range'].velora-range {
   -webkit-appearance: none;
   appearance: none;
@@ -533,7 +526,6 @@ input[type='range'].velora-range-blue::-webkit-slider-thumb {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
-/* Full-width flat top-edge player seekbar (never clipped) */
 input[type='range'].velora-seekbar {
   -webkit-appearance: none;
   appearance: none;
@@ -698,7 +690,6 @@ input[type='search']::-webkit-search-cancel-button {
   }
 }
 
-/* Appearance Settings Bindings */
 html[data-perf="balanced"] [class*="backdrop-blur"],
 html[data-perf="lite"] [class*="backdrop-blur"] {
   backdrop-filter: none !important;

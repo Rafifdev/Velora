@@ -145,7 +145,6 @@
   }
 </script>
 
-<!-- Borderless Navigation Drawer / Morphing Icon Rail -->
 <aside
   aria-label="Left Menu Section"
   class="relative shrink-0 h-full min-h-0 flex flex-col select-none overflow-visible rounded-lg"
@@ -163,7 +162,6 @@
     </div>
   {:else}
   <div class="w-full h-full min-h-0 flex flex-col overflow-hidden rounded-lg p-2.5">
-    <!-- Persistent Top Row -->
     <div class="flex items-center pb-2 w-full shrink-0 {collapsed ? 'justify-center px-0' : 'justify-between px-1'}">
       <span
         class="text-[11px] font-semibold uppercase tracking-wider truncate overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] {collapsed
@@ -193,7 +191,6 @@
     </div>
 
     <div class="flex-1 min-h-0 flex flex-col justify-between w-full">
-      <!-- Unified Morphing Menu List -->
       <nav class="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-1 pt-1 {collapsed ? '[&::-webkit-scrollbar]:hidden' : ''}" aria-label="Menu Utama">
         {#each flatMenuItems as item (item.id)}
           {@const active = isActive(item.id)}
@@ -232,7 +229,6 @@
         {/each}
       </nav>
 
-      <!-- Bottom Pinned Settings Item -->
       <div class="pt-3 shrink-0">
         <button
           type="button"
@@ -272,7 +268,6 @@
   {/if}
 
   {#if !collapsed || isPreferencesMode}
-    <!-- Spotify Centered Gap Resize Divider -->
     <div
       role="separator"
       aria-orientation="vertical"

@@ -7,6 +7,8 @@
   import { getPrefBool, getPrefValue } from '../lib/preferences';
   import { getPrefLang, tr } from '../lib/i18n';
   import type { Track, TrackLyrics } from '../lib/types';
+  import EmptyState from './EmptyState.svelte';
+  import EqIndicator from './EqIndicator.svelte';
   import Icon from './Icon.svelte';
 
   interface Props {
@@ -272,7 +274,6 @@
   }
 </script>
 
-<!-- Collapsible Right Panel with Spotify 1:1 Now Playing, Lyrics, and Queue Cards (Internal Scroll Only) -->
 <aside
   aria-label="Right Panel Section"
   use:svelteMotionEnter={{ y: 8 }}
@@ -288,7 +289,6 @@
   style="width: {collapsed ? (collapsedHover ? COLLAPSED_HOVER_WIDTH : COLLAPSED_WIDTH) : width}px; background-color: var(--md-sys-color-surface-container-low); transition: {isResizing ? 'none' : 'width 320ms cubic-bezier(0.16, 1, 0.3, 1), background-color 300ms ease'};"
 >
   {#if !collapsed}
-    <!-- Spotify Centered Gap Resize Divider -->
     <div
       role="separator"
       aria-orientation="vertical"
@@ -305,7 +305,6 @@
   {/if}
 
   <div class="relative w-full h-full min-h-0 overflow-hidden {collapsed ? 'rounded-l-lg rounded-r-none' : 'rounded-lg'}">
-    <!-- EXPANDED / PEEK LAYER: Cross-slides & peeks cleanly on collapsed hover -->
     <div
       aria-hidden={collapsed}
       class="absolute inset-y-0 left-0 flex flex-col transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] {collapsed
@@ -315,7 +314,6 @@
         : 'opacity-100 translate-x-0 scale-100 pointer-events-auto delay-75'}"
       style="width: {collapsed ? `${width}px` : '100%'}; {collapsed ? '' : 'right: 0;'}"
     >
-    <!-- Header (Fixed inside RightPanel) -->
     <div class="px-3.5 py-2.5 flex items-center justify-between gap-2 shrink-0">
       <div class="flex items-center gap-2 min-w-0">
         <button
@@ -350,22 +348,31 @@
       {/if}
     </div>
 
-    <!-- Internal Scroll Container Inside RightPanel -->
     <div class="relative flex-1 min-h-0 flex flex-col">
       <div
         class="pointer-events-none absolute inset-x-0 top-0 h-5 z-10"
         style="background: linear-gradient(to bottom, var(--md-sys-color-surface-container-low) 0%, transparent 100%);"
       ></div>
-      <div bind:this={panelScrollEl} class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 pt-2 pb-4 space-y-3">
+      <div bind:this={panelScrollEl} class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 pt-2 pb-4 flex flex-col">
       {#if mode === 'queue'}
+        {#if !currentTrack && upcomingQueue.length === 0}
+          <EmptyState
+            icon="queue"
+            title={tr(lang, 'nav.emptyQueue')}
+            description={lang === 'id'
+              ? 'Putar lagu atau tambahkan ke antrean untuk melihat daftar berikutnya.'
+              : 'Play a track or add songs to your queue to see what is up next.'}
+            titleClass="text-lg font-bold tracking-tight"
+            descClass="mt-1.5 text-[13px] max-w-[230px] mx-auto"
+          />
+        {:else}
         <div
           in:fly={{ x: 24, duration: 280 }}
           class="space-y-4 pt-1"
         >
-          <!-- Sekarang memutar -->
           <section class="space-y-2">
             <h3 class="px-1.5 text-[14px] font-bold" style="color: var(--md-sys-color-on-surface);">
-              Sekarang memutar
+              {tr(lang, 'nav.nowPlaying')}
             </h3>
             {#if currentTrack}
               {@const activeCover = resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl)}
@@ -395,12 +402,11 @@
               </div>
             {:else}
               <p class="px-1.5 text-xs" style="color: var(--md-sys-color-on-surface-variant);">
-                Belum ada lagu yang diputar.
+                {lang === 'id' ? 'Belum ada lagu yang diputar.' : 'No song is currently playing.'}
               </p>
             {/if}
           </section>
 
-          <!-- Berikutnya dari: Playlist atau Algoritma -->
           <section class="space-y-2">
             <h3 class="px-1.5 text-[14px] font-bold leading-snug" style="color: var(--md-sys-color-on-surface);">
               {queueSourceTitle
@@ -451,9 +457,17 @@
             {/if}
           </section>
         </div>
+        {/if}
+      {:else if !currentTrack}
+        <EmptyState
+          icon="music-note"
+          title={lang === 'id' ? 'Belum ada lagu diputar' : 'No song playing'}
+          description={tr(lang, 'nav.playSongForLyrics')}
+          titleClass="text-lg font-bold tracking-tight"
+          descClass="mt-1.5 text-[13px] max-w-[230px] mx-auto"
+        />
       {:else}
       <div in:fly={{ x: -16, duration: 240 }} class="space-y-3">
-      <!-- CARD 1: FULL-BLEED ALBUM & TRACK CARD -->
       <section
         bind:this={albumCardEl}
         class="rounded-lg overflow-hidden"
@@ -520,7 +534,6 @@
         {/if}
       </section>
 
-      <!-- CARD 2: SPOTIFY 1:1 LYRICS CARD (Single card, smooth max-height expand/collapse) -->
       <section
         bind:this={lyricsCardEl}
         class="group/lyrics rounded-lg p-4 relative overflow-hidden"
@@ -552,13 +565,7 @@
               </p>
             {:else if lyricsLoading}
               <div class="py-6 flex items-center justify-center" aria-label={tr(lang, 'nav.loadingLyrics')}>
-                <span class="velora-eq-loader" style="--loader-color: var(--md-sys-color-on-primary-container);" aria-hidden="true">
-                  <span class="velora-eq-bar"></span>
-                  <span class="velora-eq-bar"></span>
-                  <span class="velora-eq-bar"></span>
-                  <span class="velora-eq-bar"></span>
-                  <span class="velora-eq-bar"></span>
-                </span>
+                <EqIndicator variant="loader" color="var(--md-sys-color-on-primary-container)" />
               </div>
             {:else if !lyricsExpanded && !lyricsMiniLyrics}
               <p class="text-[13px] font-medium opacity-75 py-2">
@@ -612,7 +619,6 @@
         </div>
       </section>
 
-      <!-- CARD 3: SPOTIFY 1:1 QUEUE CARD (Antrean berikutnya) -->
       <section
         bind:this={queueCardEl}
         class="rounded-lg p-4"
@@ -711,7 +717,6 @@
     </div>
     </div>
 
-    <!-- COLLAPSED OVERLAY LAYER: Transparent gradient fade revealing peeked content + centered "<" chevron -->
     <div
       aria-hidden={!collapsed}
       class="absolute inset-0 z-10 flex items-center justify-center transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] {collapsed

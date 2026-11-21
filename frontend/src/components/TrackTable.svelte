@@ -1,6 +1,7 @@
 <script lang="ts">
   import { formatDuration, resolveCoverUrl } from '../lib/api';
   import type { DownloadProgress, Playlist, Track } from '../lib/types';
+  import EqIndicator from './EqIndicator.svelte';
   import Icon from './Icon.svelte';
 
   interface Props {
@@ -103,12 +104,7 @@
       >
         <div class="flex items-center justify-center">
           {#if active && isPlaying}
-            <span class="velora-playing-eq group-hover:hidden" aria-hidden="true">
-              <span></span>
-              <span></span>
-              <span></span>
-              <span></span>
-            </span>
+            <EqIndicator class="group-hover:hidden" />
             <button
               type="button"
               onclick={() => handleRowPlayClick(tr, active)}

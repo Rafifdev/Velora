@@ -23,7 +23,6 @@
         copied = false;
       }, 1500);
     } catch {
-      // ignore clipboard errors
     }
   }
 </script>

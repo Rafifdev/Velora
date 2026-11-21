@@ -214,7 +214,7 @@ func (a *App) startup(ctx context.Context) {
 		},
 	)
 	if prefs, pErr := a.store.GetPreferences(); pErr == nil {
-		if prefs["integrations.jam.enabled"] != "false" {
+		if prefs["integrations.jam.enabled"] == "true" {
 			_, _ = a.StartJam()
 		}
 		if d, err := strconv.Atoi(prefs["privacy.historyDays"]); err == nil && d > 0 {
@@ -389,7 +389,7 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 			closeToTray = prefs["system.closeToTray"] == "true"
 		}
 	}
-	if closeToTray || (a.jamSrv != nil && a.jamSrv.Status().Running) {
+	if closeToTray {
 		if a.trayCtrl != nil {
 			remoteURL := ""
 			running := false
@@ -1086,7 +1086,6 @@ func (a *App) GetTrackLyrics(trackID int64, title, artist, album string, duratio
 
 	res := sources.FetchLyrics(ctx, trackID, title, artist, album, durationSec)
 
-	// Fallback to official YouTube Music lyrics tab (MPLYt_...) if not found in LRCLIB/NetEase/KuGou/OVH
 	if res.Source == "fallback" && trackID > 0 {
 		if tr, err := a.store.GetTrackByID(trackID); err == nil && strings.TrimSpace(tr.ExternalID) != "" {
 			ytCtx, cancel := context.WithTimeout(ctx, 6*time.Second)

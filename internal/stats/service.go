@@ -167,7 +167,6 @@ func (s *Service) GetFireStreak(now time.Time) (FireStreakStatus, error) {
 	todayKey := now.Format("2006-01-02")
 	yesterdayKey := now.AddDate(0, 0, -1).Format("2006-01-02")
 
-	// Calculate longest streak across all met dates
 	longest := 0
 	run := 0
 	var prev time.Time
@@ -188,7 +187,6 @@ func (s *Service) GetFireStreak(now time.Time) (FireStreakStatus, error) {
 		prev = dt
 	}
 
-	// Calculate current streak (ending today, or ending yesterday if today isn't completed yet)
 	current := 0
 	cursor := now
 	if r, ok := byDate[todayKey]; ok && r.StreakMet {
@@ -312,7 +310,7 @@ func (s *Service) GetListeningStats() (ListeningStats, error) {
 		hours[h].Plays++
 		hours[h].Minutes += float64(durSec) / 60.0
 
-		// Go time.Weekday(): Sunday=0, Monday=1..Saturday=6 -> map Monday=0..Sunday=6
+		// Map Sunday=0..Saturday=6 to Monday=0..Sunday=6
 		wd := (int(dt.Weekday()) + 6) % 7
 		days[wd].Plays++
 		days[wd].Minutes += float64(durSec) / 60.0

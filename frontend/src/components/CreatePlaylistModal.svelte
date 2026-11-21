@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Icon from './Icon.svelte';
+  import ModalDialog from './ModalDialog.svelte';
 
   interface Props {
     open: boolean;
@@ -10,7 +10,6 @@
 
   let { open, initialIsLocal, onClose, onSubmit }: Props = $props();
 
-  let dialogEl: HTMLDialogElement | undefined = $state();
   let name = $state('');
   let description = $state('');
   let isLocal = $state(true);
@@ -26,31 +25,19 @@
     }
   });
 
-  $effect(() => {
-    if (!dialogEl) return;
-    if (open && !dialogEl.open) {
-      dialogEl.showModal();
-    } else if (!open && dialogEl.open) {
-      dialogEl.close();
-    }
-  });
-
   function handleFormSubmit(e: Event) {
     e.preventDefault();
     if (!name.trim()) return;
     onSubmit(name.trim(), description.trim(), isLocal, coverColor);
-    dialogEl?.close();
+    onClose();
   }
 </script>
 
-<!-- Google Material Design 3 Dialog (28px corner radius) -->
-<dialog
-  bind:this={dialogEl}
-  onclose={() => onClose()}
-  closedby="any"
-  aria-labelledby="create-playlist-title"
+<ModalDialog
+  {open}
+  {onClose}
+  ariaLabelledby="create-playlist-title"
   class="m-auto w-full max-w-md rounded-lg shadow-2xl p-6"
-  style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
 >
   <div class="mb-5">
     <h2 id="create-playlist-title" class="text-lg font-semibold">
@@ -126,7 +113,7 @@
     <div class="flex justify-end gap-2 pt-3">
       <button
         type="button"
-        onclick={() => dialogEl?.close()}
+        onclick={onClose}
         class="m3-btn-outlined px-5 py-2 text-xs cursor-pointer"
       >
         Batal
@@ -139,4 +126,4 @@
       </button>
     </div>
   </form>
-</dialog>
+</ModalDialog>

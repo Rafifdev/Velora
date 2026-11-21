@@ -939,7 +939,6 @@ func (s *Store) GetPlayHistory(limit int) ([]PlayHistoryItem, error) {
 	return items, rows.Err()
 }
 
-// GetRecentSeedTracks returns distinct recently played tracks ordered by most recent play.
 func (s *Store) GetRecentSeedTracks(limit int) ([]Track, error) {
 	if limit <= 0 {
 		limit = 10
@@ -1014,7 +1013,6 @@ func (s *Store) SeedDefaults() error {
 		_, _ = s.AddSource("Uploaded Local Files", "local_upload", "", 0)
 	}
 
-	// Clean up any legacy seeded dummy tracks, playlists, and orphaned albums/artists
 	_, _ = s.db.Exec(`DELETE FROM playlist_tracks WHERE track_id IN (SELECT id FROM tracks WHERE external_id IN ('dX3k_QDnzHE', '8GW6sLrK40k', '4NRXx6U8ABQ', '5NV6Rdv1a3I', 'MV_3Dpw-BRY', 'a5uQMwRMHcs'))`)
 	_, _ = s.db.Exec(`DELETE FROM play_history WHERE track_id IN (SELECT id FROM tracks WHERE external_id IN ('dX3k_QDnzHE', '8GW6sLrK40k', '4NRXx6U8ABQ', '5NV6Rdv1a3I', 'MV_3Dpw-BRY', 'a5uQMwRMHcs'))`)
 	_, _ = s.db.Exec(`DELETE FROM tracks WHERE external_id IN ('dX3k_QDnzHE', '8GW6sLrK40k', '4NRXx6U8ABQ', '5NV6Rdv1a3I', 'MV_3Dpw-BRY', 'a5uQMwRMHcs')`)

@@ -4,6 +4,8 @@
   import { svelteMotionEnter } from '../lib/motion';
   import type { Album, Artist, HomeFilter, Playlist, Track, ViewRoute, YTMusicCard, YTMusicShelf, YTMusicTrack } from '../lib/types';
   import { tr, type LangCode } from '../lib/i18n';
+  import EmptyState from '../components/EmptyState.svelte';
+  import EqIndicator from '../components/EqIndicator.svelte';
   import Icon from '../components/Icon.svelte';
 
   interface Props {
@@ -380,9 +382,7 @@
   }
 </script>
 
-<!-- 1:1 Spotify Borderless Home View: Square Cards Only (Live YouTube Music Data, Zero Dummy Data) -->
 <div class="relative min-h-full" style="overflow-anchor: none;">
-  <!-- State-Aware Sticky Category Filter Pills Header -->
   <div
     bind:this={stickyContainerEl}
     class="velora-sticky-pills-container"
@@ -449,7 +449,6 @@
           </section>
         {/each}
       {:else}
-      <!-- Saved Library Playlists Shelf (Only shown when real playlists exist) -->
       {#if playlists.length > 0}
         {@const plExpanded = !!expandedShelves['saved-playlists']}
         <section class="min-w-0 space-y-3" use:svelteMotionEnter={{ delay: 0.03 }}>
@@ -537,7 +536,6 @@
         </section>
       {/if}
 
-      <!-- Live YouTube Music Shelves (Square Cards Only) -->
       {#if ytShelves.length === 0}
         <div class="min-h-[55vh] flex flex-col items-center justify-center text-center gap-3 px-4">
           <Icon name="wifi-slash" size={40} class="opacity-60" />
@@ -633,12 +631,7 @@
                         : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'}"
                     >
                       {#if isCardActive && isPlaying}
-                        <span class="velora-playing-eq" style="color: currentColor;" aria-hidden="true">
-                          <span></span>
-                          <span></span>
-                          <span></span>
-                          <span></span>
-                        </span>
+                        <EqIndicator color="currentColor" />
                         <span class="hidden group-hover:inline-flex items-center justify-center">
                           <Icon name="pause" weight="fill" size={18} />
                         </span>
@@ -675,7 +668,6 @@
       {/if}
       {/if}
     {:else}
-      <!-- Filtered Pill View: Square Cards Grid Directly from YouTube Music -->
       <section class="min-w-0 space-y-4" use:svelteMotionEnter={{ delay: 0.04 }}>
         <h2 class="text-xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
           {pillHeading}
@@ -693,16 +685,12 @@
           </div>
         {:else if activeFilterPill === 'artis'}
           {#if displayedHomeArtists.length === 0}
-            <div class="flex flex-col items-center justify-center text-center py-14 px-4">
-              <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
-                <Icon name="users" weight="bold" size={38} />
-              </div>
-              <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-                Belum ada artis
-              </h2>
-              <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-                Artis untuk kategori ini belum tersedia.
-              </p>
+            <EmptyState
+              icon="users"
+              title="Belum ada artis"
+              description="Artis untuk kategori ini belum tersedia."
+              class="flex flex-col items-center justify-center text-center py-14 px-4"
+            >
               <button
                 type="button"
                 onclick={() => onSearchYTMusicArtists?.('')}
@@ -711,7 +699,7 @@
               >
                 Muat ulang
               </button>
-            </div>
+            </EmptyState>
           {:else}
             <div class="velora-card-grid-7">
               {#each displayedHomeArtists as ar (ar.key)}
@@ -801,16 +789,12 @@
           {/if}
         {:else if activeFilterPill === 'album'}
           {#if ytAlbumResults.length === 0}
-            <div class="flex flex-col items-center justify-center text-center py-14 px-4">
-              <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
-                <Icon name="vinyl-record" weight="bold" size={38} />
-              </div>
-              <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-                Belum ada album
-              </h2>
-              <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-                Album untuk kategori ini belum tersedia.
-              </p>
+            <EmptyState
+              icon="vinyl-record"
+              title="Belum ada album"
+              description="Album untuk kategori ini belum tersedia."
+              class="flex flex-col items-center justify-center text-center py-14 px-4"
+            >
               <button
                 type="button"
                 onclick={() => onSearchYTMusicAlbums?.('')}
@@ -819,7 +803,7 @@
               >
                 Muat ulang
               </button>
-            </div>
+            </EmptyState>
           {:else}
             <div class="velora-card-grid-7">
               {#each displayedFilteredAlbums as item (item.id)}
@@ -864,12 +848,7 @@
                         : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'}"
                     >
                       {#if isAlbumActive && isPlaying}
-                        <span class="velora-playing-eq" style="color: currentColor;" aria-hidden="true">
-                          <span></span>
-                          <span></span>
-                          <span></span>
-                          <span></span>
-                        </span>
+                        <EqIndicator color="currentColor" />
                         <span class="hidden group-hover:inline-flex items-center justify-center">
                           <Icon name="pause" weight="fill" size={18} />
                         </span>
@@ -897,16 +876,12 @@
           {/if}
         {:else if activeFilterPill === 'playlist'}
           {#if ytPlaylistResults.length === 0}
-            <div class="flex flex-col items-center justify-center text-center py-14 px-4">
-              <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
-                <Icon name="playlist" weight="bold" size={38} />
-              </div>
-              <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-                Belum ada playlist
-              </h2>
-              <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-                Playlist untuk kategori ini belum tersedia.
-              </p>
+            <EmptyState
+              icon="playlist"
+              title="Belum ada playlist"
+              description="Playlist untuk kategori ini belum tersedia."
+              class="flex flex-col items-center justify-center text-center py-14 px-4"
+            >
               <button
                 type="button"
                 onclick={() => onSearchYTMusicPlaylists?.('Top Hits Indonesia Playlist')}
@@ -915,7 +890,7 @@
               >
                 Muat ulang
               </button>
-            </div>
+            </EmptyState>
           {:else}
             <div class="velora-card-grid-7">
               {#each displayedFilteredPlaylists as item (item.id)}
@@ -950,12 +925,7 @@
                         : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'}"
                     >
                       {#if isPlaylistActive && isPlaying}
-                        <span class="velora-playing-eq" style="color: currentColor;" aria-hidden="true">
-                          <span></span>
-                          <span></span>
-                          <span></span>
-                          <span></span>
-                        </span>
+                        <EqIndicator color="currentColor" />
                         <span class="hidden group-hover:inline-flex items-center justify-center">
                           <Icon name="pause" weight="fill" size={18} />
                         </span>
@@ -976,16 +946,12 @@
             </div>
           {/if}
         {:else if ytResults.length === 0}
-          <div class="flex flex-col items-center justify-center text-center py-14 px-4">
-            <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
-              <Icon name="music-note" weight="bold" size={38} />
-            </div>
-            <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-              Belum ada lagu
-            </h2>
-            <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-              Hasil untuk kategori ini belum tersedia.
-            </p>
+          <EmptyState
+            icon="music-note"
+            title="Belum ada lagu"
+            description="Hasil untuk kategori ini belum tersedia."
+            class="flex flex-col items-center justify-center text-center py-14 px-4"
+          >
             <button
               type="button"
               onclick={() =>
@@ -1001,7 +967,7 @@
             >
               Muat ulang
             </button>
-          </div>
+          </EmptyState>
         {:else}
           <div class="velora-card-grid-7">
             {#each displayedFilteredResults as yt (yt.videoId)}
@@ -1036,12 +1002,7 @@
                       : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'}"
                   >
                     {#if isSongActive && isPlaying}
-                      <span class="velora-playing-eq" style="color: currentColor;" aria-hidden="true">
-                        <span></span>
-                        <span></span>
-                        <span></span>
-                        <span></span>
-                      </span>
+                      <EqIndicator color="currentColor" />
                       <span class="hidden group-hover:inline-flex items-center justify-center">
                         <Icon name="pause" weight="fill" size={18} />
                       </span>
@@ -1091,13 +1052,7 @@
           style="color: var(--md-sys-color-on-surface);"
         >
           {#if ytLoadingMore}
-            <span class="velora-eq-loader" aria-hidden="true">
-              <span class="velora-eq-bar"></span>
-              <span class="velora-eq-bar"></span>
-              <span class="velora-eq-bar"></span>
-              <span class="velora-eq-bar"></span>
-              <span class="velora-eq-bar"></span>
-            </span>
+            <EqIndicator variant="loader" />
           {:else if activeFilterPill === 'playlist'}
             Muat lebih banyak playlist
           {:else if activeFilterPill === 'artis'}

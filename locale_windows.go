@@ -23,8 +23,6 @@ var supportedAppLanguages = map[string]bool{
 	"ms": true,
 }
 
-// detectSystemLanguage reads the Windows user locale (no special permissions required)
-// and falls back to "en" if unsupported or unavailable.
 func detectSystemLanguage() string {
 	var buf [85]uint16 // LOCALE_NAME_MAX_LENGTH = 85
 	r, _, _ := procGetUserDefaultLocaleName.Call(

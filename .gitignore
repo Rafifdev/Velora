@@ -24,3 +24,6 @@ graphify-out/
 .DS_Store
 Thumbs.db
 *.log
+
+# Installer build staging
+cmd/installer/assets/*.exe

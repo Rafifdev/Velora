@@ -107,7 +107,6 @@ func primaryLyricArtist(artist string) string {
 	return strings.TrimSpace(artist)
 }
 
-// FetchLyrics queries up to 5 sources (prioritizing synchronized LRC lyrics) with graceful offline fallback.
 func FetchLyrics(ctx context.Context, trackID int64, title, artist, album string, durationSec int) TrackLyrics {
 	out := TrackLyrics{
 		TrackID:      trackID,
@@ -139,7 +138,6 @@ func FetchLyrics(ctx context.Context, trackID int64, title, artist, album string
 		}
 	}
 
-	// Source 1: LRCLIB Exact (/api/get)
 	params := url.Values{}
 	params.Set("track_name", cleanTitle)
 	if cleanArtist != "" {
@@ -159,7 +157,6 @@ func FetchLyrics(ctx context.Context, trackID int64, title, artist, album string
 		savePlain(populated)
 	}
 
-	// Source 2: LRCLIB Search (/api/search) — prefers synced lyrics & closest duration
 	shortTitle := cleanLyricTitle(cleanTitle)
 	shortArtist := primaryLyricArtist(cleanArtist)
 	searchQueries := []string{strings.TrimSpace(cleanArtist + " " + cleanTitle)}
@@ -179,7 +176,6 @@ func FetchLyrics(ctx context.Context, trackID int64, title, artist, album string
 		}
 	}
 
-	// Source 3: NetEase Cloud Music (synced LRC)
 	if ne, ok := queryNetEaseLyrics(reqCtx, client, out, shortTitle, shortArtist); ok {
 		if len(ne.SyncedLyrics) > 0 {
 			return ne
@@ -187,7 +183,6 @@ func FetchLyrics(ctx context.Context, trackID int64, title, artist, album string
 		savePlain(ne)
 	}
 
-	// Source 4: KuGou Music (synced LRC)
 	if kg, ok := queryKuGouLyrics(reqCtx, client, out, shortTitle, shortArtist, durationSec); ok {
 		if len(kg.SyncedLyrics) > 0 {
 			return kg
@@ -195,7 +190,6 @@ func FetchLyrics(ctx context.Context, trackID int64, title, artist, album string
 		savePlain(kg)
 	}
 
-	// Source 5: Lyrics.ovh (plain lyrics fallback)
 	if plainFallback == nil && shortArtist != "" && shortTitle != "" {
 		if ovh, ok := queryLyricsOVH(reqCtx, client, out, shortTitle, shortArtist); ok {
 			savePlain(ovh)

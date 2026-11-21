@@ -179,7 +179,6 @@ func (l *LocalScanner) indexSingleFile(filePath string) (db.Track, error) {
 		}
 	}
 
-	// Parse "Artist - Title" filename fallback when tags are missing
 	if artist == "Unknown Artist" && strings.Contains(baseName, " - ") {
 		parts := strings.SplitN(baseName, " - ", 2)
 		if len(parts) == 2 && strings.TrimSpace(parts[0]) != "" && strings.TrimSpace(parts[1]) != "" {

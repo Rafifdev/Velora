@@ -655,7 +655,6 @@ func listenJamPort() (net.Listener, int, error) {
 }
 
 func detectLanIP() string {
-	// Prefer outbound interface IP via UDP dial (no packets sent).
 	if conn, err := net.Dial("udp4", "8.8.8.8:80"); err == nil {
 		defer conn.Close()
 		if addr, ok := conn.LocalAddr().(*net.UDPAddr); ok && addr.IP != nil && !addr.IP.IsLoopback() {

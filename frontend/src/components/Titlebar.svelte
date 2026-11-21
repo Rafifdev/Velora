@@ -5,6 +5,7 @@
   import { tr, type LangCode } from '../lib/i18n';
   import Icon from './Icon.svelte';
   import JamModal from './JamModal.svelte';
+  import ModalDialog from './ModalDialog.svelte';
 
   interface Props {
     currentRoute: ViewRoute;
@@ -83,7 +84,7 @@
     jamLoading = false,
     jamRunning = false,
     jamConnected = false,
-    jamPrefEnabled = true,
+    jamPrefEnabled = false,
     saveSearches = true,
     onOpenJamSettings,
     onResetZoom
@@ -230,7 +231,6 @@
     return out.slice(0, 8);
   });
 
-  // Maksimal 4 sugestion judul lagu
   const titleSuggestions = $derived.by<string[]>(() => {
     if (!normalizedQuery) return [];
     const titles: string[] = [];
@@ -248,7 +248,6 @@
 
   let transientFavArtists = $state<Record<string, boolean>>({});
 
-  // Maksimal 25 sugestion artist
   const artistSuggestions = $derived.by<Array<{ id: number | null; name: string; avatar: string; isFavorite: boolean; rank: number }>>(() => {
     if (!normalizedQuery) return [];
     const out: Array<{ id: number | null; name: string; avatar: string; isFavorite: boolean; rank: number }> = [];
@@ -375,16 +374,6 @@
   }
 
   let jamDisabledAlert = $state(false);
-  let jamAlertDialogEl: HTMLDialogElement | undefined = $state();
-
-  $effect(() => {
-    if (!jamAlertDialogEl) return;
-    if (jamDisabledAlert && !jamAlertDialogEl.open) {
-      jamAlertDialogEl.showModal();
-    } else if (!jamDisabledAlert && jamAlertDialogEl.open) {
-      jamAlertDialogEl.close();
-    }
-  });
 
   function submitSearch(q: string) {
     if (debounceTimer) clearTimeout(debounceTimer);
@@ -400,13 +389,11 @@
           const next = [trimmed, ...prev.filter((item) => item.toLowerCase() !== trimmed.toLowerCase())].slice(0, 8);
           localStorage.setItem('velora.recentSearches', JSON.stringify(next));
         } catch {
-          // Ignore storage error
         }
       } else {
         try {
           localStorage.removeItem('velora.recentSearches');
         } catch {
-          // Ignore storage error
         }
       }
     }
@@ -471,12 +458,10 @@
   }
 </script>
 
-<!-- Borderless Spotify Top App Bar -->
 <header
   class="wails-drag relative z-40 hidden sm:flex h-14 pl-3 pr-0 items-center justify-between gap-4 select-none shrink-0 transition-colors duration-300"
   style="background-color: var(--md-sys-color-surface-container-lowest);"
 >
-  <!-- Left: Navigation History Circular Icon Buttons -->
   <div class="flex items-center gap-3 shrink-0">
     <div class="wails-no-drag flex items-center gap-1">
       <button
@@ -500,7 +485,6 @@
     </div>
   </div>
 
-  <!-- Center: 1:1 Spotify Home Circle Button + Docked Pill Search Bar -->
   <div class="wails-no-drag flex-1 min-w-0 max-w-xl mx-auto flex items-center gap-2">
     <button
       type="button"
@@ -576,7 +560,6 @@
           <div class="relative">
             <div bind:this={dropdownListEl} class="max-h-[520px] overflow-y-auto overscroll-contain p-3 pb-7 space-y-0.5">
 
-            <!-- 1. Sugestion Judul Lagu (Maksimal 4) -->
             {#if titleSuggestions.length > 0}
               {#each titleSuggestions as title, tIdx (title)}
                 <button
@@ -609,7 +592,6 @@
               {/each}
             {/if}
 
-            <!-- 2. Campuran Lagu & Artist (tanpa kategori, pixel-aligned) -->
             {#if mixedSuggestions.length > 0}
               {#each mixedSuggestions as entry, mIdx (entry.entryType === 'song' ? 's:' + entry.item.kind + ':' + entry.item.title + ':' + entry.item.artist : 'a:' + entry.artist.name)}
                 {@const itemIdx = titleSuggestions.length + mIdx}
@@ -756,7 +738,6 @@
                 </div>
               {/if}
             </div>
-            <!-- Gradasi halus di bagian bawah card mengikuti warna surface card -->
             <div
               class="pointer-events-none absolute inset-x-0 bottom-0 h-10"
               style="background: linear-gradient(to bottom, transparent 0%, color-mix(in srgb, var(--md-sys-color-surface-container-high) 35%, transparent) 40%, color-mix(in srgb, var(--md-sys-color-surface-container-high) 78%, transparent) 74%, var(--md-sys-color-surface-container-high) 100%);"
@@ -767,7 +748,6 @@
     </div>
   </div>
 
-  <!-- Right: Compact Unified Controls + Native Windows Caption Controls -->
   <div class="wails-no-drag relative flex items-center gap-1.5 shrink-0 self-stretch">
     {#if zoomBadgeVisible}
       <button
@@ -822,14 +802,13 @@
           <Icon name="qr-code" size={17} />
         </button>
 
-        <dialog
-          bind:this={jamAlertDialogEl}
-          onclose={() => (jamDisabledAlert = false)}
-          closedby="any"
-          aria-labelledby="jam-disabled-title"
-          aria-describedby="jam-disabled-desc"
-          class="m-auto w-full max-w-md rounded-xl shadow-2xl p-6"
-          style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+        <ModalDialog
+          open={jamDisabledAlert}
+          onClose={() => (jamDisabledAlert = false)}
+          ariaLabelledby="jam-disabled-title"
+          ariaDescribedby="jam-disabled-desc"
+          maxWidthClass="max-w-md"
+          class="p-6"
         >
           <div class="mb-3">
             <h2 id="jam-disabled-title" class="text-lg font-bold tracking-tight">
@@ -862,7 +841,7 @@
               {lang === 'id' ? 'Buka Pengaturan' : 'Open Settings'}
             </button>
           </div>
-        </dialog>
+        </ModalDialog>
 
         {#if jamStatus}
           <JamModal

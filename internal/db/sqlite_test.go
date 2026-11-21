@@ -13,7 +13,6 @@ func TestStoreCRUD(t *testing.T) {
 	}
 	defer store.Close()
 
-	// Test UpsertTrack + Favorites
 	tr, err := store.UpsertTrack(Track{
 		Title:       "Test Song",
 		ArtistName:  "Test Artist",
@@ -39,7 +38,6 @@ func TestStoreCRUD(t *testing.T) {
 		t.Fatalf("expected 1 favorite track, got %d (err=%v)", len(favTracks), err)
 	}
 
-	// Test Album and Artist favorites
 	albums, err := store.GetAlbums(false)
 	if err != nil || len(albums) != 1 {
 		t.Fatalf("expected 1 album, got %d", len(albums))
@@ -64,7 +62,6 @@ func TestStoreCRUD(t *testing.T) {
 		t.Fatalf("expected 1 favorite artist, got %d", len(favArtists))
 	}
 
-	// Test YouTube Music album favorite toggle
 	ytAlb, err := store.ToggleFavoriteYTMusicAlbum("MPREb_test123", "Six a Six", "Project Pop", "https://example.com/cover.jpg", 2007)
 	if err != nil {
 		t.Fatalf("toggle yt album fav failed: %v", err)
@@ -81,7 +78,6 @@ func TestStoreCRUD(t *testing.T) {
 		t.Fatalf("expected yt album unfavorited, got %+v (err=%v)", ytAlb2, err)
 	}
 
-	// Test Local Playlist CRUD & Reorder
 	tr2, err := store.UpsertTrack(Track{
 		Title:       "Second Song",
 		ArtistName:  "Test Artist",

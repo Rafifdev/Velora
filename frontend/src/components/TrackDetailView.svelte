@@ -2,6 +2,7 @@
   import { fade } from 'svelte/transition';
   import { formatDuration, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
   import type { Album, Playlist, Track, YTMusicAlbumView, YTMusicCard } from '../lib/types';
+  import EqIndicator from './EqIndicator.svelte';
   import Icon from './Icon.svelte';
 
   interface Props {
@@ -258,12 +259,10 @@
   class="relative h-full w-full overflow-y-auto rounded-xl select-none"
   style="background-color: var(--md-sys-color-surface-container-low);"
 >
-  <!-- Top Gradient Fade (sama persis seperti halaman Home saat scroll) -->
   <div
     class="pointer-events-none sticky top-0 left-0 right-0 h-16 -mb-16 z-30 transition-opacity duration-300"
     style="opacity: {albumScrolled ? 1 : 0}; background: linear-gradient(to bottom, var(--md-sys-color-surface) 0%, var(--md-sys-color-surface) 38%, color-mix(in srgb, var(--md-sys-color-surface) 82%, transparent) 58%, color-mix(in srgb, var(--md-sys-color-surface) 42%, transparent) 80%, transparent 100%);"
   ></div>
-  <!-- HERO BANNER ALBUM -->
   <section class="relative overflow-hidden px-6 sm:px-10 pt-8 pb-8">
     {#if ytAlbumLoading}
       <div class="relative z-10 flex flex-col sm:flex-row sm:items-end gap-6 animate-pulse">
@@ -366,7 +365,6 @@
           {/if}
         </div>
 
-        <!-- Action Buttons (Icon Only) -->
         <div class="pt-2 flex flex-wrap items-center gap-3">
           <button
             type="button"
@@ -451,11 +449,9 @@
     {/if}
   </section>
 
-  <!-- TRACK LIST (seperti di page album) -->
   <div class="px-6 sm:px-10 pb-8">
     {#if ytAlbumLoading}
       <div class="w-full animate-pulse" aria-busy="true" aria-label="Memuat daftar lagu album">
-        <!-- Header Skeleton -->
         <div
           class="-mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] gap-4 px-3 py-2 text-[11px] font-bold uppercase tracking-wider"
           style="color: var(--md-sys-color-on-surface-variant);"
@@ -470,7 +466,6 @@
           <div></div>
         </div>
 
-        <!-- Track Rows Skeleton -->
         <div class="space-y-1.5 mt-1">
           {#each [62, 48, 70, 54, 66, 44] as titleW, idx (idx)}
             <div class="-mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] gap-4 px-3 py-2.5 items-center rounded-lg">
@@ -495,7 +490,6 @@
           {/each}
         </div>
 
-        <!-- Artist Releases Skeleton -->
         <div class="mt-8 space-y-4">
           <div class="h-5 w-44 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
           <div class="flex gap-3 overflow-hidden">
@@ -511,7 +505,6 @@
       </div>
     {:else}
       <div class="w-full space-y-1">
-        <!-- Column Header: #, Title, Rilis, Pemutaran, Durasi, Aksi -->
         <div
           class="-mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] items-center gap-4 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider"
           style="color: var(--md-sys-color-on-surface-variant);"
@@ -537,15 +530,9 @@
                 : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
               style="color: var(--md-sys-color-on-surface);"
             >
-              <!-- Nomor / Play Indicator -->
               <div class="flex items-center justify-center">
                 {#if active && isPlaying}
-                  <span class="velora-playing-eq group-hover:hidden" aria-hidden="true">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                  </span>
+                  <EqIndicator class="group-hover:hidden" />
                   <button
                     type="button"
                     onclick={() => handleRowPlayClick(tr, active)}
@@ -578,7 +565,6 @@
                 {/if}
               </div>
 
-              <!-- Title + Artist -->
               <button
                 type="button"
                 onclick={() => handleRowPlayClick(tr, active)}
@@ -592,22 +578,18 @@
                 </div>
               </button>
 
-              <!-- Rilis -->
               <div class="hidden md:block text-xs tabular-nums truncate opacity-75">
                 {releaseDateLabel}
               </div>
 
-              <!-- Pemutaran -->
               <div class="hidden md:block text-xs tabular-nums truncate opacity-75">
                 {tr.globalPlays || '-'}
               </div>
 
-              <!-- Durasi -->
               <span class="text-[11px] font-medium tabular-nums text-right opacity-75 pr-1">
                 {formatDuration(tr.durationSec)}
               </span>
 
-              <!-- Action Column (...): BG transparan, hover hanya pada ikon titik tiga -->
               <div class="relative flex items-center justify-end">
                 <button
                   type="button"
@@ -751,7 +733,6 @@
     {/if}
   </div>
 
-  <!-- LAINNYA DARI ARTIS (Spotify-style Horizontal Shelf) -->
   {#if artistReleases.length > 0}
     <section class="px-6 sm:px-10 pb-10">
       <h2 class="text-lg font-bold mb-4" style="color: var(--md-sys-color-on-surface);">

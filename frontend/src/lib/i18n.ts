@@ -19,7 +19,6 @@ export function normalizeLang(raw?: string): LangCode {
 }
 
 const EN: Record<string, string> = {
-  // Navigation & Global
   'nav.home': 'Home',
   'nav.explore': 'Explore',
   'nav.search': 'Search',
@@ -142,7 +141,6 @@ const EN: Record<string, string> = {
   'nav.aboutBullet3': '5-band Equalizer, loudness normalization, crossfade, offline downloads, and local cache controls.',
   'nav.aboutBullet4': 'Velora Jam for remote playback control over local Wi-Fi.',
 
-  // Settings Categories (10 menus from Auralys 1.9.7)
   'cat.appearance': 'Appearance',
   'cat.player': 'Player',
   'cat.lyrics': 'Lyrics',
@@ -154,7 +152,6 @@ const EN: Record<string, string> = {
   'cat.dynamic-island': 'Dynamic Island',
   'cat.about': 'About',
 
-  // Settings Groups
   'grp.displayEffects': 'Display & Effects',
   'grp.cardsLists': 'Cards & Lists',
   'grp.home': 'Home',
@@ -188,7 +185,6 @@ const EN: Record<string, string> = {
   'grp.islandScreen': 'Display',
   'grp.islandReset': 'Reset',
 
-  // Common option labels
   'opt.auto': 'Automatic',
   'opt.full': 'Full',
   'opt.balanced': 'Balanced',
