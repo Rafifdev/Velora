@@ -351,7 +351,12 @@
     </div>
 
     <!-- Internal Scroll Container Inside RightPanel -->
-    <div bind:this={panelScrollEl} class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 pb-3 space-y-3">
+    <div class="relative flex-1 min-h-0 flex flex-col">
+      <div
+        class="pointer-events-none absolute inset-x-0 top-0 h-5 z-10"
+        style="background: linear-gradient(to bottom, var(--md-sys-color-surface-container-low) 0%, transparent 100%);"
+      ></div>
+      <div bind:this={panelScrollEl} class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 pt-2 pb-4 space-y-3">
       {#if mode === 'queue'}
         <div
           in:fly={{ x: 24, duration: 280 }}
@@ -698,6 +703,11 @@
       </section>
       </div>
       {/if}
+      </div>
+      <div
+        class="pointer-events-none absolute inset-x-0 bottom-0 h-7 z-10"
+        style="background: linear-gradient(to top, var(--md-sys-color-surface-container-low) 0%, transparent 100%);"
+      ></div>
     </div>
     </div>
 

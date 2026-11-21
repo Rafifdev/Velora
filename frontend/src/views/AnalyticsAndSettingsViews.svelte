@@ -12,7 +12,7 @@
     type PreferenceItemDef
   } from '../lib/preferences';
   import { getPrefLang, tr } from '../lib/i18n';
-  import type { FireStreakStatus, ListeningStats, PlayHistoryItem, Track, ViewRoute } from '../lib/types';
+  import type { FireStreakStatus, ListeningStats, PlayHistoryItem, Track, UpdateCheckResult, ViewRoute } from '../lib/types';
   import Icon from '../components/Icon.svelte';
 
   interface Props {
@@ -66,6 +66,14 @@
   let resetIslandDialogEl: HTMLDialogElement | undefined = $state();
   let showShortcutsModal = $state(false);
   let shortcutsDialogEl: HTMLDialogElement | undefined = $state();
+  let showReleaseNotesModal = $state(false);
+  let releaseNotesDialogEl: HTMLDialogElement | undefined = $state();
+  let dataDirPath = $state('');
+  let updateStatusText = $state('');
+  let checkingUpdates = $state(false);
+  let updateResult = $state<UpdateCheckResult | null>(null);
+  let showUpdateModal = $state(false);
+  let updateDialogEl: HTMLDialogElement | undefined = $state();
   let shakingParentId = $state<string | null>(null);
   let shakeTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -89,6 +97,54 @@
       clearCacheDialogEl.close();
     }
   });
+
+  $effect(() => {
+    if (mode === 'preferences' && isAppTab(activePrefTab) && !dataDirPath) {
+      void api.getDataDir().then((dir) => {
+        if (dir) dataDirPath = dir;
+      });
+    }
+  });
+
+  $effect(() => {
+    if (!releaseNotesDialogEl) return;
+    if (showReleaseNotesModal && !releaseNotesDialogEl.open) {
+      releaseNotesDialogEl.showModal();
+    } else if (!showReleaseNotesModal && releaseNotesDialogEl.open) {
+      releaseNotesDialogEl.close();
+    }
+  });
+
+  $effect(() => {
+    if (!updateDialogEl) return;
+    if (showUpdateModal && !updateDialogEl.open) {
+      updateDialogEl.showModal();
+    } else if (!showUpdateModal && updateDialogEl.open) {
+      updateDialogEl.close();
+    }
+  });
+
+  async function handleCheckForUpdates() {
+    if (checkingUpdates) return;
+    checkingUpdates = true;
+    updateStatusText = lang === 'id' ? 'Memeriksa...' : 'Checking...';
+    try {
+      const res = await api.checkForUpdates();
+      updateResult = res;
+      if (res.hasUpdate) {
+        updateStatusText = lang === 'id' ? `Tersedia v${res.latestVersion}` : `v${res.latestVersion} available`;
+        showUpdateModal = true;
+      } else {
+        updateStatusText = lang === 'id'
+          ? `Sudah versi terbaru (v${res.currentVersion})`
+          : `Up to date (v${res.currentVersion})`;
+      }
+    } catch {
+      updateStatusText = lang === 'id' ? 'Gagal memeriksa pembaruan' : 'Failed to check updates';
+    } finally {
+      checkingUpdates = false;
+    }
+  }
 
   $effect(() => {
     if (!clearHistoryDialogEl) return;
@@ -1156,34 +1212,146 @@
       {#key prefSearch.trim() ? '__search__' : activePrefTab}
         <div in:fly={{ y: 10, duration: 200 }} class="space-y-6">
       {#if !prefSearch.trim() && isAppTab(activePrefTab)}
-        <div class="w-full">
-          <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-            {tr(lang, 'nav.aboutTitle')}
-          </h2>
-        </div>
-
-        <div class="w-full space-y-4">
-          {#each groupedVisibleSettings as grp (grp.name)}
-            <section class="m3-card p-5 rounded-lg">
-              <div class="divide-y" style="border-color: var(--md-sys-color-outline-variant);">
-                {#each grp.items as item (item.id)}
-                  {@render settingControl(item)}
-                {/each}
+        <div class="w-full space-y-5">
+          <!-- 1. Top App Banner -->
+          <div
+            class="relative overflow-hidden rounded-2xl p-6 flex items-center justify-between"
+            style="background: linear-gradient(120deg, color-mix(in srgb, var(--md-sys-color-primary) 28%, var(--md-sys-color-surface-container-high)) 0%, color-mix(in srgb, var(--md-sys-color-primary) 12%, var(--md-sys-color-surface-container-low)) 55%, var(--md-sys-color-surface-container-low) 100%);"
+          >
+            <div class="relative z-10 flex items-center gap-5">
+              <img src="/velora-logo-dark.png" alt="Velora" class="w-16 h-16 rounded-full object-cover shrink-0" />
+              <div class="space-y-1">
+                <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+                  Velora
+                </h2>
+                <p class="text-sm font-medium" style="color: var(--md-sys-color-on-surface-variant);">
+                  {lang === 'id' ? 'Versi 1.0.0 untuk Windows' : 'Version 1.0.0 for Windows'}
+                </p>
               </div>
-            </section>
-          {/each}
-        </div>
-
-        <div class="w-full m3-card p-5 rounded-lg space-y-2.5 text-xs leading-relaxed">
-          <div class="text-sm font-semibold" style="color: var(--md-sys-color-on-surface);">
-            {tr(lang, 'nav.aboutHeadline')}
+            </div>
           </div>
-          <ul class="list-disc pl-5 space-y-1" style="color: var(--md-sys-color-on-surface-variant);">
-            <li>{tr(lang, 'nav.aboutBullet1')}</li>
-            <li>{tr(lang, 'nav.aboutBullet2')}</li>
-            <li>{tr(lang, 'nav.aboutBullet3')}</li>
-            <li>{tr(lang, 'nav.aboutBullet4')}</li>
-          </ul>
+
+          <!-- 2. Developer Spotlight Card -->
+          <div
+            class="relative overflow-hidden rounded-2xl p-6 min-h-[172px] flex items-end justify-between gap-4"
+            style="background: linear-gradient(300deg, color-mix(in srgb, var(--md-sys-color-primary) 28%, var(--md-sys-color-surface-container-high)) 0%, color-mix(in srgb, var(--md-sys-color-primary) 12%, var(--md-sys-color-surface-container-low)) 55%, var(--md-sys-color-surface-container-low) 100%);"
+          >
+            <div class="relative z-10 space-y-1">
+              <div class="text-3xl sm:text-4xl font-extrabold tracking-tight leading-none" style="color: var(--md-sys-color-on-surface);">
+                Yoapipp
+              </div>
+              <div class="text-sm font-medium" style="color: var(--md-sys-color-on-surface-variant);">
+                {lang === 'id' ? 'Pengembang' : 'Developer'}
+              </div>
+            </div>
+            <img
+              src="/dev-profile.png"
+              alt="Yoapipp"
+              class="relative z-10 w-28 h-28 rounded-full object-cover shrink-0 shadow-lg"
+            />
+          </div>
+
+          <!-- 3. Media sosial (flat M3 settings list style) -->
+          <div class="space-y-0.5">
+            <div
+              class="px-3.5 text-[11px] font-semibold uppercase tracking-wider"
+              style="color: var(--md-sys-color-on-surface-variant); opacity: 0.78;"
+            >
+              {lang === 'id' ? 'Media sosial' : 'Social media'}
+            </div>
+            <button
+              type="button"
+              onclick={() => api.openExternalUrl('https://www.instagram.com/yoapipp/')}
+              class="w-full py-3.5 px-3.5 flex items-center justify-between text-left cursor-pointer rounded-xl transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+            >
+              <span class="flex items-center gap-3.5 text-sm font-medium" style="color: var(--md-sys-color-on-surface);">
+                <Icon name="instagram-logo" weight="fill" size={18} style="color: var(--md-sys-color-on-surface-variant);" />
+                Instagram · @yoapipp
+              </span>
+              <Icon name="arrow-up-right" size={15} style="color: var(--md-sys-color-on-surface-variant);" />
+            </button>
+            <hr class="border-0 h-px w-full" style="background-color: var(--md-sys-color-outline-variant);" />
+            <button
+              type="button"
+              onclick={() => api.openExternalUrl('https://github.com/Rafifdev')}
+              class="w-full py-3.5 px-3.5 flex items-center justify-between text-left cursor-pointer rounded-xl transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+            >
+              <span class="flex items-center gap-3.5 text-sm font-medium" style="color: var(--md-sys-color-on-surface);">
+                <Icon name="github-logo" weight="fill" size={18} style="color: var(--md-sys-color-on-surface-variant);" />
+                GitHub · RafifDev
+              </span>
+              <Icon name="arrow-up-right" size={15} style="color: var(--md-sys-color-on-surface-variant);" />
+            </button>
+          </div>
+
+          <!-- 4. Traktir kopi -->
+          <button
+            type="button"
+            onclick={() => (showReleaseNotesModal = true)}
+            class="w-full rounded-2xl px-4 py-3.5 flex items-center gap-3.5 text-left cursor-pointer transition-transform active:scale-[0.99] hover:brightness-105"
+            style="background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);"
+          >
+            <Icon name="heart" weight="fill" size={20} class="shrink-0" />
+            <div class="min-w-0 flex-1">
+              <div class="text-sm font-bold">
+                {lang === 'id' ? 'Traktir kopi' : 'Buy me a coffee'}
+              </div>
+              <div class="text-xs opacity-85">
+                {lang === 'id' ? 'Dukung aplikasi dengan nominal berapa pun' : 'Support the app with any amount'}
+              </div>
+            </div>
+          </button>
+
+          <!-- 5. Aplikasi & Data (flat M3 settings list style) -->
+          <div class="space-y-0.5">
+            <button
+              type="button"
+              onclick={() => (showReleaseNotesModal = true)}
+              class="w-full py-3.5 px-3.5 flex items-center justify-between text-left cursor-pointer rounded-xl transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+            >
+              <span class="flex items-center gap-3.5 text-sm font-medium" style="color: var(--md-sys-color-on-surface);">
+                <Icon name="seal-warning" weight="fill" size={18} style="color: var(--md-sys-color-on-surface-variant);" />
+                {lang === 'id' ? 'Catatan rilis' : 'Release notes'}
+              </span>
+            </button>
+            <hr class="border-0 h-px w-full" style="background-color: var(--md-sys-color-outline-variant);" />
+            <button
+              type="button"
+              disabled={checkingUpdates}
+              onclick={() => void handleCheckForUpdates()}
+              class="w-full py-3.5 px-3.5 flex items-center justify-between text-left cursor-pointer rounded-xl transition-colors hover:bg-[var(--md-sys-color-state-hover)] disabled:opacity-70 disabled:cursor-wait"
+            >
+              <span class="flex items-center gap-3.5 text-sm font-medium" style="color: var(--md-sys-color-on-surface);">
+                <Icon name="download-simple" size={18} style="color: var(--md-sys-color-on-surface-variant);" />
+                {lang === 'id' ? 'Cek pembaruan' : 'Check for updates'}
+              </span>
+              {#if updateStatusText}
+                <span class="text-xs font-medium" style="color: var(--md-sys-color-primary);">
+                  {updateStatusText}
+                </span>
+              {/if}
+            </button>
+            <hr class="border-0 h-px w-full" style="background-color: var(--md-sys-color-outline-variant);" />
+            <div class="py-3.5 px-3.5 flex items-center justify-between gap-4">
+              <div class="min-w-0 flex-1 space-y-0.5">
+                <div class="text-sm font-medium" style="color: var(--md-sys-color-on-surface);">
+                  {lang === 'id' ? 'Folder data' : 'Data folder'}
+                </div>
+                {#if dataDirPath}
+                  <div class="text-xs truncate" style="color: var(--md-sys-color-on-surface-variant);">
+                    {dataDirPath}
+                  </div>
+                {/if}
+              </div>
+              <button
+                type="button"
+                onclick={() => void api.openDataFolder()}
+                class="m3-btn-tonal px-4 min-w-[104px] h-9 text-xs font-semibold inline-flex items-center justify-center cursor-pointer shrink-0"
+              >
+                {lang === 'id' ? 'Buka' : 'Open'}
+              </button>
+            </div>
+          </div>
         </div>
       {:else}
         <div class="w-full flex items-center justify-between">
@@ -1229,6 +1397,167 @@
         </div>
       {/key}
     </div>
+    <dialog
+      bind:this={releaseNotesDialogEl}
+      onclose={() => (showReleaseNotesModal = false)}
+      closedby="any"
+      aria-labelledby="release-notes-title"
+      class="m-auto w-full max-w-lg rounded-2xl shadow-2xl p-6"
+      style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+    >
+      <div class="flex items-start justify-between gap-4 mb-5">
+        <div class="space-y-1">
+          <div class="flex items-center gap-2">
+            <h2 id="release-notes-title" class="text-lg font-bold tracking-tight">
+              {lang === 'id' ? 'Catatan Rilis' : 'Release Notes'}
+            </h2>
+            <span
+              class="px-2.5 py-0.5 rounded-full text-[11px] font-bold"
+              style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
+            >
+              v1.0.0
+            </span>
+          </div>
+          <p class="text-xs" style="color: var(--md-sys-color-on-surface-variant);">
+            {lang === 'id' ? 'Rilis perdana Velora Desktop untuk Windows' : 'Initial public release of Velora Desktop for Windows'}
+          </p>
+        </div>
+        <button
+          type="button"
+          onclick={() => (showReleaseNotesModal = false)}
+          aria-label={lang === 'id' ? 'Tutup' : 'Close'}
+          class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer shrink-0"
+        >
+          <Icon name="x" size={16} />
+        </button>
+      </div>
+
+      <div class="space-y-4 max-h-[55vh] overflow-y-auto pr-1 text-xs leading-relaxed">
+        <div class="space-y-1.5">
+          <div class="font-bold uppercase tracking-wider text-[11px]" style="color: var(--md-sys-color-primary);">
+            {lang === 'id' ? 'Pemutar Musik & Katalog' : 'Music Player & Catalog'}
+          </div>
+          <ul class="list-disc pl-5 space-y-1" style="color: var(--md-sys-color-on-surface-variant);">
+            <li>
+              {lang === 'id'
+                ? 'Streaming musik dengan mesin metadata YouTube Music & Deezer, lengkap dengan dukungan wilayah konten dan filter pencarian.'
+                : 'Music streaming powered by YouTube Music & Deezer metadata with content region and search filter controls.'}
+            </li>
+            <li>
+              {lang === 'id'
+                ? 'Pemutaran file lokal (MP3, FLAC, WAV, M4A, OGG), manajemen playlist, album, artis, serta unduhan offline.'
+                : 'Local library playback (MP3, FLAC, WAV, M4A, OGG), playlists, albums, artists, and offline downloads.'}
+            </li>
+            <li>
+              {lang === 'id'
+                ? 'Equalizer 10-band, normalisasi audio, crossfade, dan tampilan lirik tersinkronisasi.'
+                : '10-band equalizer, audio normalization, crossfade transitions, and time-synced lyrics.'}
+            </li>
+          </ul>
+        </div>
+
+        <div class="space-y-1.5">
+          <div class="font-bold uppercase tracking-wider text-[11px]" style="color: var(--md-sys-color-primary);">
+            {lang === 'id' ? 'Dynamic Island Windows' : 'Windows Dynamic Island'}
+          </div>
+          <ul class="list-disc pl-5 space-y-1" style="color: var(--md-sys-color-on-surface-variant);">
+            <li>
+              {lang === 'id'
+                ? 'Overlay native Windows yang responsif dengan kontrol pemutaran, lirik berjalan, antrean, dan pemilih perangkat audio.'
+                : 'Native Windows top-edge overlay with playback controls, live lyrics, queue view, and audio output switcher.'}
+            </li>
+            <li>
+              {lang === 'id'
+                ? 'Kustomisasi penuh: mode tampilan (Ringkas, Satu Baris, Tersembunyi), ukuran, kepekatan, isi elemen, serta gaya progres (Tipis, Tebal, Titik, Gelombang).'
+                : 'Full customization: display styles, sizing, opacity, element toggles, and progress bar styles (Thin, Thick, Dots, Wave).'}
+            </li>
+          </ul>
+        </div>
+
+        <div class="space-y-1.5">
+          <div class="font-bold uppercase tracking-wider text-[11px]" style="color: var(--md-sys-color-primary);">
+            {lang === 'id' ? 'Tampilan & Integrasi' : 'Design & Integrations'}
+          </div>
+          <ul class="list-disc pl-5 space-y-1" style="color: var(--md-sys-color-on-surface-variant);">
+            <li>
+              {lang === 'id'
+                ? 'Antarmuka Material You adaptif dengan palet warna dinamis, mode gelap/terang, serta kontrol jarak jauh Velora Jam via Wi-Fi.'
+                : 'Adaptive Material You interface with dynamic color palettes, dark/light themes, and Velora Jam Wi-Fi remote control.'}
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="mt-6 flex justify-end">
+        <button
+          type="button"
+          onclick={() => (showReleaseNotesModal = false)}
+          class="m3-btn-filled px-5 py-2 text-xs font-semibold rounded-full cursor-pointer"
+        >
+          {lang === 'id' ? 'Tutup' : 'Close'}
+        </button>
+      </div>
+    </dialog>
+    <dialog
+      bind:this={updateDialogEl}
+      onclose={() => (showUpdateModal = false)}
+      closedby="any"
+      aria-labelledby="update-modal-title"
+      class="m-auto w-full max-w-md rounded-2xl shadow-2xl p-6"
+      style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+    >
+      <div class="space-y-1.5 mb-4">
+        <div class="flex items-center gap-2">
+          <h2 id="update-modal-title" class="text-lg font-bold tracking-tight">
+            {lang === 'id' ? 'Pembaruan Tersedia' : 'Update Available'}
+          </h2>
+          {#if updateResult}
+            <span
+              class="px-2.5 py-0.5 rounded-full text-[11px] font-bold"
+              style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
+            >
+              v{updateResult.latestVersion}
+            </span>
+          {/if}
+        </div>
+        {#if updateResult}
+          <p class="text-xs" style="color: var(--md-sys-color-on-surface-variant);">
+            {lang === 'id'
+              ? `Versi baru tersedia: v${updateResult.currentVersion} → v${updateResult.latestVersion}`
+              : `A new version is available: v${updateResult.currentVersion} → v${updateResult.latestVersion}`}
+          </p>
+        {/if}
+      </div>
+      {#if updateResult?.releaseNotes}
+        <div
+          class="p-3.5 rounded-xl text-xs whitespace-pre-line max-h-48 overflow-y-auto mb-5"
+          style="background-color: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface-variant);"
+        >
+          {updateResult.releaseNotes}
+        </div>
+      {/if}
+      <div class="flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onclick={() => (showUpdateModal = false)}
+          class="m3-btn-tonal px-4 py-2 text-xs font-semibold rounded-full cursor-pointer"
+        >
+          {lang === 'id' ? 'Nanti' : 'Later'}
+        </button>
+        <button
+          type="button"
+          onclick={() => {
+            if (updateResult) {
+              api.openExternalUrl(updateResult.downloadUrl || updateResult.releaseUrl);
+            }
+            showUpdateModal = false;
+          }}
+          class="m3-btn-filled px-5 py-2 text-xs font-semibold rounded-full cursor-pointer"
+        >
+          {lang === 'id' ? 'Unduh Pembaruan' : 'Download Update'}
+        </button>
+      </div>
+    </dialog>
     <dialog
       bind:this={shortcutsDialogEl}
       onclose={() => (showShortcutsModal = false)}

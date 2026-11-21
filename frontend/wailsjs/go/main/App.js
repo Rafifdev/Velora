@@ -14,6 +14,10 @@ export function CancelDownload(arg1) {
   return window['go']['main']['App']['CancelDownload'](arg1);
 }
 
+export function CheckForUpdates() {
+  return window['go']['main']['App']['CheckForUpdates']();
+}
+
 export function ClearCache() {
   return window['go']['main']['App']['ClearCache']();
 }
@@ -60,6 +64,10 @@ export function GetArtists(arg1) {
 
 export function GetBootstrapData() {
   return window['go']['main']['App']['GetBootstrapData']();
+}
+
+export function GetDataDir() {
+  return window['go']['main']['App']['GetDataDir']();
 }
 
 export function GetDownloadStates() {
@@ -158,6 +166,10 @@ export function OpenDataFolder() {
   return window['go']['main']['App']['OpenDataFolder']();
 }
 
+export function OpenExternalURL(arg1) {
+  return window['go']['main']['App']['OpenExternalURL'](arg1);
+}
+
 export function PlayYTMusicCollection(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['PlayYTMusicCollection'](arg1, arg2, arg3, arg4, arg5);
 }
@@ -220,6 +232,10 @@ export function SearchYouTubeMusicPlaylists(arg1) {
 
 export function SetDynamicIslandAnimSpeed(arg1) {
   return window['go']['main']['App']['SetDynamicIslandAnimSpeed'](arg1);
+}
+
+export function SetDynamicIslandContent(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
+  return window['go']['main']['App']['SetDynamicIslandContent'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
 }
 
 export function SetDynamicIslandEnabled(arg1) {

@@ -554,6 +554,30 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class UpdateCheckResult {
+	    currentVersion: string;
+	    latestVersion: string;
+	    hasUpdate: boolean;
+	    releaseUrl: string;
+	    downloadUrl: string;
+	    releaseNotes: string;
+	    publishedAt: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateCheckResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.currentVersion = source["currentVersion"];
+	        this.latestVersion = source["latestVersion"];
+	        this.hasUpdate = source["hasUpdate"];
+	        this.releaseUrl = source["releaseUrl"];
+	        this.downloadUrl = source["downloadUrl"];
+	        this.releaseNotes = source["releaseNotes"];
+	        this.publishedAt = source["publishedAt"];
+	    }
+	}
 	export class YTMusicAlbumView {
 	    browseId: string;
 	    title: string;
@@ -737,6 +761,7 @@ export namespace sources {
 	    artist: string;
 	    album: string;
 	    durationSec: number;
+	    explicit?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new YTMusicCard(source);
@@ -755,6 +780,7 @@ export namespace sources {
 	        this.artist = source["artist"];
 	        this.album = source["album"];
 	        this.durationSec = source["durationSec"];
+	        this.explicit = source["explicit"];
 	    }
 	}
 	export class YTMusicTrack {
@@ -766,6 +792,7 @@ export namespace sources {
 	    coverUrl: string;
 	    format: string;
 	    playCountText?: string;
+	    explicit?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new YTMusicTrack(source);
@@ -781,6 +808,7 @@ export namespace sources {
 	        this.coverUrl = source["coverUrl"];
 	        this.format = source["format"];
 	        this.playCountText = source["playCountText"];
+	        this.explicit = source["explicit"];
 	    }
 	}
 	export class YTMusicShelf {

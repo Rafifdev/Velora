@@ -508,6 +508,7 @@ type dynamicIslandController struct {
 	winTargetX           float64
 	winVelX              float64
 	lastTickAt           time.Time
+	hwPolling            bool
 	liquidSkewDp         float64
 	screenW              int
 	screenLeft           int
@@ -533,6 +534,15 @@ type dynamicIslandController struct {
 	compactStyle         string
 	sizeScale            float64
 	opacityPct           int
+	showStatus           bool
+	showCover            bool
+	showClosedCover      bool
+	showArtist           bool
+	showLyric            bool
+	showHeart            bool
+	showDots             bool
+	showProgress         bool
+	progressStyle        string
 	hideWhenAppActive    bool
 	hideInFullscreen     bool
 	fullscreenActive     bool
@@ -696,6 +706,15 @@ func (a *App) initDynamicIsland(ctx context.Context) {
 	openTrigger := "hover"
 	onlyPlaying := false
 	pauseHideSec := 0
+	showStatus := true
+	showCover := true
+	showClosedCover := true
+	showArtist := true
+	showLyric := true
+	showHeart := true
+	showDots := true
+	showProgress := true
+	progressStyle := "thin"
 	themeSeed := "monolith"
 	accentHex := "#F6847E"
 	eqPreset := "spotify"
@@ -732,6 +751,33 @@ func (a *App) initDynamicIsland(ctx context.Context) {
 				if sec, convErr := strconv.Atoi(v); convErr == nil && sec > 0 {
 					pauseHideSec = sec
 				}
+			}
+			if v, ok := prefs["dynamicIsland.showStatus"]; ok && v == "false" {
+				showStatus = false
+			}
+			if v, ok := prefs["dynamicIsland.showCover"]; ok && v == "false" {
+				showCover = false
+			}
+			if v, ok := prefs["dynamicIsland.showClosedCover"]; ok && v == "false" {
+				showClosedCover = false
+			}
+			if v, ok := prefs["dynamicIsland.showArtist"]; ok && v == "false" {
+				showArtist = false
+			}
+			if v, ok := prefs["dynamicIsland.showLyric"]; ok && v == "false" {
+				showLyric = false
+			}
+			if v, ok := prefs["dynamicIsland.showHeart"]; ok && v == "false" {
+				showHeart = false
+			}
+			if v, ok := prefs["dynamicIsland.showDots"]; ok && v == "false" {
+				showDots = false
+			}
+			if v, ok := prefs["dynamicIsland.showProgress"]; ok && v == "false" {
+				showProgress = false
+			}
+			if v := strings.ToLower(strings.TrimSpace(prefs["dynamicIsland.progressStyle"])); v == "thick" || v == "dots" || v == "thin" {
+				progressStyle = v
 			}
 			if v := strings.TrimSpace(prefs["theme.seed"]); v != "" {
 				themeSeed = v
@@ -782,6 +828,15 @@ func (a *App) initDynamicIsland(ctx context.Context) {
 		openTrigger:       openTrigger,
 		onlyPlaying:       onlyPlaying,
 		pauseHideSec:      pauseHideSec,
+		showStatus:        showStatus,
+		showCover:         showCover,
+		showClosedCover:   showClosedCover,
+		showArtist:        showArtist,
+		showLyric:         showLyric,
+		showHeart:         showHeart,
+		showDots:          showDots,
+		showProgress:      showProgress,
+		progressStyle:     progressStyle,
 		lastActivityAt:    now,
 		repeatMode:        "off",
 		eqPreset:        eqPreset,
@@ -1164,6 +1219,33 @@ func (a *App) SetDynamicIslandPauseHideSeconds(sec int) {
 	}
 }
 
+func (a *App) SetDynamicIslandContent(showStatus, showCover, showClosedCover, showArtist, showLyric, showHeart, showDots, showProgress bool, progressStyle string) {
+	style := strings.ToLower(strings.TrimSpace(progressStyle))
+	if style != "thick" && style != "dots" && style != "wave" {
+		style = "thin"
+	}
+	globalIslandMu.Lock()
+	ctrl := globalIsland
+	globalIslandMu.Unlock()
+	if ctrl == nil {
+		return
+	}
+	ctrl.mu.Lock()
+	ctrl.showStatus = showStatus
+	ctrl.showCover = showCover
+	ctrl.showClosedCover = showClosedCover
+	ctrl.showArtist = showArtist
+	ctrl.showLyric = showLyric
+	ctrl.showHeart = showHeart
+	ctrl.showDots = showDots
+	ctrl.showProgress = showProgress
+	ctrl.progressStyle = style
+	ctrl.mu.Unlock()
+	if ctrl.hwnd != 0 {
+		_, _, _ = procPostMessageW.Call(ctrl.hwnd, diWmAppSync, 0, 0)
+	}
+}
+
 func (a *App) SetDynamicIslandStyle(style string) {
 	globalIslandMu.Lock()
 	ctrl := globalIsland
@@ -1411,14 +1493,20 @@ func (a *App) updateDynamicIslandState(title, artist, coverURL string, isPlaying
 func (c *dynamicIslandController) pollAudioHardware(allowAutoPopup bool) {
 	now := time.Now()
 	c.mu.Lock()
-	if !c.lastHwPoll.IsZero() && now.Sub(c.lastHwPoll) < 2500*time.Millisecond && !allowAutoPopup {
+	if c.hwPolling || (!c.lastHwPoll.IsZero() && now.Sub(c.lastHwPoll) < 2500*time.Millisecond && allowAutoPopup) {
 		c.mu.Unlock()
 		return
 	}
+	c.hwPolling = true
 	c.lastHwPoll = now
 	prevDev := c.audioDeviceName
 	prevBt := c.isBtAudio
 	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		c.hwPolling = false
+		c.mu.Unlock()
+	}()
 
 	devName := ""
 	connType := "speaker"
@@ -3250,6 +3338,9 @@ func (c *dynamicIslandController) resolveTargetModeLocked() string {
 	if !c.hideInFullscreen && c.idleHideSec > 0 && !c.lastActivityAt.IsZero() && now.Sub(c.lastActivityAt) >= time.Duration(c.idleHideSec)*time.Second {
 		return diModeFullscreenHide
 	}
+	if c.compactStyle == "TERSEMBUNYI" {
+		return diModeFullscreenHide
+	}
 	return diModeClosed
 }
 
@@ -3316,12 +3407,12 @@ func (c *dynamicIslandController) tickAndRender() {
 	fgNow, _, _ := diProcGetForegroundWindow.Call()
 	transientSwitcher := isTransientTaskSwitcher(fgNow)
 	isFullscreen := isForegroundFullscreen(c.hwnd)
-	if showAllowed {
-		c.pollAudioHardware(true)
-	}
 	now := time.Now()
 
 	c.mu.Lock()
+	if showAllowed && !c.hwPolling && (c.lastHwPoll.IsZero() || now.Sub(c.lastHwPoll) >= 2500*time.Millisecond) {
+		go c.pollAudioHardware(true)
+	}
 	c.wasMinimized = showAllowed
 	if !transientSwitcher {
 		c.fullscreenActive = isFullscreen
@@ -3339,8 +3430,7 @@ func (c *dynamicIslandController) tickAndRender() {
 	if !showAllowed && c.activeMode == diModeFullscreenHide {
 		targetMode = diModeFullscreenHide
 	}
-	hideClosed := c.compactStyle == "TERSEMBUNYI" && (targetMode == diModeClosed || targetMode == diModeResting) && !c.hovered && c.pinnedMode == "" && targetMode != diModeFullscreenHide
-	shouldAppear := c.enabled && showAllowed && !hideClosed
+	shouldAppear := c.enabled && showAllowed
 	if targetMode != c.activeMode {
 		tw, th, tr, te := nusaModeDims(targetMode)
 		if targetMode == diModeClosed {
@@ -3376,6 +3466,21 @@ func (c *dynamicIslandController) tickAndRender() {
 	if c.activeMode == diModeClosed || c.activeMode == diModeResting {
 		c.marqueeStart = now
 	}
+	spd := c.animSpeedScale
+	if spd <= 0 {
+		spd = 1.0
+	}
+	dt := 0.016
+	if !c.lastTickAt.IsZero() {
+		dt = now.Sub(c.lastTickAt).Seconds()
+		if dt < 0.004 {
+			dt = 0.004
+		} else if dt > 0.05 {
+			dt = 0.05
+		}
+	}
+	c.lastTickAt = now
+
 	if targetMode == diModeHeadphones {
 		wantH := 106.0
 		if c.hpListOpen {
@@ -3388,20 +3493,19 @@ func (c *dynamicIslandController) tickAndRender() {
 			c.fromW, c.fromH, c.fromR, c.fromE = c.curW, c.curH, c.curR, c.curE
 			c.toH = wantH
 			c.shrinking = wantH < c.curH
-			c.pageSlideDir = 0
-			c.transStart = now
+			if now.Sub(c.transStart).Seconds() > 0.08*spd {
+				c.pageSlideDir = 0
+				c.transStart = now
+			}
 		}
 	}
+	hpStep := dt / (0.22 * spd)
 	if c.activeMode == diModeHeadphones && c.hpListOpen {
-		c.hpListProg = math.Min(1.0, c.hpListProg+0.085)
+		c.hpListProg = math.Min(1.0, c.hpListProg+hpStep)
 	} else {
-		c.hpListProg = math.Max(0.0, c.hpListProg-0.11)
+		c.hpListProg = math.Max(0.0, c.hpListProg-hpStep*1.25)
 	}
 
-	spd := c.animSpeedScale
-	if spd <= 0 {
-		spd = 1.0
-	}
 	el := now.Sub(c.transStart).Seconds()
 	var whEase float64
 	var reEase float64
@@ -3414,7 +3518,7 @@ func (c *dynamicIslandController) tickAndRender() {
 	}
 
 	c.curW = c.fromW + (c.toW-c.fromW)*whEase
-	if targetMode == diModeClosed && el >= 0.46 {
+	if targetMode == diModeClosed && el >= 0.46*spd {
 		dynW := c.resolveClosedWidthLocked()
 		if math.Abs(dynW-c.closedWTo) > 0.5 {
 			c.closedWFrom = c.curW
@@ -3422,7 +3526,7 @@ func (c *dynamicIslandController) tickAndRender() {
 			c.closedWStart = now
 		}
 		if c.closedWTo > 0 {
-			wProg := nusaCssEase(clamp01(now.Sub(c.closedWStart).Seconds() / 0.34))
+			wProg := nusaCssEase(clamp01(now.Sub(c.closedWStart).Seconds() / (0.34 * spd)))
 			c.curW = c.closedWFrom + (c.closedWTo-c.closedWFrom)*wProg
 			c.toW = c.closedWTo
 		}
@@ -3454,16 +3558,6 @@ func (c *dynamicIslandController) tickAndRender() {
 		}
 	}
 	// dt-normalized smooth liquid glide (jitter-free across SetTimer intervals, zero bounce-back)
-	dt := 0.016
-	if !c.lastTickAt.IsZero() {
-		dt = now.Sub(c.lastTickAt).Seconds()
-		if dt < 0.004 {
-			dt = 0.004
-		} else if dt > 0.05 {
-			dt = 0.05
-		}
-	}
-	c.lastTickAt = now
 
 	uVal := c.dpiScale
 	if c.sizeScale > 0 {
@@ -3582,8 +3676,9 @@ func (c *dynamicIslandController) tickAndRender() {
 		} else if c.dockSide > 0 {
 			targetDockR = 1.0
 		}
-		c.dockLeftProg += (targetDockL - c.dockLeftProg) * 0.32
-		c.dockRightProg += (targetDockR - c.dockRightProg) * 0.32
+		dockAlpha := 1.0 - math.Exp(-dt*20.0)
+		c.dockLeftProg += (targetDockL - c.dockLeftProg) * dockAlpha
+		c.dockRightProg += (targetDockR - c.dockRightProg) * dockAlpha
 	}
 
 	if shouldAppear {
@@ -3655,15 +3750,16 @@ func (c *dynamicIslandController) tickAndRender() {
 			targetEdgeR = 1.0
 		}
 	}
+	edgeAlpha := 1.0 - math.Exp(-dt*18.0)
 	if math.Abs(targetEdgeL-c.edgeLeftProg) < 0.01 {
 		c.edgeLeftProg = targetEdgeL
 	} else {
-		c.edgeLeftProg += (targetEdgeL - c.edgeLeftProg) * 0.28
+		c.edgeLeftProg += (targetEdgeL - c.edgeLeftProg) * edgeAlpha
 	}
 	if math.Abs(targetEdgeR-c.edgeRightProg) < 0.01 {
 		c.edgeRightProg = targetEdgeR
 	} else {
-		c.edgeRightProg += (targetEdgeR - c.edgeRightProg) * 0.28
+		c.edgeRightProg += (targetEdgeR - c.edgeRightProg) * edgeAlpha
 	}
 
 	winShown := c.winShown
@@ -3739,6 +3835,10 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	if h < 1.5 {
 		e = 0
 	}
+	spd := c.animSpeedScale
+	if spd <= 0 {
+		spd = 1.0
+	}
 	transEl := now.Sub(c.transStart).Seconds()
 	title := c.title
 	artist := c.artist
@@ -3809,6 +3909,14 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	curWinX := c.winX
 	curWinY := c.winY
 	pillMode := c.pillMode
+	showStatus := c.showStatus
+	showCover := c.showCover
+	showClosedCover := c.showClosedCover
+	showLyric := c.showLyric
+	showHeart := c.showHeart
+	showDots := c.showDots
+	showProgress := c.showProgress
+	progressStyle := c.progressStyle
 	if pillMode && easeAppear < 0.999 {
 		// Slide floating pill smoothly up to & past the top edge of the screen as it hides
 		slideUp := (1.0 - easeAppear) * (float64(c.winY) + c.curH*u*0.55)
@@ -3829,14 +3937,14 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 		artist = artist + " · " + album
 	}
 
-	contentOp := nusaCssEase(clamp01((transEl - 0.10) / 0.55))
-	contentPop := nusaContentPop(clamp01((transEl - 0.05) / 0.50))
+	contentOp := nusaCssEase(clamp01((transEl - 0.10*spd) / (0.55 * spd)))
+	contentPop := nusaContentPop(clamp01((transEl - 0.05*spd) / (0.50 * spd)))
 	contentScaleX := 0.86 + 0.14*contentPop
 	contentScaleY := 0.90 + 0.10*contentPop
 	pageShift := 0.0
 	if pageSlideDir != 0 && mode != diModeResting && mode != diModeClosed {
-		slideEase := nusaSpring(clamp01(transEl / 0.44))
-		contentOp = nusaCssEase(clamp01(transEl / 0.24))
+		slideEase := nusaSpring(clamp01(transEl / (0.44 * spd)))
+		contentOp = nusaCssEase(clamp01(transEl / (0.24 * spd)))
 		contentScaleX = 0.96 + 0.04*slideEase
 		contentScaleY = 0.97 + 0.03*slideEase
 		pageShift = float64(pageSlideDir) * (1.0 - slideEase) * 56.0
@@ -3978,26 +4086,30 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 			miniArt = defaultArtMini
 			isFallbackMini = true
 		}
-		if miniArt != nil {
+		if showCover && showClosedCover && miniArt != nil {
 			blitPremulRGBAWithOp(pix, physW, physH, miniArt, leftCov, topCov, 1.0)
 			if isFallbackMini {
 				c.drawPhosphorGlyphGdip(g, false, 0xE33C, (nx+20.0)*u, cyExact, 11.0*u, rgbaToARGB(pal.TextVariant, 0.55))
 			}
 		}
 		// Right (cx = nx + w - 20): Circular Progress Ring with exact same pixel height (miniPx)
-		ringProg := progRatio
-		if ringProg < 0.02 && playing {
-			ringProg = 0.02
+		if showProgress {
+			ringProg := progRatio
+			if ringProg < 0.02 && playing {
+				ringProg = 0.02
+			}
+			strokeW := 2.8 * u
+			ringR := (float64(miniPx) - 1.0 - strokeW) / 2.0
+			drawPkRingGdip(g, (nx+w-20.0)*u, cyExact, ringR, strokeW, ringProg, 1.0,
+				rgbaToRGBHex(activeAccent), rgbaToARGB(activeAccent, 0.25))
 		}
-		strokeW := 2.8 * u
-		ringR := (float64(miniPx) - 1.0 - strokeW) / 2.0
-		drawPkRingGdip(g, (nx+w-20.0)*u, cyExact, ringR, strokeW, ringProg, 1.0,
-			rgbaToRGBHex(activeAccent), rgbaToARGB(activeAccent, 0.25))
 
 	case diModeHeadphones:
 		if contentOp > 0.02 {
 			// Row 1 Right: Live System Connectivity Icons (Wi-Fi, GPS, Bluetooth) - static X
-			c.drawSystemStatusIconsGdip(g, mapXStatic(w-76), mapXStatic(w-52), mapXStatic(w-28), mapY(18), u, wifiOn, gpsOn, btOn, hoverZone, contentOp, pal)
+			if showStatus {
+				c.drawSystemStatusIconsGdip(g, mapXStatic(w-76), mapXStatic(w-52), mapXStatic(w-28), mapY(18), u, wifiOn, gpsOn, btOn, hoverZone, contentOp, pal)
+			}
 
 			outputs := audioOutputs
 			if len(outputs) == 0 {
@@ -4120,13 +4232,17 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 				_, _, _ = diProcGdipResetClip.Call(g)
 			}
 
-			drawVelora5DotsGdip(g, mapX(210), mapY(h-11.0), u, 2, hoverZone, contentOp, pal)
+			if showDots {
+				drawVelora5DotsGdip(g, mapX(210), mapY(h-11.0), u, 2, hoverZone, contentOp, pal)
+			}
 		}
 
 	case diModeMusic:
 		if contentOp > 0.02 {
 			// Row 1 Right: Live System Connectivity Icons (Wi-Fi, GPS, Bluetooth) - static X
-			c.drawSystemStatusIconsGdip(g, mapXStatic(344), mapXStatic(368), mapXStatic(392), mapY(18), u, wifiOn, gpsOn, btOn, hoverZone, contentOp, pal)
+			if showStatus {
+				c.drawSystemStatusIconsGdip(g, mapXStatic(344), mapXStatic(368), mapXStatic(392), mapY(18), u, wifiOn, gpsOn, btOn, hoverZone, contentOp, pal)
+			}
 
 			// Row 2 Left: Square Rounded Album Art (left:22, top:33, 46x46, radius:8dp)
 			art := coverImg
@@ -4135,7 +4251,7 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 				art = defaultArt
 				isFallbackArt = true
 			}
-			if art != nil {
+			if showCover && art != nil {
 				blitPremulRGBAWithOp(pix, physW, physH, art, int(math.Round(mapX(22))), int(math.Round(mapY(33))), contentOp)
 				if isFallbackArt {
 					c.drawPhosphorGlyphGdip(g, false, 0xE33C, mapX(45), mapY(56), 20.0*u, rgbaToARGB(pal.TextVariant, 0.50*contentOp))
@@ -4144,14 +4260,16 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 			}
 
 			// Row 2 Right: 2 Circular Quick Action Buttons (Love + Headphones)
-			drawCircleButtonBgGdip(g, mapX(342), mapY(56), 16.5*u, hoverZone == diHitFav, false, contentOp, pal)
-			favCol := pal.TextVariant
-			if isFav {
-				favCol = pal.Primary
-			} else if hoverZone == diHitFav {
-				favCol = pal.TextMain
+			if showHeart {
+				drawCircleButtonBgGdip(g, mapX(342), mapY(56), 16.5*u, hoverZone == diHitFav, false, contentOp, pal)
+				favCol := pal.TextVariant
+				if isFav {
+					favCol = pal.Primary
+				} else if hoverZone == diHitFav {
+					favCol = pal.TextMain
+				}
+				c.drawPhosphorGlyphGdip(g, isFav, 0xE2A8, mapX(342), mapY(56), 16.5*u, rgbaToARGB(favCol, contentOp))
 			}
-			c.drawPhosphorGlyphGdip(g, isFav, 0xE2A8, mapX(342), mapY(56), 16.5*u, rgbaToARGB(favCol, contentOp))
 
 			drawCircleButtonBgGdip(g, mapX(383), mapY(56), 16.5*u, hoverZone == diHitArrow, false, contentOp, pal)
 			hpCol := pal.TextMain
@@ -4161,15 +4279,19 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 			c.drawPhosphorGlyphGdip(g, false, 0xE2A6, mapX(383), mapY(56), 16.5*u, rgbaToARGB(hpCol, contentOp))
 
 			// Row 3: Full-width Seekbar (left:22, top:98, width:376, height:4.5)
-			drawVeloraProgressBarGdip(g, mapX(22), mapY(98), mapW(376), 4.5*u, progRatio, hoverZone == diHitSeek, hoverRatio, contentOp, pal)
+			if showProgress {
+				drawVeloraProgressBarGdip(g, mapX(22), mapY(98), mapW(376), 4.5*u, progRatio, hoverZone == diHitSeek, hoverRatio, contentOp, progressStyle, playing, now, u, pal)
+			}
 
 			// Row 4: 5 Control Buttons at y=134 (Lyric, Prev, Play, Next, Queue)
-			drawCircleButtonBgGdip(g, mapX(41), mapY(134), 17.5*u, hoverZone == diHitBubble, false, contentOp, pal)
-			micCol := pal.TextMain
-			if hoverZone == diHitBubble {
-				micCol = pal.Primary
+			if showLyric {
+				drawCircleButtonBgGdip(g, mapX(41), mapY(134), 17.5*u, hoverZone == diHitBubble, false, contentOp, pal)
+				micCol := pal.TextMain
+				if hoverZone == diHitBubble {
+					micCol = pal.Primary
+				}
+				c.drawPhosphorGlyphGdip(g, false, 0xE75C, mapX(41), mapY(134), 17.5*u, rgbaToARGB(micCol, contentOp))
 			}
-			c.drawPhosphorGlyphGdip(g, false, 0xE75C, mapX(41), mapY(134), 17.5*u, rgbaToARGB(micCol, contentOp))
 
 			drawCircleButtonBgGdip(g, mapX(162), mapY(134), 17.5*u, hoverZone == diHitPrev, false, contentOp, pal)
 			prevCol := pal.TextMain
@@ -4206,13 +4328,17 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 			c.drawPhosphorGlyphGdip(g, false, 0xE6AC, mapX(379), mapY(134), 17.5*u, rgbaToARGB(qCol, contentOp))
 
 			// 4 Interactive Page Dots at (210, 169) with generous top spacing
-			drawVelora5DotsGdip(g, mapX(210), mapY(169), u, 0, hoverZone, contentOp, pal)
+			if showDots {
+				drawVelora5DotsGdip(g, mapX(210), mapY(169), u, 0, hoverZone, contentOp, pal)
+			}
 		}
 
 	case diModeLyrics:
 		if contentOp > 0.02 {
 			// Row 1 Right: Live System Connectivity Icons (Wi-Fi, GPS, Bluetooth) - static X
-			c.drawSystemStatusIconsGdip(g, mapXStatic(w-76), mapXStatic(w-52), mapXStatic(w-28), mapY(18), u, wifiOn, gpsOn, btOn, hoverZone, contentOp, pal)
+			if showStatus {
+				c.drawSystemStatusIconsGdip(g, mapXStatic(w-76), mapXStatic(w-52), mapXStatic(w-28), mapY(18), u, wifiOn, gpsOn, btOn, hoverZone, contentOp, pal)
+			}
 
 			art := coverImg
 			isFallbackArtL := false
@@ -4220,7 +4346,7 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 				art = defaultArt
 				isFallbackArtL = true
 			}
-			if art != nil {
+			if showCover && art != nil {
 				blitPremulRGBAWithOp(pix, physW, physH, art, int(math.Round(mapX(22))), int(math.Round(mapY(33))), contentOp)
 				if isFallbackArtL {
 					c.drawPhosphorGlyphGdip(g, false, 0xE33C, mapX(45), mapY(56), 20.0*u, rgbaToARGB(pal.TextVariant, 0.50*contentOp))
@@ -4228,7 +4354,9 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 				drawRoundedRectStrokeGdip(g, mapX(22), mapY(33), mapW(46), mapH(46), 8.0*u, 1.0*u, rgbaToARGB(pal.TextMain, 0.14*contentOp))
 			}
 
-			drawVeloraProgressBarGdip(g, mapX(22), mapY(98), mapW(214), 4.5*u, progRatio, hoverZone == diHitSeek, hoverRatio, contentOp, pal)
+			if showProgress {
+				drawVeloraProgressBarGdip(g, mapX(22), mapY(98), mapW(214), 4.5*u, progRatio, hoverZone == diHitSeek, hoverRatio, contentOp, progressStyle, playing, now, u, pal)
+			}
 
 			drawCircleButtonBgGdip(g, mapX(41), mapY(134), 16.0*u, hoverZone == diHitBubble, true, contentOp, pal)
 			c.drawPhosphorGlyphGdip(g, false, 0xE75C, mapX(41), mapY(134), 15.5*u, rgbaToARGB(pal.Primary, contentOp))
@@ -4251,14 +4379,18 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 			drawCircleButtonBgGdip(g, mapX(180), mapY(134), 16.0*u, hoverZone == diHitNext, false, contentOp, pal)
 			c.drawPhosphorGlyphGdip(g, true, 0xE5A6, mapX(180), mapY(134), 16.0*u, rgbaToARGB(pal.TextMain, contentOp))
 
-			drawCircleButtonBgGdip(g, mapX(222), mapY(134), 16.0*u, hoverZone == diHitFav, false, contentOp, pal)
-			favCol := pal.TextVariant
-			if isFav {
-				favCol = pal.Primary
+			if showHeart {
+				drawCircleButtonBgGdip(g, mapX(222), mapY(134), 16.0*u, hoverZone == diHitFav, false, contentOp, pal)
+				favCol := pal.TextVariant
+				if isFav {
+					favCol = pal.Primary
+				}
+				c.drawPhosphorGlyphGdip(g, isFav, 0xE2A8, mapX(222), mapY(134), 16.0*u, rgbaToARGB(favCol, contentOp))
 			}
-			c.drawPhosphorGlyphGdip(g, isFav, 0xE2A8, mapX(222), mapY(134), 16.0*u, rgbaToARGB(favCol, contentOp))
 
-			drawVelora5DotsGdip(g, mapX(132), mapY(169), u, 0, hoverZone, contentOp, pal)
+			if showDots {
+				drawVelora5DotsGdip(g, mapX(132), mapY(169), u, 0, hoverZone, contentOp, pal)
+			}
 
 			// Right Half: 1:1 Velora App Lyrics Card (aligned pixel-perfectly with left side: top=33, bottom=151.5)
 			drawFilledPillGdip(g, mapX(250), mapY(33), mapW(254), mapH(118.5), 10.0*u, rgbaToARGB(pal.PrimaryDim, 0.94*contentOp))
@@ -4267,7 +4399,9 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	case diModeQueue:
 		if contentOp > 0.02 {
 			// Row 1 Right: Live System Connectivity Icons (Wi-Fi, GPS, Bluetooth) - static X
-			c.drawSystemStatusIconsGdip(g, mapXStatic(w-76), mapXStatic(w-52), mapXStatic(w-28), mapY(18), u, wifiOn, gpsOn, btOn, hoverZone, contentOp, pal)
+			if showStatus {
+				c.drawSystemStatusIconsGdip(g, mapXStatic(w-76), mapXStatic(w-52), mapXStatic(w-28), mapY(18), u, wifiOn, gpsOn, btOn, hoverZone, contentOp, pal)
+			}
 
 			// Row 2: Shuffle (38, 54) & Play/Pause (385.5, 54)
 			drawCircleButtonBgGdip(g, mapX(38), mapY(54), 16.5*u, hoverZone == diHitShuffle, shuffle, contentOp, pal)
@@ -4404,7 +4538,9 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 			}
 
 			// 3 Interactive Page Dots at (210, 260)
-			drawVelora5DotsGdip(g, mapX(210), mapY(260), u, 1, hoverZone, contentOp, pal)
+			if showDots {
+				drawVelora5DotsGdip(g, mapX(210), mapY(260), u, 1, hoverZone, contentOp, pal)
+			}
 		}
 	}
 
@@ -4737,17 +4873,144 @@ func drawVelora5DotsGdip(g uintptr, cx, cy, u float64, activeIdx, hoverZone int,
 	}
 }
 
-func drawVeloraProgressBarGdip(g uintptr, x, cy, w, h, ratio float64, hovered bool, hoverRatio, op float64, pal veloraBrandPalette) {
+func drawVeloraProgressBarGdip(g uintptr, x, cy, w, h, ratio float64, hovered bool, hoverRatio, op float64, style string, playing bool, now time.Time, u float64, pal veloraBrandPalette) {
 	// Matches PlayerBar.svelte .velora-seekbar: var(--md-sys-color-primary) fill on var(--md-sys-color-surface-container-highest) (#2C3037)
+	trackCol := color.RGBA{R: 0x2C, G: 0x30, B: 0x37, A: 255}
+	clampedRatio := clamp01(ratio)
+
+	if style == "wave" {
+		barH := h
+		if hovered {
+			barH = h * 1.25
+		}
+		y := cy - barH/2.0
+		fw := w * clampedRatio
+		// Unplayed right portion: straight track pill
+		if fw < w {
+			remX := x + fw
+			remW := w - fw
+			drawFilledPillGdip(g, remX, y, remW, barH, barH/2.0, rgbaToARGB(trackCol, op))
+			if hovered && hoverRatio > clampedRatio {
+				hx := x + w*clamp01(hoverRatio)
+				if hx > remX {
+					drawFilledPillGdip(g, remX, y, hx-remX, barH, barH/2.0, rgbaToARGB(pal.Primary, 0.30*op))
+				}
+			}
+		}
+		// Played left portion: animated sine wave matching PlayerBar.svelte (24dp wavelength, ~2dp amp)
+		if fw >= 2.0*u {
+			var path uintptr
+			_, _, _ = diProcGdipCreatePath.Call(0, uintptr(unsafe.Pointer(&path)))
+			if path != 0 {
+				wavelength := 24.0 * u
+				amp := 2.2 * u
+				if hovered {
+					amp = 2.6 * u
+				}
+				phase := 0.0
+				if playing {
+					phase = float64(now.UnixNano()) / 1e9 * (2.0 * math.Pi / 1.2)
+				}
+				step := 2.0 * u
+				if step < 1.5 {
+					step = 1.5
+				}
+				prevX := x
+				prevY := cy + math.Sin(phase)*amp
+				for dx := step; dx <= fw; dx += step {
+					px := x + dx
+					py := cy + math.Sin((dx/wavelength)*2.0*math.Pi+phase)*amp
+					addLineF(path, prevX, prevY, px, py)
+					prevX, prevY = px, py
+				}
+				if prevX < x+fw {
+					endX := x + fw
+					endY := cy + math.Sin((fw/wavelength)*2.0*math.Pi+phase)*amp
+					addLineF(path, prevX, prevY, endX, endY)
+				}
+				var pen uintptr
+				_, _, _ = diProcGdipCreatePen1.Call(uintptr(rgbaToARGB(pal.Primary, op)), uintptr(math.Float32bits(float32(barH))), 2, uintptr(unsafe.Pointer(&pen)))
+				if pen != 0 {
+					_, _, _ = diProcGdipSetPenStartCap.Call(pen, 2)
+					_, _, _ = diProcGdipSetPenEndCap.Call(pen, 2)
+					_, _, _ = diProcGdipSetPenLineJoin.Call(pen, 2)
+					_, _, _ = diProcGdipDrawPath.Call(g, pen, path)
+					_, _, _ = diProcGdipDeletePen.Call(pen)
+				}
+				_, _, _ = diProcGdipDeletePath.Call(path)
+			}
+		}
+		knobR := barH * 1.05
+		if hovered {
+			knobR = barH * 1.30
+		}
+		var brush uintptr
+		_, _, _ = diProcGdipCreateSolidFill.Call(uintptr(rgbaToARGB(pal.Accent, op)), uintptr(unsafe.Pointer(&brush)))
+		if brush != 0 {
+			fillCircleGdip(g, brush, x+fw, cy, knobR)
+			_, _, _ = diProcGdipDeleteBrush.Call(brush)
+		}
+		return
+	}
+
+	if style == "dots" {
+		const dotCount = 24
+		dotR := h * 0.42
+		if hovered {
+			dotR = h * 0.54
+		}
+		var bTrack, bFill, bHover uintptr
+		_, _, _ = diProcGdipCreateSolidFill.Call(uintptr(rgbaToARGB(trackCol, op)), uintptr(unsafe.Pointer(&bTrack)))
+		_, _, _ = diProcGdipCreateSolidFill.Call(uintptr(rgbaToARGB(pal.Primary, op)), uintptr(unsafe.Pointer(&bFill)))
+		if hovered {
+			_, _, _ = diProcGdipCreateSolidFill.Call(uintptr(rgbaToARGB(pal.Primary, 0.35*op)), uintptr(unsafe.Pointer(&bHover)))
+		}
+		for i := 0; i < dotCount; i++ {
+			t := float64(i) / float64(dotCount-1)
+			cx := x + t*w
+			brush := bTrack
+			if t <= clampedRatio {
+				brush = bFill
+			} else if hovered && t <= clamp01(hoverRatio) && bHover != 0 {
+				brush = bHover
+			}
+			if brush != 0 {
+				fillCircleGdip(g, brush, cx, cy, dotR)
+			}
+		}
+		if bTrack != 0 {
+			_, _, _ = diProcGdipDeleteBrush.Call(bTrack)
+		}
+		if bFill != 0 {
+			_, _, _ = diProcGdipDeleteBrush.Call(bFill)
+		}
+		if bHover != 0 {
+			_, _, _ = diProcGdipDeleteBrush.Call(bHover)
+		}
+		knobR := h * 1.05
+		if hovered {
+			knobR = h * 1.30
+		}
+		var bKnob uintptr
+		_, _, _ = diProcGdipCreateSolidFill.Call(uintptr(rgbaToARGB(pal.Accent, op)), uintptr(unsafe.Pointer(&bKnob)))
+		if bKnob != 0 {
+			fillCircleGdip(g, bKnob, x+w*clampedRatio, cy, knobR)
+			_, _, _ = diProcGdipDeleteBrush.Call(bKnob)
+		}
+		return
+	}
+
 	barH := h
+	if style == "thick" {
+		barH = h * 1.65
+	}
 	if hovered {
-		barH = h * 1.25
+		barH *= 1.25
 	}
 	y := cy - barH/2.0
-	trackCol := color.RGBA{R: 0x2C, G: 0x30, B: 0x37, A: 255}
 	drawFilledPillGdip(g, x, y, w, barH, barH/2.0, rgbaToARGB(trackCol, op))
 
-	fw := w * clamp01(ratio)
+	fw := w * clampedRatio
 	if fw >= barH {
 		drawFilledPillGdip(g, x, y, fw, barH, barH/2.0, rgbaToARGB(pal.Primary, op))
 	}
@@ -5921,6 +6184,12 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 	if contentOp <= 0.02 {
 		return
 	}
+	c.mu.Lock()
+	showStatus := c.showStatus
+	showCover := c.showCover
+	showArtist := c.showArtist
+	showLyric := c.showLyric
+	c.mu.Unlock()
 	diStr := getDIStrings(diLang)
 
 	famReg := c.famRegular
@@ -6082,7 +6351,7 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 		miniPx := maxInt(21, int(math.Round(20.8*u)))
 		topCov := int(math.Round((h/2.0)*u - float64(miniPx)/2.0))
 		cyExact := float64(topCov) + float64(miniPx)/2.0
-		if c.compactStyle == "SATU_BARIS" && playing && lyricsOpen && len(lyrics) > 0 {
+		if showLyric && c.compactStyle == "SATU_BARIS" && playing && lyricsOpen && len(lyrics) > 0 {
 			txtHeightPx := float64(miniPx) * 0.60
 			_, _, _ = diProcGdipSetClipRect.Call(
 				g,
@@ -6215,19 +6484,39 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 
 	case diModeMusic:
 		// Row 1 Left: Larger Windows Locale Time (static X)
-		drawStrPhys(timeStr, f13Semi, brushMain, sfLeft, mapXStatic(22), mapY(8), mapW(140), 22*u)
+		if showStatus {
+			drawStrPhys(timeStr, f13Semi, brushMain, sfLeft, mapXStatic(22), mapY(8), mapW(140), 22*u)
+		}
 
 		// Row 2: Track Title (TOP, bold) & Artist/Album (BOTTOM, subtle) with constant-speed marquee if long
-		drawMarqueePhys(title, f14Semi, brushMain, pal.TextMain, contentOp, mapX(78), mapY(34), mapW(238), 22*u)
-		drawMarqueePhys(artist, f115Reg, brushVar, pal.TextVariant, 0.85*contentOp, mapX(78), mapY(56), mapW(238), 18*u)
+		mTextX := 78.0
+		mTextW := 238.0
+		if !showCover {
+			mTextX = 22.0
+			mTextW = 294.0
+		}
+		drawMarqueePhys(title, f14Semi, brushMain, pal.TextMain, contentOp, mapX(mTextX), mapY(34), mapW(mTextW), 22*u)
+		if showArtist {
+			drawMarqueePhys(artist, f115Reg, brushVar, pal.TextVariant, 0.85*contentOp, mapX(mTextX), mapY(56), mapW(mTextW), 18*u)
+		}
 
 	case diModeLyrics:
 		// Row 1 Left: Windows Locale Time (static X)
-		drawStrPhys(timeStr, f13Semi, brushMain, sfLeft, mapXStatic(22), mapY(8), mapW(140), 22*u)
+		if showStatus {
+			drawStrPhys(timeStr, f13Semi, brushMain, sfLeft, mapXStatic(22), mapY(8), mapW(140), 22*u)
+		}
 
 		// Left Half: Track Title (TOP), Artist/Album (BOTTOM) with constant-speed marquee if long
-		drawMarqueePhys(title, f13Semi, brushMain, pal.TextMain, contentOp, mapX(76), mapY(34), mapW(164), 20*u)
-		drawMarqueePhys(artist, f11Var, brushVar, pal.TextVariant, 0.85*contentOp, mapX(76), mapY(56), mapW(164), 18*u)
+		lTextX := 76.0
+		lTextW := 164.0
+		if !showCover {
+			lTextX = 22.0
+			lTextW = 218.0
+		}
+		drawMarqueePhys(title, f13Semi, brushMain, pal.TextMain, contentOp, mapX(lTextX), mapY(34), mapW(lTextW), 20*u)
+		if showArtist {
+			drawMarqueePhys(artist, f11Var, brushVar, pal.TextVariant, 0.85*contentOp, mapX(lTextX), mapY(56), mapW(lTextW), 18*u)
+		}
 
 		// Right Half: 1:1 Velora App Lyrics Card (wrapped multi-line lyrics, no header, no "...")
 		onPrimCont := color.RGBA{R: 0xD8, G: 0xF3, B: 0xFF, A: 255}

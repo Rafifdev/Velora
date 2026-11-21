@@ -20,13 +20,89 @@ type DeezerClient struct {
 	httpClient    *http.Client
 	mu            sync.RWMutex
 	resolvedCache map[string]string
+	regions       []string
 }
 
 func NewDeezerClient() *DeezerClient {
 	return &DeezerClient{
 		httpClient:    &http.Client{Timeout: 12 * time.Second},
 		resolvedCache: map[string]string{},
+		regions:       []string{"ID"},
 	}
+}
+
+func (c *DeezerClient) SetRegions(regions []string) {
+	cleaned := make([]string, 0, len(regions))
+	seen := map[string]struct{}{}
+	for _, r := range regions {
+		code := strings.ToUpper(strings.TrimSpace(r))
+		if len(code) != 2 {
+			continue
+		}
+		if _, dup := seen[code]; dup {
+			continue
+		}
+		seen[code] = struct{}{}
+		cleaned = append(cleaned, code)
+	}
+	if len(cleaned) == 0 {
+		cleaned = []string{"ID"}
+	}
+	c.mu.Lock()
+	c.regions = cleaned
+	c.mu.Unlock()
+}
+
+func (c *DeezerClient) getRegions() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.regions) == 0 {
+		return []string{"ID"}
+	}
+	out := make([]string, len(c.regions))
+	copy(out, c.regions)
+	return out
+}
+
+func (c *DeezerClient) countryNameForCode(code string) string {
+	switch strings.ToUpper(strings.TrimSpace(code)) {
+	case "ID":
+		return "Indonesia"
+	case "US":
+		return "USA"
+	case "GB":
+		return "UK"
+	case "JP":
+		return "Japan"
+	case "KR":
+		return "Korea"
+	case "IN":
+		return "India"
+	case "BR":
+		return "Brazil"
+	case "DE":
+		return "Germany"
+	case "FR":
+		return "France"
+	case "MX":
+		return "Mexico"
+	case "AU":
+		return "Australia"
+	case "MY":
+		return "Malaysia"
+	default:
+		return "Indonesia"
+	}
+}
+
+func (c *DeezerClient) allowsNonLatin(regions []string) bool {
+	for _, r := range regions {
+		switch strings.ToUpper(strings.TrimSpace(r)) {
+		case "JP", "KR", "IN":
+			return true
+		}
+	}
+	return false
 }
 
 func (c *DeezerClient) apiGet(ctx context.Context, path string, out any) error {
@@ -90,11 +166,12 @@ func (a dzAlbum) bestCover() string {
 }
 
 type dzTrack struct {
-	ID       int64    `json:"id"`
-	Title    string   `json:"title"`
-	Duration int      `json:"duration"`
-	Artist   dzArtist `json:"artist"`
-	Album    dzAlbum  `json:"album"`
+	ID             int64    `json:"id"`
+	Title          string   `json:"title"`
+	Duration       int      `json:"duration"`
+	ExplicitLyrics bool     `json:"explicit_lyrics"`
+	Artist         dzArtist `json:"artist"`
+	Album          dzAlbum  `json:"album"`
 }
 
 func (t dzTrack) toYTMusicTrack(fallbackAlbum, fallbackCover string) YTMusicTrack {
@@ -125,6 +202,7 @@ func (t dzTrack) toYTMusicTrack(fallbackAlbum, fallbackCover string) YTMusicTrac
 		DurationSec: dur,
 		CoverURL:    cover,
 		Format:      "AAC",
+		Explicit:    t.ExplicitLyrics,
 	}
 }
 
@@ -412,6 +490,7 @@ func (c *DeezerClient) hydrateArtistImages(ctx context.Context, cards []YTMusicC
 func (c *DeezerClient) SearchTracks(ctx context.Context, query string) ([]YTMusicTrack, error) {
 	q := strings.TrimSpace(query)
 	if q == "" {
+		country := c.countryNameForCode(c.getRegions()[0])
 		var (
 			wg        sync.WaitGroup
 			plTracks  []dzTrack
@@ -422,14 +501,14 @@ func (c *DeezerClient) SearchTracks(ctx context.Context, query string) ([]YTMusi
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			plTracks = c.fetchTopPlaylistTracks(ctx, []string{"Top Hits Indonesia", "Today's Top Hits"}, 4)
+			plTracks = c.fetchTopPlaylistTracks(ctx, []string{"Top Hits " + country, "Today's Top Hits"}, 4)
 		}()
 		go func() {
 			defer wg.Done()
 			var res struct {
 				Data []dzTrack `json:"data"`
 			}
-			if err := c.apiGet(ctx, "/search/track?q="+url.QueryEscape("Top Hits Indonesia")+"&limit=28", &res); err == nil {
+			if err := c.apiGet(ctx, "/search/track?q="+url.QueryEscape("Top Hits "+country)+"&limit=28", &res); err == nil {
 				id1Tracks = res.Data
 			} else if firstErr == nil {
 				firstErr = err
@@ -535,6 +614,7 @@ func (c *DeezerClient) SearchTracks(ctx context.Context, query string) ([]YTMusi
 func (c *DeezerClient) SearchAlbums(ctx context.Context, query string) ([]YTMusicCard, error) {
 	q := strings.TrimSpace(query)
 	if q == "" {
+		country := c.countryNameForCode(c.getRegions()[0])
 		var (
 			wg        sync.WaitGroup
 			plTracks  []dzTrack
@@ -545,14 +625,14 @@ func (c *DeezerClient) SearchAlbums(ctx context.Context, query string) ([]YTMusi
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			plTracks = c.fetchTopPlaylistTracks(ctx, []string{"Top Hits Indonesia", "Pop Indonesia"}, 4)
+			plTracks = c.fetchTopPlaylistTracks(ctx, []string{"Top Hits " + country, "Pop " + country}, 4)
 		}()
 		go func() {
 			defer wg.Done()
 			var res struct {
 				Data []dzAlbum `json:"data"`
 			}
-			if err := c.apiGet(ctx, "/search/album?q="+url.QueryEscape("Pop Indonesia")+"&limit=28", &res); err == nil {
+			if err := c.apiGet(ctx, "/search/album?q="+url.QueryEscape("Pop "+country)+"&limit=28", &res); err == nil {
 				idAlbums = res.Data
 			} else if firstErr == nil {
 				firstErr = err
@@ -851,7 +931,7 @@ func (c *DeezerClient) GetMoreArtists(ctx context.Context, offset int, excludeBr
 func (c *DeezerClient) SearchPlaylists(ctx context.Context, query string) ([]YTMusicCard, error) {
 	q := strings.TrimSpace(query)
 	if q == "" {
-		q = "Top Hits Indonesia"
+		q = "Top Hits " + c.countryNameForCode(c.getRegions()[0])
 	}
 	var res struct {
 		Data []dzPlaylist `json:"data"`
@@ -883,6 +963,9 @@ func (c *DeezerClient) SearchPlaylists(ctx context.Context, query string) ([]YTM
 }
 
 func (c *DeezerClient) GetHomeFeed(ctx context.Context) (YTMusicHomeFeed, error) {
+	regions := c.getRegions()
+	allowNonLatin := c.allowsNonLatin(regions)
+
 	var chart struct {
 		Tracks struct {
 			Data []dzTrack `json:"data"`
@@ -900,11 +983,17 @@ func (c *DeezerClient) GetHomeFeed(ctx context.Context) (YTMusicHomeFeed, error)
 	var extraArtists struct {
 		Data []dzArtist `json:"data"`
 	}
+	type regionData struct {
+		playlists []dzPlaylist
+		tracks    []dzTrack
+	}
+	regResults := make([]regionData, len(regions))
+
 	var (
 		wg       sync.WaitGroup
 		chartErr error
 	)
-	wg.Add(2)
+	wg.Add(2 + len(regions)*2)
 	go func() {
 		defer wg.Done()
 		chartErr = c.apiGet(ctx, "/chart/0", &chart)
@@ -913,6 +1002,27 @@ func (c *DeezerClient) GetHomeFeed(ctx context.Context) (YTMusicHomeFeed, error)
 		defer wg.Done()
 		_ = c.apiGet(ctx, "/chart/0/artists?limit=28", &extraArtists)
 	}()
+	for i, reg := range regions {
+		country := c.countryNameForCode(reg)
+		go func(idx int, countryName string) {
+			defer wg.Done()
+			var res struct {
+				Data []dzPlaylist `json:"data"`
+			}
+			if err := c.apiGet(ctx, "/search/playlist?q="+url.QueryEscape("Top 50 "+countryName)+"&limit=6", &res); err == nil {
+				regResults[idx].playlists = res.Data
+			}
+		}(i, country)
+		go func(idx int, countryName string) {
+			defer wg.Done()
+			var res struct {
+				Data []dzTrack `json:"data"`
+			}
+			if err := c.apiGet(ctx, "/search/track?q="+url.QueryEscape("top hits "+countryName)+"&limit=14", &res); err == nil {
+				regResults[idx].tracks = res.Data
+			}
+		}(i, country)
+	}
 	wg.Wait()
 	if chartErr != nil && len(extraArtists.Data) == 0 {
 		return YTMusicHomeFeed{}, chartErr
@@ -926,7 +1036,7 @@ func (c *DeezerClient) GetHomeFeed(ctx context.Context) (YTMusicHomeFeed, error)
 			if al.ID == 0 || strings.TrimSpace(al.Title) == "" {
 				continue
 			}
-			if !isLatinText(al.Title) || !isLatinText(al.Artist.Name) || isBackgroundMusicName(al.Title) || isBackgroundMusicName(al.Artist.Name) {
+			if (!allowNonLatin && (!isLatinText(al.Title) || !isLatinText(al.Artist.Name))) || isBackgroundMusicName(al.Title) || isBackgroundMusicName(al.Artist.Name) {
 				continue
 			}
 			bid := "dz:album:" + strconv.FormatInt(al.ID, 10)
@@ -947,12 +1057,22 @@ func (c *DeezerClient) GetHomeFeed(ctx context.Context) (YTMusicHomeFeed, error)
 		}
 	}
 
-	if len(chart.Playlists.Data) > 0 {
-		items := make([]YTMusicCard, 0, len(chart.Playlists.Data))
-		for _, pl := range chart.Playlists.Data {
+	var playlistPool []dzPlaylist
+	for _, rr := range regResults {
+		playlistPool = append(playlistPool, rr.playlists...)
+	}
+	playlistPool = append(playlistPool, chart.Playlists.Data...)
+	if len(playlistPool) > 0 {
+		seenPl := make(map[int64]struct{}, len(playlistPool))
+		items := make([]YTMusicCard, 0, len(playlistPool))
+		for _, pl := range playlistPool {
 			if pl.ID == 0 || strings.TrimSpace(pl.Title) == "" {
 				continue
 			}
+			if _, dup := seenPl[pl.ID]; dup {
+				continue
+			}
+			seenPl[pl.ID] = struct{}{}
 			bid := "dz:playlist:" + strconv.FormatInt(pl.ID, 10)
 			sub := strings.TrimSpace(pl.User.Name)
 			if sub == "" {
@@ -974,6 +1094,13 @@ func (c *DeezerClient) GetHomeFeed(ctx context.Context) (YTMusicHomeFeed, error)
 	}
 
 	var artistPool []dzArtist
+	for _, rr := range regResults {
+		for _, tr := range rr.tracks {
+			if tr.Artist.ID > 0 {
+				artistPool = append(artistPool, tr.Artist)
+			}
+		}
+	}
 	for _, tr := range chart.Tracks.Data {
 		if tr.Artist.ID > 0 {
 			artistPool = append(artistPool, tr.Artist)
@@ -988,7 +1115,7 @@ func (c *DeezerClient) GetHomeFeed(ctx context.Context) (YTMusicHomeFeed, error)
 			if ar.ID == 0 || strings.TrimSpace(ar.Name) == "" {
 				continue
 			}
-			if !isLatinText(ar.Name) || isBackgroundMusicName(ar.Name) {
+			if (!allowNonLatin && !isLatinText(ar.Name)) || isBackgroundMusicName(ar.Name) {
 				continue
 			}
 			if _, dup := seenAr[ar.ID]; dup {
@@ -1015,11 +1142,22 @@ func (c *DeezerClient) GetHomeFeed(ctx context.Context) (YTMusicHomeFeed, error)
 		}
 	}
 
-	tracks := make([]YTMusicTrack, 0, len(chart.Tracks.Data))
-	for _, tr := range chart.Tracks.Data {
+	var trackPool []dzTrack
+	for _, rr := range regResults {
+		trackPool = append(trackPool, rr.tracks...)
+	}
+	trackPool = append(trackPool, chart.Tracks.Data...)
+
+	seenTr := make(map[int64]struct{}, len(trackPool))
+	tracks := make([]YTMusicTrack, 0, len(trackPool))
+	for _, tr := range trackPool {
 		if tr.ID == 0 || strings.TrimSpace(tr.Title) == "" {
 			continue
 		}
+		if _, dup := seenTr[tr.ID]; dup {
+			continue
+		}
+		seenTr[tr.ID] = struct{}{}
 		tracks = append(tracks, tr.toYTMusicTrack("", ""))
 	}
 	tracks = spreadAndShuffleTracks(tracks, 2)
