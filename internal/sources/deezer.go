@@ -971,6 +971,9 @@ func (c *DeezerClient) GetHomeFeed(ctx context.Context) (YTMusicHomeFeed, error)
 	var extraArtists struct {
 		Data []dzArtist `json:"data"`
 	}
+	var extraAlbums struct {
+		Data []dzAlbum `json:"data"`
+	}
 	type regionData struct {
 		playlists []dzPlaylist
 		tracks    []dzTrack
@@ -981,7 +984,7 @@ func (c *DeezerClient) GetHomeFeed(ctx context.Context) (YTMusicHomeFeed, error)
 		wg       sync.WaitGroup
 		chartErr error
 	)
-	wg.Add(2 + len(regions)*2)
+	wg.Add(3 + len(regions)*2)
 	go func() {
 		defer wg.Done()
 		chartErr = c.apiGet(ctx, "/chart/0", &chart)
@@ -989,6 +992,10 @@ func (c *DeezerClient) GetHomeFeed(ctx context.Context) (YTMusicHomeFeed, error)
 	go func() {
 		defer wg.Done()
 		_ = c.apiGet(ctx, "/chart/0/artists?limit=28", &extraArtists)
+	}()
+	go func() {
+		defer wg.Done()
+		_ = c.apiGet(ctx, "/chart/0/albums?limit=30", &extraAlbums)
 	}()
 	for i, reg := range regions {
 		country := c.countryNameForCode(reg)
@@ -1018,12 +1025,20 @@ func (c *DeezerClient) GetHomeFeed(ctx context.Context) (YTMusicHomeFeed, error)
 
 	var shelves []YTMusicShelf
 
-	if len(chart.Albums.Data) > 0 {
-		items := make([]YTMusicCard, 0, len(chart.Albums.Data))
-		for _, al := range chart.Albums.Data {
+	albumPool := make([]dzAlbum, 0, len(chart.Albums.Data)+len(extraAlbums.Data))
+	albumPool = append(albumPool, chart.Albums.Data...)
+	albumPool = append(albumPool, extraAlbums.Data...)
+	if len(albumPool) > 0 {
+		seenAlb := make(map[int64]struct{}, len(albumPool))
+		items := make([]YTMusicCard, 0, len(albumPool))
+		for _, al := range albumPool {
 			if al.ID == 0 || strings.TrimSpace(al.Title) == "" {
 				continue
 			}
+			if _, dup := seenAlb[al.ID]; dup {
+				continue
+			}
+			seenAlb[al.ID] = struct{}{}
 			if (!allowNonLatin && (!isLatinText(al.Title) || !isLatinText(al.Artist.Name))) || isBackgroundMusicName(al.Title) || isBackgroundMusicName(al.Artist.Name) {
 				continue
 			}
@@ -1782,7 +1797,7 @@ func (c *DeezerClient) GetCollectionTracks(ctx context.Context, dzBrowseID strin
 	return nil, fmt.Errorf("unsupported deezer browseId: %s", raw)
 }
 
-func (c *DeezerClient) ResolveTrackToYTMusic(ctx context.Context, yt *YTMusicClient, dzTrackID, title, artist string) (string, error) {
+func (c *DeezerClient) ResolveTrackToYTMusic(ctx context.Context, yt *YTMusicClient, dzTrackID, title, artist string, targetDurationSec int) (string, error) {
 	if yt == nil {
 		return "", fmt.Errorf("youtube music client unavailable")
 	}
@@ -1801,13 +1816,13 @@ func (c *DeezerClient) ResolveTrackToYTMusic(ctx context.Context, yt *YTMusicCli
 		return "", fmt.Errorf("judul lagu kosong untuk resolve audio")
 	}
 	hits, err := yt.Search(ctx, q)
-	if err != nil || len(hits) == 0 || strings.TrimSpace(hits[0].VideoID) == "" {
-		if err != nil {
-			return "", err
-		}
+	if err != nil {
+		return "", err
+	}
+	vid := PickBestYTMusicVideoID(hits, title, artist, targetDurationSec)
+	if vid == "" {
 		return "", fmt.Errorf("audio YouTube Music tidak ditemukan untuk %s", q)
 	}
-	vid := strings.TrimSpace(hits[0].VideoID)
 	if key != "" {
 		c.mu.Lock()
 		c.resolvedCache[key] = vid
