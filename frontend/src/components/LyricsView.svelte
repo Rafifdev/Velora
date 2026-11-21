@@ -3,6 +3,7 @@
   import type { Track, TrackLyrics } from '../lib/types';
   import { resolveCoverUrl } from '../lib/api';
   import { getPrefBool, getPrefValue } from '../lib/preferences';
+  import EqIndicator from './EqIndicator.svelte';
   import Icon from './Icon.svelte';
 
   let {
@@ -134,7 +135,6 @@
   class="relative h-full w-full rounded-xl overflow-hidden flex flex-col select-none"
   style="background-color: var(--md-sys-color-surface-container);"
 >
-  <!-- Blurred Album Cover Backdrop -->
   {#if cover}
     <img
       src={cover}
@@ -148,7 +148,6 @@
     style="background: linear-gradient(180deg, rgba(10, 12, 16, 0.84) 0%, rgba(10, 12, 16, 0.68) 18%, rgba(10, 12, 16, 0.72) 55%, rgba(10, 12, 16, 0.88) 88%, rgba(10, 12, 16, 0.94) 100%);"
   ></div>
 
-  <!-- Top Header -->
   <header class="relative z-10 flex items-center justify-between gap-4 px-8 pt-6 pb-4 shrink-0">
     <div class="flex items-center gap-4 min-w-0">
       {#if cover}
@@ -240,7 +239,6 @@
     </div>
   </header>
 
-  <!-- Main Full-Screen Lyrics Area with Ultra-Smooth Top & Bottom Mask Fade -->
   <div class="relative z-10 flex-1 min-h-0">
     <div
       bind:this={scrollEl}
@@ -260,13 +258,7 @@
       </div>
     {:else if lyricsLoading}
       <div class="h-full flex flex-col items-center justify-center text-center gap-3 text-white/65">
-        <span class="velora-eq-loader" style="--loader-color: rgba(255, 255, 255, 0.85);" aria-hidden="true">
-          <span class="velora-eq-bar"></span>
-          <span class="velora-eq-bar"></span>
-          <span class="velora-eq-bar"></span>
-          <span class="velora-eq-bar"></span>
-          <span class="velora-eq-bar"></span>
-        </span>
+        <EqIndicator variant="loader" color="rgba(255, 255, 255, 0.85)" />
         <p class="text-sm font-medium">Memuat lirik…</p>
       </div>
     {:else if hasSynced}

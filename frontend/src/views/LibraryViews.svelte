@@ -3,6 +3,8 @@
   import { svelteMotionEnter } from '../lib/motion';
   import type { Album, Artist, DownloadProgress, Playlist, Track, ViewRoute, YTMusicArtistView, YTMusicCard, YTMusicTrack } from '../lib/types';
   import { tr, type LangCode } from '../lib/i18n';
+  import EmptyState from '../components/EmptyState.svelte';
+  import EqIndicator from '../components/EqIndicator.svelte';
   import Icon from '../components/Icon.svelte';
   import TrackTable from '../components/TrackTable.svelte';
 
@@ -242,7 +244,6 @@
       else if (title.startsWith(q)) score += 60;
       else if (title.includes(q)) score += 30;
       if (artist.includes(q)) score += 15;
-      // Preserve YouTube relevance order on ties
       score -= i * 0.1;
       if (score > bestScore) {
         bestScore = score;
@@ -298,7 +299,6 @@
     style="background-color: var(--md-sys-color-surface-container-low);"
     use:svelteMotionEnter={{ y: 8 }}
   >
-    <!-- Hero Banner (gradasi oren senada, dibatasi garis pemisah di bawah) -->
     <section
       class="relative z-10 px-6 sm:px-7 pt-7 pb-7"
       style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-tertiary) 36%, var(--md-sys-color-tertiary-container)) 0%, color-mix(in srgb, var(--md-sys-color-tertiary-container) 74%, var(--md-sys-color-surface-container-low)) 100%);"
@@ -324,7 +324,6 @@
           </div>
         </div>
 
-        <!-- Tombol Play All & Shuffle di sisi kanan sejajar dengan teks -->
         <div class="mb-[4px] flex items-center gap-2.5">
           <button
             type="button"
@@ -357,16 +356,13 @@
       style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-tertiary-container) 48%, var(--md-sys-color-surface-container-low)) 0%, color-mix(in srgb, var(--md-sys-color-tertiary-container) 28%, var(--md-sys-color-surface-container-low)) 120px, color-mix(in srgb, var(--md-sys-color-tertiary-container) 11%, var(--md-sys-color-surface-container-low)) 240px, var(--md-sys-color-surface-container-low) 340px);"
     >
       {#if likedTracks.length === 0}
-        <div class="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
-          <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
-            <Icon name="music-note" weight="fill" size={38} />
-          </div>
-          <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-            {tr(lang, 'nav.noFavSongs')}
-          </h2>
-          <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-            {tr(lang, 'nav.noFavSongsDesc')}
-          </p>
+        <EmptyState
+          icon="music-note"
+          iconWeight="fill"
+          iconSize={38}
+          title={tr(lang, 'nav.noFavSongs')}
+          description={tr(lang, 'nav.noFavSongsDesc')}
+        >
           <button
             type="button"
             onclick={() => onNavigate?.({ name: 'home', filter: 'musik' })}
@@ -375,7 +371,7 @@
           >
             {tr(lang, 'nav.exploreSongs')}
           </button>
-        </div>
+        </EmptyState>
       {:else}
         <TrackTable
           tracks={likedTracks}
@@ -504,16 +500,13 @@
       {/if}
 
       {#if downloadedTracks.length === 0 && activeDownloads.length === 0}
-        <div class="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
-          <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
-            <Icon name="download" weight="fill" size={38} />
-          </div>
-          <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-            Belum ada lagu yang diunduh
-          </h2>
-          <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-            Unduh lagu favoritmu agar bisa diputar kapan saja tanpa koneksi internet.
-          </p>
+        <EmptyState
+          icon="download"
+          iconWeight="fill"
+          iconSize={38}
+          title="Belum ada lagu yang diunduh"
+          description="Unduh lagu favoritmu agar bisa diputar kapan saja tanpa koneksi internet."
+        >
           <button
             type="button"
             onclick={() => onNavigate?.({ name: 'home', filter: 'musik' })}
@@ -522,7 +515,7 @@
           >
             Jelajahi lagu
           </button>
-        </div>
+        </EmptyState>
       {:else if downloadedTracks.length > 0}
         <TrackTable
           tracks={downloadedTracks}
@@ -553,13 +546,11 @@
     style="background-color: var(--md-sys-color-surface-container-low);"
     use:svelteMotionEnter={{ y: 8 }}
   >
-    <!-- Top Gradient Fade saat scroll -->
     <div
       class="pointer-events-none sticky top-0 left-0 right-0 h-16 -mb-16 z-30 transition-opacity duration-300"
       style="opacity: {albumsScrolled ? 1 : 0}; background: linear-gradient(to bottom, var(--md-sys-color-surface) 0%, var(--md-sys-color-surface) 38%, color-mix(in srgb, var(--md-sys-color-surface) 82%, transparent) 58%, color-mix(in srgb, var(--md-sys-color-surface) 42%, transparent) 80%, transparent 100%);"
     ></div>
 
-    <!-- Hero Banner (gradasi oranye senada seperti Favorite music) -->
     <section
       class="relative z-10 px-6 sm:px-7 pt-7 pb-7"
       style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-tertiary) 36%, var(--md-sys-color-tertiary-container)) 0%, color-mix(in srgb, var(--md-sys-color-tertiary-container) 74%, var(--md-sys-color-surface-container-low)) 100%);"
@@ -593,16 +584,13 @@
       style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-tertiary-container) 48%, var(--md-sys-color-surface-container-low)) 0%, color-mix(in srgb, var(--md-sys-color-tertiary-container) 28%, var(--md-sys-color-surface-container-low)) 120px, color-mix(in srgb, var(--md-sys-color-tertiary-container) 11%, var(--md-sys-color-surface-container-low)) 240px, var(--md-sys-color-surface-container-low) 340px);"
     >
       {#if displayedAlbums.length === 0}
-        <div class="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
-          <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
-            <Icon name="vinyl-record" weight="fill" size={38} />
-          </div>
-          <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-            Belum ada album favorit
-          </h2>
-          <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-            Simpan album dengan mengetuk ikon hati.
-          </p>
+        <EmptyState
+          icon="vinyl-record"
+          iconWeight="fill"
+          iconSize={38}
+          title="Belum ada album favorit"
+          description="Simpan album dengan mengetuk ikon hati."
+        >
           <button
             type="button"
             onclick={() => onNavigate?.({ name: 'home', filter: 'album' })}
@@ -611,7 +599,7 @@
           >
             Jelajahi album
           </button>
-        </div>
+        </EmptyState>
       {:else}
         <div class="velora-card-grid">
           {#each displayedAlbums as al (al.id)}
@@ -681,13 +669,11 @@
     style="background-color: var(--md-sys-color-surface-container-low);"
     use:svelteMotionEnter={{ y: 8 }}
   >
-    <!-- Top Gradient Fade saat scroll -->
     <div
       class="pointer-events-none sticky top-0 left-0 right-0 h-16 -mb-16 z-30 transition-opacity duration-300"
       style="opacity: {artistsScrolled ? 1 : 0}; background: linear-gradient(to bottom, var(--md-sys-color-surface) 0%, var(--md-sys-color-surface) 38%, color-mix(in srgb, var(--md-sys-color-surface) 82%, transparent) 58%, color-mix(in srgb, var(--md-sys-color-surface) 42%, transparent) 80%, transparent 100%);"
     ></div>
 
-    <!-- Hero Banner (gradasi oranye senada seperti Favorite music & Favorite albums) -->
     <section
       class="relative z-10 px-6 sm:px-7 pt-7 pb-7"
       style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-tertiary) 36%, var(--md-sys-color-tertiary-container)) 0%, color-mix(in srgb, var(--md-sys-color-tertiary-container) 74%, var(--md-sys-color-surface-container-low)) 100%);"
@@ -721,16 +707,13 @@
       style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-tertiary-container) 48%, var(--md-sys-color-surface-container-low)) 0%, color-mix(in srgb, var(--md-sys-color-tertiary-container) 28%, var(--md-sys-color-surface-container-low)) 120px, color-mix(in srgb, var(--md-sys-color-tertiary-container) 11%, var(--md-sys-color-surface-container-low)) 240px, var(--md-sys-color-surface-container-low) 340px);"
     >
       {#if displayedArtists.length === 0}
-        <div class="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
-          <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
-            <Icon name="user" weight="fill" size={38} />
-          </div>
-          <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-            Belum ada artis favorit
-          </h2>
-          <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-            Simpan artis dengan mengetuk ikon hati.
-          </p>
+        <EmptyState
+          icon="user"
+          iconWeight="fill"
+          iconSize={38}
+          title="Belum ada artis favorit"
+          description="Simpan artis dengan mengetuk ikon hati."
+        >
           <button
             type="button"
             onclick={() => onNavigate?.({ name: 'home', filter: 'artis' })}
@@ -739,7 +722,7 @@
           >
             Jelajahi artis
           </button>
-        </div>
+        </EmptyState>
       {:else}
         <div class="velora-card-grid">
           {#each displayedArtists as ar (ar.id)}
@@ -820,7 +803,6 @@
 
   <div class="relative min-h-full flex flex-col" use:svelteMotionEnter={{ y: 8 }}>
     {#if ytArtistLoading}
-      <!-- Artist Detail Skeleton -->
       <div class="relative overflow-hidden px-4 sm:px-6 pt-8 pb-6 sm:pt-12 sm:pb-8 animate-pulse">
         <div class="flex flex-col sm:flex-row sm:items-end gap-4 sm:gap-6">
           <div class="w-28 h-28 sm:w-44 sm:h-44 rounded-full shrink-0 bg-[var(--md-sys-color-surface-container-highest)]"></div>
@@ -870,7 +852,6 @@
         </div>
       </div>
     {:else}
-      <!-- Spotify-Style Artist Hero Banner -->
       <div class="relative overflow-hidden px-4 sm:px-6 pt-8 pb-6 sm:pt-12 sm:pb-8">
         {#if avatar}
           <img
@@ -914,7 +895,6 @@
         </div>
       </div>
 
-      <!-- Action Bar + Content -->
       <div class="relative z-10 px-4 sm:px-6 pb-8 space-y-8">
         <div class="flex items-center gap-3 sm:gap-4">
           <button
@@ -967,7 +947,6 @@
           </button>
         </div>
 
-        <!-- Populer Section (Reusing TrackTable Component) -->
         <section class="space-y-3">
           <h2 class="text-lg sm:text-xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
             Populer
@@ -1011,7 +990,6 @@
           {/if}
         </section>
 
-        <!-- Album Section -->
         {#if artistAlbums.length > 0}
           <section class="space-y-3">
             <h2 class="text-lg sm:text-xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
@@ -1053,7 +1031,6 @@
           </section>
         {/if}
 
-        <!-- Penggemar Juga Menyukai Section -->
         {#if relatedArtists.length > 0}
           <section class="space-y-3">
             <h2 class="text-lg sm:text-xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
@@ -1095,9 +1072,7 @@
     {/if}
   </div>
 {:else}
-  <!-- Search & YouTube Music View -->
   <div class="p-3 sm:p-6 space-y-1 sm:space-y-6" use:svelteMotionEnter={{ y: 8 }}>
-    <!-- Mobile Full-Width Search Bar (Sticky at exact top with smooth dark top fade) -->
     <form
       onsubmit={(e) => {
         e.preventDefault();
@@ -1138,7 +1113,6 @@
       </div>
     </form>
 
-    <!-- Mobile Spotify-Style Search Suggestions & Results -->
     <div class="sm:hidden space-y-1">
       {#if ytLoading && ytResults.length === 0}
         <div class="space-y-2 pt-1 animate-pulse">
@@ -1460,12 +1434,7 @@
               class="w-11 h-11 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer hover:brightness-105 transition-transform active:scale-95"
             >
               {#if topActive && isPlaying}
-                <span class="velora-playing-eq" style="color: var(--md-sys-color-on-tertiary);" aria-hidden="true">
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                  <span></span>
-                </span>
+                <EqIndicator color="var(--md-sys-color-on-tertiary)" />
                 <span class="hidden group-hover:flex items-center justify-center">
                   <Icon name="pause" weight="fill" size={18} />
                 </span>
@@ -1538,12 +1507,7 @@
                   class="w-8 h-8 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer hover:brightness-105"
                 >
                   {#if ytActive && isPlaying}
-                    <span class="velora-playing-eq" style="color: var(--md-sys-color-on-tertiary); transform: scale(0.85);" aria-hidden="true">
-                      <span></span>
-                      <span></span>
-                      <span></span>
-                      <span></span>
-                    </span>
+                    <EqIndicator color="var(--md-sys-color-on-tertiary)" scale={0.85} />
                     <span class="hidden group-hover:flex items-center justify-center">
                       <Icon name="pause" weight="fill" size={14} />
                     </span>

@@ -64,7 +64,6 @@ export async function sendJamCommand(action: string, payload: Record<string, any
       body: JSON.stringify(typeof payload === 'number' ? { value: payload } : payload)
     });
   } catch {
-    // ignore network errors
   }
 }
 
@@ -396,7 +395,6 @@ export const api = {
         return await (window as any).runtime.WindowIsMaximised();
       }
     } catch {
-      // ignore
     }
     return window.outerWidth >= window.screen.availWidth - 8 && window.outerHeight >= window.screen.availHeight - 8;
   },

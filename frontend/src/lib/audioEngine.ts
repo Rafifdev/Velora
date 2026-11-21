@@ -1,6 +1,5 @@
 export type EqPresetId = 'spotify' | 'flat' | 'bass' | 'vocal' | 'electronic';
 
-// 5-band mastering EQ frequencies (Hz): sub-bass, low-mid clarity, vocal body, ear-fatigue/harshness control, silky air
 const EQ_BANDS: ReadonlyArray<{ freq: number; type: BiquadFilterType; q: number }> = [
   { freq: 65, type: 'lowshelf', q: 0.7 },
   { freq: 260, type: 'peaking', q: 0.9 },
@@ -10,7 +9,6 @@ const EQ_BANDS: ReadonlyArray<{ freq: number; type: BiquadFilterType; q: number 
 ];
 
 const EQ_PRESETS: Record<EqPresetId, readonly [number, number, number, number, number]> = {
-  // Studio: warm sub-bass, clean mids, gentle ear-fatigue cut at 3.5kHz, crisp air
   spotify: [1.5, -1.5, 0.5, -1.8, 1.8],
   flat: [0, 0, 0, 0, 0],
   bass: [6.5, 2.5, -1.0, -1.5, 0.5],
@@ -18,12 +16,6 @@ const EQ_PRESETS: Record<EqPresetId, readonly [number, number, number, number, n
   electronic: [5.0, -2.0, 0.5, 1.5, 4.5]
 };
 
-/**
- * Spotify-grade real-time Web Audio mastering chain:
- * Source -> Sub-sonic Highpass (24Hz) -> Gentle Anti-Harshness Lowpass (18.5kHz) ->
- * 5-Band Parametric EQ -> Transparent -14 LUFS Headroom Leveler ->
- * True-Peak Limiter (-1.5dB) -> Perceptual Master Gain
- */
 export class VeloraAudioEngine {
   private ctx: AudioContext | null = null;
   private source: MediaElementAudioSourceNode | null = null;
@@ -53,19 +45,16 @@ export class VeloraAudioEngine {
     const ctx = new AudioCtx({ latencyHint: 'playback' });
     const source = ctx.createMediaElementSource(audioEl);
 
-    // 1. Sub-sonic filter removes DC offset & <24Hz rumble that eats headroom
     const highpass = ctx.createBiquadFilter();
     highpass.type = 'highpass';
     highpass.frequency.value = 24;
     highpass.Q.value = 0.707;
 
-    // 2. Gentle 18.5kHz roll-off smooths out lossy-codec high-frequency grit/sibilance
     const lowpass = ctx.createBiquadFilter();
     lowpass.type = 'lowpass';
     lowpass.frequency.value = 18500;
     lowpass.Q.value = 0.707;
 
-    // 3. 5-band transparent mastering EQ
     const eqNodes = EQ_BANDS.map((band) => {
       const node = ctx.createBiquadFilter();
       node.type = band.type;
@@ -75,7 +64,7 @@ export class VeloraAudioEngine {
       return node;
     });
 
-    // 4. Transparent -14 LUFS headroom leveler (preserves natural transients without squashing)
+    // -3.3 dB trim for -14 LUFS headroom
     const leveler = ctx.createDynamicsCompressor();
     leveler.threshold.value = -12;
     leveler.knee.value = 24;
@@ -83,11 +72,9 @@ export class VeloraAudioEngine {
     leveler.attack.value = 0.025;
     leveler.release.value = 0.28;
 
-    // Headroom trim (-3.3 dB) matches Spotify's relaxed -14 LUFS loudness & eliminates harshness
     const makeupGain = ctx.createGain();
     makeupGain.gain.value = 0.68;
 
-    // 5. True-peak safety brickwall limiter prevents 0 dBFS digital clipping
     const limiter = ctx.createDynamicsCompressor();
     limiter.threshold.value = -1.5;
     limiter.knee.value = 2;
@@ -95,7 +82,6 @@ export class VeloraAudioEngine {
     limiter.attack.value = 0.002;
     limiter.release.value = 0.08;
 
-    // 6. Micro-fade gate (prevents click/pop on track start) + perceptual master gain
     const fadeGain = ctx.createGain();
     fadeGain.gain.value = 1.0;
 
@@ -104,7 +90,6 @@ export class VeloraAudioEngine {
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 512;
 
-    // Wire graph: source -> highpass -> lowpass -> eq0..4 -> makeup -> leveler -> limiter -> fade -> master -> out
     let prev: AudioNode = source;
     prev.connect(highpass);
     highpass.connect(lowpass);
@@ -121,7 +106,6 @@ export class VeloraAudioEngine {
     fadeGain.connect(masterGain);
     masterGain.connect(ctx.destination);
 
-    // Keep native element at unity gain & preserve natural pitch
     audioEl.volume = 1;
     (audioEl as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = true;
 
@@ -149,7 +133,6 @@ export class VeloraAudioEngine {
       try {
         await this.ctx.resume();
       } catch {
-        // Ignore if autoplay policy blocks before user gesture
       }
     }
   }
@@ -223,7 +206,6 @@ export class VeloraAudioEngine {
     if (this.normalizeEnabled) {
       this.leveler.threshold.setTargetAtTime(-12, now, 0.03);
       this.leveler.ratio.setTargetAtTime(1.5, now, 0.03);
-      // -3.3 dB headroom trim matches Spotify's -14 LUFS loudness so sound is open, relaxed & non-fatiguing
       this.makeupGain.gain.setTargetAtTime(0.68, now, 0.03);
     } else {
       this.leveler.threshold.setTargetAtTime(0, now, 0.03);
@@ -245,7 +227,6 @@ export class VeloraAudioEngine {
       this.masterGain?.disconnect();
       void this.ctx?.close();
     } catch {
-      // Ignore cleanup errors
     }
     this.ctx = null;
     this.source = null;

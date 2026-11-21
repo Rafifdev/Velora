@@ -110,7 +110,6 @@
     style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-tertiary-container) 70%, var(--md-sys-color-background)) 0%, var(--md-sys-color-background) 42%); color: var(--md-sys-color-on-surface);"
   >
     <div class="max-w-md mx-auto space-y-6">
-      <!-- Top Header -->
       <div class="flex items-center justify-between gap-3">
         <button
           type="button"
@@ -141,7 +140,6 @@
         </button>
       </div>
 
-      <!-- Large Album Artwork -->
       <div class="w-full aspect-square rounded-xl overflow-hidden shadow-2xl bg-[var(--md-sys-color-surface-container-high)] flex items-center justify-center">
         {#if cover}
           <img
@@ -155,7 +153,6 @@
         {/if}
       </div>
 
-      <!-- Track Meta + Favorite -->
       <div class="space-y-4">
         <div class="flex items-center justify-between gap-3">
           <div class="min-w-0 flex-1">
@@ -183,7 +180,6 @@
           </button>
         </div>
 
-        <!-- Seek Bar -->
         <div class="space-y-1.5">
           <input
             type="range"
@@ -202,7 +198,6 @@
           </div>
         </div>
 
-        <!-- Spotify-style Main Transport Controls -->
         <div class="flex items-center justify-between px-1">
           <button
             type="button"
@@ -253,7 +248,6 @@
           </button>
         </div>
 
-        <!-- Action Icons Row -->
         <div class="flex items-center justify-between pt-1">
           <button
             type="button"
@@ -282,7 +276,6 @@
         </div>
       </div>
 
-      <!-- Lyrics Preview Card (Spotify style) -->
       <section
         class="rounded-2xl p-4 space-y-3"
         style="background: linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-tertiary-container) 82%, #6d4c1d), color-mix(in srgb, var(--md-sys-color-tertiary-container) 55%, #3d2a0d));"
@@ -315,7 +308,6 @@
         </button>
       </section>
 
-      <!-- Antrean Berikutnya (Sama seperti Desktop RightPanel) -->
       <section
         class="rounded-2xl p-4"
         style="background-color: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface);"

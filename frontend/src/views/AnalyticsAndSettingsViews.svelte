@@ -13,7 +13,10 @@
   } from '../lib/preferences';
   import { getPrefLang, tr } from '../lib/i18n';
   import type { FireStreakStatus, ListeningStats, PlayHistoryItem, Track, UpdateCheckResult, ViewRoute } from '../lib/types';
+  import EmptyState from '../components/EmptyState.svelte';
+  import EqIndicator from '../components/EqIndicator.svelte';
   import Icon from '../components/Icon.svelte';
+  import ModalDialog from '../components/ModalDialog.svelte';
 
   interface Props {
     mode: 'history' | 'listening-stats' | 'fire-streak' | 'preferences';
@@ -57,23 +60,17 @@
   let openSelectFlipUp = $state(false);
   let clearingCache = $state(false);
   let confirmClearCache = $state(false);
-  let clearCacheDialogEl: HTMLDialogElement | undefined = $state();
   let historyTab = $state<'recent' | 'stats'>('recent');
   let historyFilter = $state('');
   let confirmClearHistory = $state(false);
-  let clearHistoryDialogEl: HTMLDialogElement | undefined = $state();
   let confirmResetIsland = $state(false);
-  let resetIslandDialogEl: HTMLDialogElement | undefined = $state();
   let showShortcutsModal = $state(false);
-  let shortcutsDialogEl: HTMLDialogElement | undefined = $state();
   let showReleaseNotesModal = $state(false);
-  let releaseNotesDialogEl: HTMLDialogElement | undefined = $state();
   let dataDirPath = $state('');
   let updateStatusText = $state('');
   let checkingUpdates = $state(false);
   let updateResult = $state<UpdateCheckResult | null>(null);
   let showUpdateModal = $state(false);
-  let updateDialogEl: HTMLDialogElement | undefined = $state();
   let shakingParentId = $state<string | null>(null);
   let shakeTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -90,37 +87,10 @@
   }
 
   $effect(() => {
-    if (!clearCacheDialogEl) return;
-    if (confirmClearCache && !clearCacheDialogEl.open) {
-      clearCacheDialogEl.showModal();
-    } else if (!confirmClearCache && clearCacheDialogEl.open) {
-      clearCacheDialogEl.close();
-    }
-  });
-
-  $effect(() => {
     if (mode === 'preferences' && isAppTab(activePrefTab) && !dataDirPath) {
       void api.getDataDir().then((dir) => {
         if (dir) dataDirPath = dir;
       });
-    }
-  });
-
-  $effect(() => {
-    if (!releaseNotesDialogEl) return;
-    if (showReleaseNotesModal && !releaseNotesDialogEl.open) {
-      releaseNotesDialogEl.showModal();
-    } else if (!showReleaseNotesModal && releaseNotesDialogEl.open) {
-      releaseNotesDialogEl.close();
-    }
-  });
-
-  $effect(() => {
-    if (!updateDialogEl) return;
-    if (showUpdateModal && !updateDialogEl.open) {
-      updateDialogEl.showModal();
-    } else if (!showUpdateModal && updateDialogEl.open) {
-      updateDialogEl.close();
     }
   });
 
@@ -145,33 +115,6 @@
       checkingUpdates = false;
     }
   }
-
-  $effect(() => {
-    if (!clearHistoryDialogEl) return;
-    if (confirmClearHistory && !clearHistoryDialogEl.open) {
-      clearHistoryDialogEl.showModal();
-    } else if (!confirmClearHistory && clearHistoryDialogEl.open) {
-      clearHistoryDialogEl.close();
-    }
-  });
-
-  $effect(() => {
-    if (!resetIslandDialogEl) return;
-    if (confirmResetIsland && !resetIslandDialogEl.open) {
-      resetIslandDialogEl.showModal();
-    } else if (!confirmResetIsland && resetIslandDialogEl.open) {
-      resetIslandDialogEl.close();
-    }
-  });
-
-  $effect(() => {
-    if (!shortcutsDialogEl) return;
-    if (showShortcutsModal && !shortcutsDialogEl.open) {
-      shortcutsDialogEl.showModal();
-    } else if (!showShortcutsModal && shortcutsDialogEl.open) {
-      shortcutsDialogEl.close();
-    }
-  });
 
   const filteredHistory = $derived.by(() => {
     const q = historyFilter.trim().toLowerCase();
@@ -523,13 +466,7 @@
             : 'm3-btn-tonal px-4 min-w-[104px] h-9 text-xs font-semibold inline-flex items-center justify-center cursor-pointer disabled:opacity-75 disabled:cursor-wait'}
         >
           {#if item.id === 'storage.clearCache' && clearingCache}
-            <span class="velora-eq-loader" aria-hidden="true">
-              <span class="velora-eq-bar"></span>
-              <span class="velora-eq-bar"></span>
-              <span class="velora-eq-bar"></span>
-              <span class="velora-eq-bar"></span>
-              <span class="velora-eq-bar"></span>
-            </span>
+            <EqIndicator variant="loader" />
           {:else}
             {item.actionLabel || tr(lang, 'nav.run')}
           {/if}
@@ -889,7 +826,6 @@
     style="background-color: var(--md-sys-color-surface-container-low);"
     use:svelteMotionEnter={{ y: 8 }}
   >
-    <!-- Hero Banner -->
     <section
       class="relative z-10 px-6 sm:px-7 pt-7 pb-7"
       style="background: linear-gradient(180deg, var(--md-sys-color-surface-container-highest) 0%, color-mix(in srgb, var(--md-sys-color-surface-container-high) 74%, var(--md-sys-color-surface-container-low)) 100%);"
@@ -913,7 +849,6 @@
           </div>
         </div>
 
-        <!-- Action Buttons -->
         <div class="mb-[4px] flex items-center gap-2.5">
           <button
             type="button"
@@ -943,16 +878,13 @@
     >
 
       {#if history.length === 0}
-        <div class="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
-          <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
-            <Icon name="music-note" weight="bold" size={38} />
-          </div>
-          <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-            {tr(lang, 'nav.noHistoryTitle')}
-          </h2>
-          <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-            {tr(lang, 'nav.noHistoryDesc')}
-          </p>
+        <EmptyState
+          icon="music-note"
+          iconWeight="bold"
+          iconSize={38}
+          title={tr(lang, 'nav.noHistoryTitle')}
+          description={tr(lang, 'nav.noHistoryDesc')}
+        >
           <button
             type="button"
             onclick={() => onNavigate?.({ name: 'home' })}
@@ -961,10 +893,9 @@
           >
             {tr(lang, 'nav.exploreSongs')}
           </button>
-        </div>
+        </EmptyState>
       {:else}
         <div class="space-y-1">
-          <!-- Column Header: #, Judul, Durasi Putar, Ditonton, Durasi, Aksi (1:1 Playlist Table) -->
           <div
             class="-mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(100px,0.6fr)_minmax(150px,0.75fr)_56px_32px] items-center gap-4 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider"
             style="color: var(--md-sys-color-on-surface-variant);"
@@ -1206,14 +1137,12 @@
     </div>
   </div>
 {:else}
-  <!-- VELORA PREFERENCES MAIN PAGE (Matched with Home & M3 Design Tokens) -->
   <div class="h-full min-h-0 flex flex-col overflow-hidden relative" use:svelteMotionEnter={{ y: 8 }}>
     <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-6 pb-20">
       {#key prefSearch.trim() ? '__search__' : activePrefTab}
         <div in:fly={{ y: 10, duration: 200 }} class="space-y-6">
       {#if !prefSearch.trim() && isAppTab(activePrefTab)}
         <div class="w-full space-y-5">
-          <!-- 1. Top App Banner -->
           <div
             class="relative overflow-hidden rounded-2xl p-6 flex items-center justify-between"
             style="background: linear-gradient(120deg, color-mix(in srgb, var(--md-sys-color-primary) 28%, var(--md-sys-color-surface-container-high)) 0%, color-mix(in srgb, var(--md-sys-color-primary) 12%, var(--md-sys-color-surface-container-low)) 55%, var(--md-sys-color-surface-container-low) 100%);"
@@ -1231,7 +1160,6 @@
             </div>
           </div>
 
-          <!-- 2. Developer Spotlight Card -->
           <div
             class="relative overflow-hidden rounded-2xl p-6 min-h-[172px] flex items-end justify-between gap-4"
             style="background: linear-gradient(300deg, color-mix(in srgb, var(--md-sys-color-primary) 28%, var(--md-sys-color-surface-container-high)) 0%, color-mix(in srgb, var(--md-sys-color-primary) 12%, var(--md-sys-color-surface-container-low)) 55%, var(--md-sys-color-surface-container-low) 100%);"
@@ -1251,7 +1179,6 @@
             />
           </div>
 
-          <!-- 3. Media sosial (flat M3 settings list style) -->
           <div class="space-y-0.5">
             <div
               class="px-3.5 text-[11px] font-semibold uppercase tracking-wider"
@@ -1284,7 +1211,6 @@
             </button>
           </div>
 
-          <!-- 4. Traktir kopi -->
           <button
             type="button"
             onclick={() => (showReleaseNotesModal = true)}
@@ -1302,7 +1228,6 @@
             </div>
           </button>
 
-          <!-- 5. Aplikasi & Data (flat M3 settings list style) -->
           <div class="space-y-0.5">
             <button
               type="button"
@@ -1362,19 +1287,17 @@
 
         <div class="w-full space-y-4">
           {#if groupedVisibleSettings.length === 0}
-            <div class="min-h-[45vh] flex flex-col items-center justify-center text-center gap-3 px-4">
-              <Icon name="magnifying-glass" size={40} class="opacity-55" />
-              <div class="space-y-1 max-w-sm">
-                <h3 class="text-base font-bold" style="color: var(--md-sys-color-on-surface);">
-                  {tr(lang, 'nav.noMatchingSettings')}
-                </h3>
-                <p class="text-xs" style="color: var(--md-sys-color-on-surface-variant);">
-                  {lang === 'id'
-                    ? 'Coba kata kunci lain untuk menemukan pengaturan yang kamu cari.'
-                    : 'Try a different keyword to find the setting you are looking for.'}
-                </p>
-              </div>
-            </div>
+            <EmptyState
+              icon="magnifying-glass"
+              iconSize={40}
+              title={tr(lang, 'nav.noMatchingSettings')}
+              description={lang === 'id'
+                ? 'Coba kata kunci lain untuk menemukan pengaturan yang kamu cari.'
+                : 'Try a different keyword to find the setting you are looking for.'}
+              titleClass="text-base font-bold"
+              descClass="mt-1 text-xs max-w-sm mx-auto"
+              class="min-h-[45vh] flex flex-col items-center justify-center text-center px-4"
+            />
           {:else}
             {#each groupedVisibleSettings as grp (grp.name)}
               <div class="space-y-0.5">
@@ -1397,13 +1320,12 @@
         </div>
       {/key}
     </div>
-    <dialog
-      bind:this={releaseNotesDialogEl}
-      onclose={() => (showReleaseNotesModal = false)}
-      closedby="any"
-      aria-labelledby="release-notes-title"
-      class="m-auto w-full max-w-lg rounded-2xl shadow-2xl p-6"
-      style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+    <ModalDialog
+      open={showReleaseNotesModal}
+      onClose={() => (showReleaseNotesModal = false)}
+      ariaLabelledby="release-notes-title"
+      maxWidthClass="max-w-lg"
+      class="rounded-2xl p-6"
     >
       <div class="flex items-start justify-between gap-4 mb-5">
         <div class="space-y-1">
@@ -1497,14 +1419,13 @@
           {lang === 'id' ? 'Tutup' : 'Close'}
         </button>
       </div>
-    </dialog>
-    <dialog
-      bind:this={updateDialogEl}
-      onclose={() => (showUpdateModal = false)}
-      closedby="any"
-      aria-labelledby="update-modal-title"
-      class="m-auto w-full max-w-md rounded-2xl shadow-2xl p-6"
-      style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+    </ModalDialog>
+    <ModalDialog
+      open={showUpdateModal}
+      onClose={() => (showUpdateModal = false)}
+      ariaLabelledby="update-modal-title"
+      maxWidthClass="max-w-md"
+      class="rounded-2xl p-6"
     >
       <div class="space-y-1.5 mb-4">
         <div class="flex items-center gap-2">
@@ -1557,14 +1478,13 @@
           {lang === 'id' ? 'Unduh Pembaruan' : 'Download Update'}
         </button>
       </div>
-    </dialog>
-    <dialog
-      bind:this={shortcutsDialogEl}
-      onclose={() => (showShortcutsModal = false)}
-      closedby="any"
-      aria-labelledby="shortcuts-modal-title"
-      class="m-auto w-full max-w-md rounded-xl shadow-2xl p-6"
-      style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+    </ModalDialog>
+    <ModalDialog
+      open={showShortcutsModal}
+      onClose={() => (showShortcutsModal = false)}
+      ariaLabelledby="shortcuts-modal-title"
+      maxWidthClass="max-w-md"
+      class="p-6"
     >
       <div class="mb-4">
         <h2 id="shortcuts-modal-title" class="text-lg font-bold tracking-tight">
@@ -1600,16 +1520,15 @@
           {lang === 'id' ? 'Tutup' : 'Close'}
         </button>
       </div>
-    </dialog>
+    </ModalDialog>
 
-    <dialog
-      bind:this={resetIslandDialogEl}
-      onclose={() => (confirmResetIsland = false)}
-      closedby="any"
-      aria-labelledby="reset-island-title"
-      aria-describedby="reset-island-desc"
-      class="m-auto w-full max-w-md rounded-xl shadow-2xl p-6"
-      style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+    <ModalDialog
+      open={confirmResetIsland}
+      onClose={() => (confirmResetIsland = false)}
+      ariaLabelledby="reset-island-title"
+      ariaDescribedby="reset-island-desc"
+      maxWidthClass="max-w-md"
+      class="p-6"
     >
       <div class="mb-3">
         <h2 id="reset-island-title" class="text-lg font-bold tracking-tight">
@@ -1640,16 +1559,15 @@
           {tr(lang, 'nav.reset')}
         </button>
       </div>
-    </dialog>
+    </ModalDialog>
 
-    <dialog
-      bind:this={clearCacheDialogEl}
-      onclose={() => (confirmClearCache = false)}
-      closedby="any"
-      aria-labelledby="clear-cache-title"
-      aria-describedby="clear-cache-desc"
-      class="m-auto w-full max-w-md rounded-xl shadow-2xl p-6"
-      style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+    <ModalDialog
+      open={confirmClearCache}
+      onClose={() => (confirmClearCache = false)}
+      ariaLabelledby="clear-cache-title"
+      ariaDescribedby="clear-cache-desc"
+      maxWidthClass="max-w-md"
+      class="p-6"
     >
       <div class="mb-3">
         <h2 id="clear-cache-title" class="text-lg font-bold tracking-tight">
@@ -1680,7 +1598,7 @@
           {tr(lang, 'nav.clear')}
         </button>
       </div>
-    </dialog>
+    </ModalDialog>
     {#if cacheToast}
       <div
         in:fly={{ y: 12, duration: 180 }}
@@ -1695,14 +1613,13 @@
   </div>
 {/if}
 
-<dialog
-  bind:this={clearHistoryDialogEl}
-  onclose={() => (confirmClearHistory = false)}
-  closedby="any"
-  aria-labelledby="clear-history-title"
-  aria-describedby="clear-history-desc"
-  class="m-auto w-full max-w-md rounded-xl shadow-2xl p-6"
-  style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+<ModalDialog
+  open={confirmClearHistory}
+  onClose={() => (confirmClearHistory = false)}
+  ariaLabelledby="clear-history-title"
+  ariaDescribedby="clear-history-desc"
+  maxWidthClass="max-w-md"
+  class="p-6"
 >
   <div class="mb-3">
     <h2 id="clear-history-title" class="text-lg font-bold tracking-tight">
@@ -1734,4 +1651,4 @@
       {tr(lang, 'nav.clear')}
     </button>
   </div>
-</dialog>
+</ModalDialog>

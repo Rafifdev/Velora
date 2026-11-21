@@ -3,7 +3,10 @@
   import { svelteMotionEnter } from '../lib/motion';
   import type { Playlist, PlaylistDetail, Track, YTMusicTrack } from '../lib/types';
   import { tr, type LangCode } from '../lib/i18n';
+  import EmptyState from '../components/EmptyState.svelte';
+  import EqIndicator from '../components/EqIndicator.svelte';
   import Icon from '../components/Icon.svelte';
+  import ModalDialog from '../components/ModalDialog.svelte';
 
   interface Props {
     mode: 'playlists' | 'local-playlists' | 'playlist-detail';
@@ -82,7 +85,6 @@
   }: Props = $props();
 
   let editing = $state(false);
-  let editDialogEl: HTMLDialogElement | undefined = $state();
   let editName = $state('');
   let editDesc = $state('');
   let dragIndex = $state<number | null>(null);
@@ -92,7 +94,6 @@
   let showPlaylistSubmenu = $state(false);
   let failedRecCovers = $state<Record<string, boolean>>({});
   let importModalOpen = $state(false);
-  let importDialogEl: HTMLDialogElement | undefined = $state();
   let spotifyUrl = $state('');
   let spotifyImporting = $state(false);
   let spotifyError = $state('');
@@ -143,15 +144,6 @@
     };
   });
 
-  $effect(() => {
-    if (!importDialogEl) return;
-    if (importModalOpen && !importDialogEl.open) {
-      importDialogEl.showModal();
-    } else if (!importModalOpen && importDialogEl.open) {
-      importDialogEl.close();
-    }
-  });
-
   async function handleSpotifyImportSubmit(e: Event) {
     e.preventDefault();
     if (!spotifyUrl.trim() || !onImportSpotify || spotifyImporting) return;
@@ -167,15 +159,6 @@
       spotifyImporting = false;
     }
   }
-
-  $effect(() => {
-    if (!editDialogEl) return;
-    if (editing && !editDialogEl.open) {
-      editDialogEl.showModal();
-    } else if (!editing && editDialogEl.open) {
-      editDialogEl.close();
-    }
-  });
 
   const existingExternalIds = $derived(
     new Set(detail ? detail.tracks.map((t) => t.externalId).filter(Boolean) : [])
@@ -274,7 +257,6 @@
     class="relative h-full w-full overflow-y-auto rounded-xl select-none flex flex-col animate-pulse"
     style="background-color: var(--md-sys-color-surface-container-low);"
   >
-    <!-- Hero Skeleton -->
     <section
       class="relative z-10 px-6 sm:px-7 pt-7 pb-7"
       style="background: linear-gradient(180deg, var(--md-sys-color-surface-container-high) 0%, var(--md-sys-color-surface-container-low) 100%);"
@@ -295,7 +277,6 @@
       </div>
     </section>
 
-    <!-- Table Skeleton -->
     <div class="relative z-10 px-6 sm:px-7 pt-5 pb-10 flex-1 flex flex-col gap-3">
       <div
         class="-mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] gap-4 px-3 py-2 text-[11px] font-bold uppercase tracking-wider"
@@ -355,7 +336,6 @@
     role="presentation"
     use:svelteMotionEnter={{ y: 8 }}
   >
-    <!-- Hero Banner -->
     <section
       class="relative z-10 px-6 sm:px-7 pt-7 pb-7"
       style="background: linear-gradient(180deg, color-mix(in srgb, {heroTint} 30%, var(--md-sys-color-surface-container-high)) 0%, color-mix(in srgb, {heroTint} 16%, var(--md-sys-color-surface-container-low)) 100%);"
@@ -396,7 +376,6 @@
           </div>
         </div>
 
-        <!-- Action Buttons di Sisi Kanan Sejajar Teks -->
         <div class="mb-[4px] flex items-center gap-2.5">
           <button
             type="button"
@@ -438,15 +417,12 @@
       </div>
     </section>
 
-    <!-- Body with Smooth Fade -->
     <div
       class="relative z-10 px-6 sm:px-7 pt-5 pb-10 flex-1 flex flex-col gap-6"
       style="background: linear-gradient(180deg, color-mix(in srgb, {heroTint} 12%, var(--md-sys-color-surface-container-low)) 0%, color-mix(in srgb, {heroTint} 6%, var(--md-sys-color-surface-container-low)) 120px, color-mix(in srgb, {heroTint} 2%, var(--md-sys-color-surface-container-low)) 240px, var(--md-sys-color-surface-container-low) 340px);"
     >
-      <!-- Playlist Track Table (tanpa empty state jika kosong) -->
       {#if detail.tracks.length > 0}
         <div class="space-y-1">
-          <!-- Column Header: #, Judul, Pemutaran, Ditambahkan, Durasi, Aksi -->
           <div
             class="-mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] items-center gap-4 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider"
             style="color: var(--md-sys-color-on-surface-variant);"
@@ -477,15 +453,9 @@
                   : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
                 style="color: var(--md-sys-color-on-surface);"
               >
-                <!-- Nomor / Play Indicator (sama seperti tabel Album) -->
                 <div class="flex items-center justify-center">
                   {#if active && isPlaying}
-                    <span class="velora-playing-eq group-hover:hidden" style="color: {heroAccent};" aria-hidden="true">
-                      <span></span>
-                      <span></span>
-                      <span></span>
-                      <span></span>
-                    </span>
+                    <EqIndicator color={heroAccent} class="group-hover:hidden" />
                     <button
                       type="button"
                       onclick={() => (onTogglePlay ? onTogglePlay() : onPlayTrack(tr, detail.tracks))}
@@ -559,7 +529,6 @@
                   {formatDuration(tr.durationSec)}
                 </span>
 
-                <!-- Action Column (...) -->
                 <div class="relative flex items-center justify-end">
                   <button
                     type="button"
@@ -729,7 +698,6 @@
         </div>
       {/if}
 
-      <!-- Recommended Section: 10 Lagu Acak dari Top 100 YouTube Music -->
       <section class="pt-2 space-y-3">
         <div class="flex items-end justify-between gap-3">
           <h2 class="text-base font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
@@ -824,14 +792,12 @@
     </div>
   </div>
 
-  <!-- Modal Edit Detail (mengikuti layout referensi) -->
-  <dialog
-    bind:this={editDialogEl}
-    onclose={() => (editing = false)}
-    closedby="any"
-    aria-labelledby="edit-playlist-title"
-    class="m-auto w-full max-w-lg rounded-xl shadow-2xl p-6"
-    style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+  <ModalDialog
+    open={editing}
+    onClose={() => (editing = false)}
+    ariaLabelledby="edit-playlist-title"
+    maxWidthClass="max-w-lg"
+    class="p-6"
   >
     <div class="mb-5">
       <h2 id="edit-playlist-title" class="text-xl font-bold tracking-tight">
@@ -886,15 +852,13 @@
         </button>
       </div>
     </form>
-  </dialog>
+  </ModalDialog>
 {:else}
-  <!-- Playlists Overview -->
   <div
     class="relative h-full w-full overflow-y-auto rounded-xl select-none flex flex-col"
     style="background-color: var(--md-sys-color-surface-container-low);"
     use:svelteMotionEnter={{ y: 8 }}
   >
-    <!-- Hero Banner -->
     <section
       class="relative z-10 px-6 sm:px-7 pt-7 pb-7"
       style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-primary) 30%, var(--md-sys-color-primary-container)) 0%, color-mix(in srgb, var(--md-sys-color-primary-container) 74%, var(--md-sys-color-surface-container-low)) 100%);"
@@ -978,16 +942,13 @@
           {/each}
         </div>
       {:else if visiblePlaylists.length === 0}
-        <div class="flex-1 flex flex-col items-center justify-center text-center py-12 px-4">
-          <div class="mb-5" style="color: var(--md-sys-color-on-surface);">
-            <Icon name="playlist" weight="fill" size={38} />
-          </div>
-          <h2 class="text-2xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-            {tr(lang, 'nav.noPlaylists')}
-          </h2>
-          <p class="mt-2 text-[13px] max-w-sm mx-auto" style="color: var(--md-sys-color-on-surface-variant);">
-            {tr(lang, 'nav.noPlaylistsDesc')}
-          </p>
+        <EmptyState
+          icon="playlist"
+          iconWeight="fill"
+          iconSize={38}
+          title={tr(lang, 'nav.noPlaylists')}
+          description={tr(lang, 'nav.noPlaylistsDesc')}
+        >
           <button
             type="button"
             onclick={() => onCreatePlaylist()}
@@ -996,7 +957,7 @@
           >
             {tr(lang, 'nav.createPlaylist')}
           </button>
-        </div>
+        </EmptyState>
       {:else}
       <div class="velora-card-grid">
         {#each visiblePlaylists as pl (pl.id)}
@@ -1051,14 +1012,12 @@
   </div>
 {/if}
 
-<!-- Modal Import Playlist (Lokal .M3U & Link Spotify) -->
-<dialog
-  bind:this={importDialogEl}
-  onclose={() => (importModalOpen = false)}
-  closedby="any"
-  aria-labelledby="import-playlist-title"
-  class="m-auto w-full max-w-md rounded-xl shadow-2xl p-6"
-  style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+<ModalDialog
+  open={importModalOpen}
+  onClose={() => (importModalOpen = false)}
+  ariaLabelledby="import-playlist-title"
+  maxWidthClass="max-w-md"
+  class="p-6"
 >
   <div class="mb-5">
     <h2 id="import-playlist-title" class="text-lg font-bold tracking-tight">
@@ -1067,7 +1026,6 @@
   </div>
 
   <div class="space-y-5">
-    <!-- Import dari Link Spotify -->
     <form onsubmit={handleSpotifyImportSubmit} class="space-y-2.5">
       <label for="spotify-url-input" class="block text-xs font-bold" style="color: var(--md-sys-color-on-surface);">
         Link Spotify
@@ -1090,13 +1048,7 @@
         class="m3-btn-filled w-full h-10 px-5 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
       >
         {#if spotifyImporting}
-          <span class="velora-eq-loader" style="--loader-color: currentColor; transform: scale(0.75);" aria-hidden="true">
-            <span class="velora-eq-bar"></span>
-            <span class="velora-eq-bar"></span>
-            <span class="velora-eq-bar"></span>
-            <span class="velora-eq-bar"></span>
-            <span class="velora-eq-bar"></span>
-          </span>
+          <EqIndicator variant="loader" color="currentColor" scale={0.75} />
           <span>Mengimpor lagu...</span>
         {:else}
           <Icon name="link" size={15} />
@@ -1111,7 +1063,6 @@
       <div class="flex-1 h-px opacity-15" style="background-color: var(--md-sys-color-on-surface);"></div>
     </div>
 
-    <!-- Import dari File Lokal -->
     <div class="space-y-2">
       <div class="text-xs font-bold" style="color: var(--md-sys-color-on-surface);">
         File Lokal
@@ -1130,4 +1081,4 @@
       </button>
     </div>
   </div>
-</dialog>
+</ModalDialog>

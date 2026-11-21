@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { FireStreakStatus } from '../lib/types';
   import Icon from './Icon.svelte';
+  import ModalDialog from './ModalDialog.svelte';
 
   interface Props {
     open: boolean;
@@ -10,32 +11,13 @@
   }
 
   let { open, fireStreak, onClose, onOpenFullPage }: Props = $props();
-
-  let dialogEl: HTMLDialogElement | undefined = $state();
-
-  $effect(() => {
-    if (!dialogEl) return;
-    if (open && !dialogEl.open) {
-      dialogEl.showModal();
-    } else if (!open && dialogEl.open) {
-      dialogEl.close();
-    }
-  });
-
-  function handleClose() {
-    if (dialogEl) dialogEl.returnValue = '';
-    onClose();
-  }
 </script>
 
-<!-- Google Material Design 3 Dialog -->
-<dialog
-  bind:this={dialogEl}
-  onclose={handleClose}
-  closedby="any"
-  aria-labelledby="streak-dialog-title"
+<ModalDialog
+  {open}
+  {onClose}
+  ariaLabelledby="streak-dialog-title"
   class="m-auto w-full max-w-lg rounded-lg shadow-2xl p-6"
-  style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
 >
   <div class="space-y-5">
     <div class="flex items-start justify-between gap-4">
@@ -115,7 +97,7 @@
     <div class="flex items-center justify-end gap-2">
       <button
         type="button"
-        onclick={() => dialogEl?.close()}
+        onclick={onClose}
         class="m3-btn-outlined px-5 py-2 text-xs cursor-pointer"
       >
         Tutup
@@ -123,7 +105,7 @@
       <button
         type="button"
         onclick={() => {
-          dialogEl?.close();
+          onClose();
           onOpenFullPage();
         }}
         class="m3-btn-filled px-5 py-2 text-xs cursor-pointer"
@@ -132,4 +114,4 @@
       </button>
     </div>
   </div>
-</dialog>
+</ModalDialog>

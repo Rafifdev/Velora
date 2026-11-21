@@ -39,7 +39,6 @@
 </script>
 
 <div class="px-5 py-4 space-y-6" use:svelteMotionEnter={{ y: 8 }}>
-  <!-- Nuclear Header -->
   <div class="flex flex-wrap items-end justify-between gap-4">
     <div class="flex items-center gap-3.5 min-w-0">
       <div
@@ -76,7 +75,6 @@
     </div>
   {/if}
 
-  <!-- Stream & Metadata Providers (Nuclear Plugin Tiles - Borderless) -->
   <section class="space-y-3">
     <h2 class="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--md-sys-color-on-surface-variant)]">
       Stream & Metadata Providers
@@ -135,7 +133,6 @@
     </div>
   </section>
 
-  <!-- Upload Local Files & Connected Sources -->
   <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
     <div
       ondragover={(e) => {
@@ -182,7 +179,6 @@
       </div>
     </div>
 
-    <!-- Active Sources List -->
     <div class="rounded-lg p-5 space-y-3 bg-[var(--md-sys-color-surface-container-low)]">
       <div class="flex items-center justify-between">
         <h2 class="text-sm font-bold text-[var(--md-sys-color-on-surface)]">Connected Sources ({sources.length})</h2>
@@ -224,7 +220,6 @@
     </div>
   </section>
 
-  <!-- YouTube Music Quick Importer -->
   <section class="rounded-lg p-5 space-y-4 bg-[var(--md-sys-color-surface-container-low)]">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div class="flex items-center gap-3">

@@ -1,8 +1,5 @@
 import { animate, spring, stagger } from 'motion';
 
-/**
- * Industry-standard Motion One spring curves for panel, card, and list transitions.
- */
 export const SPRING_PANEL = spring(0.32, 0.14);
 export const SPRING_CARD = spring(0.28, 0.18);
 export const SPRING_SNAPPY = spring(0.22, 0.25);

@@ -46,7 +46,6 @@ export interface LocalizedPair {
 }
 
 const ITEM_TEXT: Record<string, LocalizedPair> = {
-  // 1. Appearance
   'general.zoomLevel': {
     en: ['Display scale', 'Adjust interface zoom level between 70% and 130%.'],
     id: ['Skala tampilan', 'Atur tingkat pembesaran antarmuka dari 70% hingga 130%.']
@@ -96,7 +95,6 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
     id: ['Tampilkan Terakhir diputar', 'Tampilkan lagu yang baru diputar di halaman Beranda.']
   },
 
-  // 2. Player
   'playback.autoplay': {
     en: ['Autoplay', 'Automatically continue with similar tracks when the queue ends.'],
     id: ['Putar otomatis', 'Lanjutkan pemutaran dengan lagu serupa saat antrean berakhir.']
@@ -150,7 +148,6 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
     id: ['Perilaku tombol Sebelumnya', 'Ulangi lagu dari awal jika pemutaran telah melewati batas detik tertentu.']
   },
 
-  // 3. Lyrics
   'lyrics.textSize': {
     en: ['Font size', 'Adjust text size in the lyrics panel.'],
     id: ['Ukuran huruf', 'Mengatur besar kecilnya huruf pada panel lirik.']
@@ -180,7 +177,6 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
     id: ['Tampilkan lirik biasa', 'Lirik tanpa waktu, jika lirik berjalan tidak ada.']
   },
 
-  // 4. Content
   'content.country': {
     en: ['Content region', 'Catalog regions for Home and Search recommendations.'],
     id: ['Negara konten', 'Wilayah katalog untuk rekomendasi Beranda dan Search.']
@@ -198,7 +194,6 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
     id: ['Sembunyikan lagu eksplisit', 'Sembunyikan lagu eksplisit dari hasil pencarian dan antrean otomatis.']
   },
 
-  // 5. Storage
   'storage.clearCache': {
     en: ['Clear audio and artwork cache', 'Delete temporary streamed files and cover art to free disk space.'],
     id: ['Bersihkan cache lagu dan sampul', 'Hapus berkas sementara hasil streaming dan gambar sampul untuk menghemat ruang penyimpanan.']
@@ -216,7 +211,6 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
     id: ['Bersihkan cache lagu saat keluar', 'Unduhan tidak ikut dihapus.']
   },
 
-  // 6. Privacy
   'history.enabled': {
     en: ['Save listening history', 'Used for Recently Played and Stats. Stored locally on this PC only.'],
     id: ['Simpan riwayat dengar', 'Dipakai untuk Terakhir diputar dan Statistik. Hanya tersimpan di komputer ini.']
@@ -230,7 +224,6 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
     id: ['Hapus riwayat dengar otomatis', 'Catatan yang lebih lama dihapus. Hari-hari streak tetap ada.']
   },
 
-  // 7. Velora Jam
   'integrations.jam.enabled': {
     en: ['Wi-Fi remote control', 'Allow controlling playback from a phone or another device on the same Wi-Fi network.'],
     id: ['Aktifkan kontrol Wi-Fi', 'Izinkan kendali pemutaran musik dari ponsel atau perangkat lain di jaringan Wi-Fi yang sama.']
@@ -240,7 +233,6 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
     id: ['Alamat remote', 'Buka alamat ini di browser perangkat lain untuk mengendalikan pemutaran.']
   },
 
-  // 8. System
   'system.mediaKeys': {
     en: ['Media keys', 'Play, pause, next, and previous keys on keyboard or headset work from any window.'],
     id: ['Tombol media', 'Putar, jeda, berikutnya, dan sebelumnya di keyboard atau headset bekerja dari jendela mana pun.']
@@ -258,7 +250,6 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
     id: ['Sembunyikan judul lagu di jendela', 'Judul jendela tetap Velora saat lagu diputar.']
   },
 
-  // 9. Dynamic Island
   'dynamicIsland.enabled': {
     en: ['Dynamic Island', 'Compact player at the top edge of your screen to view songs and lyrics without opening Velora.'],
     id: ['Dynamic Island', 'Pemutar kecil di tepi atas layar, untuk melihat lagu dan lirik tanpa membuka Velora.']
@@ -378,7 +369,6 @@ export const PREFERENCE_APP_TABS = [
 ] as const;
 
 export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
-  // 1. Appearance (Single Dark Theme only — no light mode)
   {
     id: 'general.zoomLevel',
     category: 'appearance',
@@ -437,7 +427,6 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     defaultValue: 'false'
   },
 
-  // 2. Player
   {
     id: 'playback.autoplay',
     category: 'player',
@@ -594,7 +583,6 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     ]
   },
 
-  // 3. Lyrics
   {
     id: 'lyrics.textSize',
     category: 'lyrics',
@@ -669,7 +657,6 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     defaultValue: 'true'
   },
 
-  // 4. Content
   {
     id: 'content.country',
     category: 'content',
@@ -729,7 +716,6 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     defaultValue: 'false'
   },
 
-  // 5. Storage
   {
     id: 'storage.clearCache',
     category: 'storage',
@@ -773,7 +759,6 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     defaultValue: 'false'
   },
 
-  // 6. Privacy
   {
     id: 'history.enabled',
     category: 'privacy',
@@ -808,7 +793,6 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     ]
   },
 
-  // 7. Velora Jam
   {
     id: 'integrations.jam.enabled',
     category: 'backup',
@@ -816,7 +800,7 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     title: 'Wi-Fi remote control',
     description: 'Control playback from another device on Wi-Fi.',
     widget: 'toggle',
-    defaultValue: 'true'
+    defaultValue: 'false'
   },
   {
     id: 'integrations.jam.remoteUrl',
@@ -828,7 +812,6 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     defaultValue: ''
   },
 
-  // 8. System
   {
     id: 'system.mediaKeys',
     category: 'system',
@@ -866,7 +849,6 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     defaultValue: 'false'
   },
 
-  // 9. Dynamic Island (No Light mode — pure black dark theme)
   {
     id: 'dynamicIsland.enabled',
     category: 'dynamic-island',

@@ -115,12 +115,10 @@
     topArtists: []
   });
 
-  // Navigation stack
   let navStack = $state<ViewRoute[]>([{ name: 'home' }]);
   let navIndex = $state(0);
   const currentRoute = $derived(navStack[navIndex] || { name: 'home' });
 
-  // Active details & YTM search
   let selectedPlaylistDetail = $state<PlaylistDetail | null>(null);
   let detailTracks = $state<Track[]>([]);
   let searchQuery = $state('');
@@ -161,12 +159,10 @@
         queueSourceTitle,
       }));
     } catch {
-      // Ignore storage quota errors
     }
   }
   let sourcesStatus = $state('');
 
-  // Dynamic Left & Right Panel Width + Collapse States
   let leftWidth = $state(212);
   let rightWidth = $state(328);
   let leftCollapsed = $state(false);
@@ -180,7 +176,6 @@
   let seekDeltaSeq = $state(0);
   let seekDeltaTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Modals & Recommendations
   let showStreakModal = $state(false);
   let showCreatePlaylistModal = $state(false);
   let createPlaylistIsLocal = $state(true);
@@ -213,7 +208,6 @@
     }
   });
 
-  // Audio playback & Lyrics state
   let audioEl: HTMLAudioElement | undefined = $state();
   const audioEngine = new VeloraAudioEngine();
 
@@ -260,7 +254,6 @@
         ms.setActionHandler('nexttrack', null);
         ms.setActionHandler('seekto', null);
       } catch {
-        // Ignore unsupported actions
       }
       return;
     }
@@ -291,7 +284,6 @@
         }
       });
     } catch {
-      // Ignore unsupported actions
     }
   });
   let queue = $state<Track[]>([]);
@@ -541,7 +533,6 @@
             }
           }
         } catch {
-          // ignore malformed SSE
         }
       });
     }
@@ -868,7 +859,6 @@
           }
         }
       } catch {
-        // Ignore corrupt saved queue
       }
     }
 
@@ -930,7 +920,6 @@
             isPlaying = true;
           }
         } catch {
-          // Ignore reload abort
         } finally {
           switchingTrack = false;
         }
@@ -1907,7 +1896,6 @@
     const candidates: Track[] = [];
     let idxCounter = 0;
 
-    // Primary: Backend Top Indonesia + Popular Global + History-based Recommendations
     try {
       const recItems = await api.getYTMusicTop100Recommended(excludeVideoIds);
       for (const item of recItems || []) {
@@ -1919,7 +1907,6 @@
         candidates.push(ytTrackToQueueTrack(item, idxCounter++));
       }
     } catch {
-      // fallback to query search below
     }
 
     if (candidates.length < 15) {
@@ -1979,7 +1966,6 @@
       playedAlgoKeys = freshExclude;
       queue = [tr, ...batch20];
     } catch {
-      // keep seed algorithm queue
     }
   }
 
@@ -2414,7 +2400,6 @@
     try {
       localStorage.setItem('velora.zoom', String(clamped));
     } catch {
-      // ignore
     }
     if (showBadge) {
       zoomBadgeVisible = true;
@@ -2619,7 +2604,6 @@
     <SplashScreen onComplete={() => (showSplash = false)} />
   {/if}
 
-  <!-- Top App Bar (Borderless) -->
   <Titlebar
     {currentRoute}
     canGoBack={navIndex > 0}
@@ -2641,7 +2625,7 @@
     jamOpen={jamModalOpen}
     {jamLoading}
     {jamConnected}
-    jamPrefEnabled={getPrefValue(preferences, 'integrations.jam.enabled') !== 'false'}
+    jamPrefEnabled={getPrefBool(preferences, 'integrations.jam.enabled')}
     saveSearches={getPrefBool(preferences, 'privacy.saveSearches')}
     onOpenJamSettings={() => {
       activePrefTab = 'backup';
@@ -2676,7 +2660,6 @@
     onResetZoom={() => applyZoom(1)}
   />
 
-  <!-- Main 3-Section Resizable & Collapsible Borderless Workspace -->
   <div
     class="flex-1 min-h-0 flex gap-2 pl-2 pb-2 overflow-hidden {rightCollapsed &&
     !lockRightHidden &&
@@ -2688,7 +2671,6 @@
       ? 'pr-0'
       : 'pr-2'}"
   >
-    <!-- SECTION 1 (LEFT): Menu Sidebar (hidden on mobile; mobile uses bottom nav) -->
     {#if !isMobile}
       <Sidebar
       {currentRoute}
@@ -2726,7 +2708,6 @@
     />
     {/if}
 
-    <!-- SECTION 2 (CENTER): Songs & Playlists + Spotify-style Home -->
     <main
       bind:this={mainScrollEl}
       class="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden scroll-pt-16 rounded-lg transition-colors duration-300 {isMobile && mobileShowQueue ? 'hidden' : ''}"
@@ -3084,7 +3065,6 @@
       {/if}
     </main>
 
-    <!-- SECTION 3 (RIGHT): Hidden when locked in Settings or on Preferences, Track/Album Detail & Lyrics pages -->
     {#if !lockRightHidden && (!isMobile || mobileShowQueue) && currentRoute.name !== 'preferences' && currentRoute.name !== 'track-detail' && currentRoute.name !== 'album-detail' && currentRoute.name !== 'yt-album-detail' && currentRoute.name !== 'lyrics'}
       <RightPanel
         width={isMobile ? window.innerWidth - 16 : rightWidth}
@@ -3124,7 +3104,6 @@
     {/if}
   </div>
 
-  <!-- Bottom Full-Width Flat Player Bar (No rounded corners) -->
   <div class="w-full shrink-0">
     <PlayerBar
       lang={appLang}

@@ -27,7 +27,6 @@
   class="w-full h-full min-h-0 flex flex-col justify-between select-none"
 >
   <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-2.5 space-y-4">
-    <!-- Top Header matching Sidebar.svelte -->
     <div class="flex items-center justify-between gap-2 px-1 pt-0.5">
       <div class="flex items-center gap-1.5 min-w-0">
         <button
@@ -53,7 +52,6 @@
       {/if}
     </div>
 
-    <!-- M3 Search Field -->
     <div class="relative px-0.5 transition-transform duration-200 ease-[cubic-bezier(0.34,1.56,0.64,1)] focus-within:scale-[1.025] active:scale-[0.985]">
       <span
         class="absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none"
@@ -69,7 +67,6 @@
       />
     </div>
 
-    <!-- Section 1: Settings Categories -->
     <div class="space-y-1">
       {#each PREFERENCE_CATEGORIES as cat (cat.id)}
         {@const active = !search.trim() && activeTab === cat.id}
@@ -94,7 +91,6 @@
 
     <div class="border-t mx-2" style="border-color: var(--md-sys-color-outline-variant);"></div>
 
-    <!-- Section 2: App Info -->
     <div class="space-y-1">
       {#each PREFERENCE_APP_TABS as tab (tab.id)}
         {@const active = !search.trim() && activeTab === tab.id}
