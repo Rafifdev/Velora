@@ -18,7 +18,7 @@
 
 ## Overview
 
-**Velora** is a native desktop music player for Windows built with **Go (Wails v2)** and **Svelte 5**. It combines online catalog streaming, local library playback, multi-source time-synced lyrics, and a native Win32/Direct2D **Dynamic Island** overlay at the top edge of your screen—designed around an adaptive **Material Design 3** interface.
+**Velora** is a native desktop music player for Windows built with **Go (Wails v2)** and **Svelte 5**. It combines online catalog streaming, local library playback, multi-source time-synced lyrics, and a native Win32/Direct2D **Dynamic Island** overlay at the top edge of your screen - designed around an adaptive **Material Design 3** interface.
 
 ---
 
