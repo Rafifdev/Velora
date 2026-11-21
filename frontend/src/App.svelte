@@ -690,19 +690,34 @@
     return out;
   }
 
+  function isHideExplicitEnabled(): boolean {
+    return getPrefBool(preferences, 'content.hideExplicit');
+  }
+
+  function isExplicitItem(item: { explicit?: boolean; title?: string } | null | undefined): boolean {
+    if (!item) return false;
+    return Boolean(item.explicit) || /\b(explicit)\b/i.test(item.title || '');
+  }
+
+  function filterExplicit<T extends { explicit?: boolean; title?: string }>(items: T[]): T[] {
+    if (!isHideExplicitEnabled()) return items;
+    return items.filter((item) => !isExplicitItem(item));
+  }
+
   async function loadYTMusicHome() {
     ytHomeLoading = true;
     try {
       const feed = await api.getYTMusicHome();
-      ytShelves = (feed?.shelves || []).map((shelf) =>
-        shelf.title === 'Lagu Lainnya untuk Anda'
+      ytShelves = (feed?.shelves || []).map((shelf) => {
+        const filteredItems = filterExplicit(shelf.items || []);
+        return shelf.title === 'Lagu Lainnya untuk Anda'
           ? {
               ...shelf,
-              items: shuffleAndSpreadByArtist(shelf.items || [], (c) => c.artist || c.subtitle || '')
+              items: shuffleAndSpreadByArtist(filteredItems, (c) => c.artist || c.subtitle || '')
             }
-          : shelf
-      );
-      ytResults = shuffleAndSpreadByArtist(feed?.tracks || [], (t) => t.artist || '');
+          : { ...shelf, items: filteredItems };
+      });
+      ytResults = shuffleAndSpreadByArtist(filterExplicit(feed?.tracks || []), (t) => t.artist || '');
     } catch {
       ytShelves = [];
     } finally {
@@ -806,6 +821,17 @@
     api.setDynamicIslandOpenTrigger(getPrefValue(preferences, 'dynamicIsland.openTrigger') || 'hover');
     api.setDynamicIslandOnlyPlaying(getPrefValue(preferences, 'dynamicIsland.onlyPlaying') === 'true');
     api.setDynamicIslandPauseHideSeconds(Number(getPrefValue(preferences, 'dynamicIsland.pauseHide') || '0') || 0);
+    api.setDynamicIslandContent(
+      getPrefValue(preferences, 'dynamicIsland.showStatus') !== 'false',
+      getPrefValue(preferences, 'dynamicIsland.showCover') !== 'false',
+      getPrefValue(preferences, 'dynamicIsland.showClosedCover') !== 'false',
+      getPrefValue(preferences, 'dynamicIsland.showArtist') !== 'false',
+      getPrefValue(preferences, 'dynamicIsland.showLyric') !== 'false',
+      getPrefValue(preferences, 'dynamicIsland.showHeart') !== 'false',
+      getPrefValue(preferences, 'dynamicIsland.showDots') !== 'false',
+      getPrefValue(preferences, 'dynamicIsland.showProgress') !== 'false',
+      getPrefValue(preferences, 'dynamicIsland.progressStyle') || 'thin'
+    );
     if (preferences['general.zoomLevel']) {
       const z = Number(preferences['general.zoomLevel']);
       if (Number.isFinite(z)) applyZoom(z, false);
@@ -867,7 +893,7 @@
   async function patchPrefs(patch: Record<string, string>) {
     preferences = { ...preferences, ...patch };
     await api.savePreferences(patch);
-    if (patch['content.country'] !== undefined) {
+    if (patch['content.country'] !== undefined || patch['content.hideExplicit'] !== undefined) {
       void loadYTMusicHome();
     }
     if (patch['layout.leftCollapsed'] !== undefined) {
@@ -947,6 +973,29 @@
     }
     if (patch['dynamicIsland.pauseHide'] !== undefined) {
       api.setDynamicIslandPauseHideSeconds(Number(patch['dynamicIsland.pauseHide']) || 0);
+    }
+    if (
+      patch['dynamicIsland.showStatus'] !== undefined ||
+      patch['dynamicIsland.showCover'] !== undefined ||
+      patch['dynamicIsland.showClosedCover'] !== undefined ||
+      patch['dynamicIsland.showArtist'] !== undefined ||
+      patch['dynamicIsland.showLyric'] !== undefined ||
+      patch['dynamicIsland.showHeart'] !== undefined ||
+      patch['dynamicIsland.showDots'] !== undefined ||
+      patch['dynamicIsland.showProgress'] !== undefined ||
+      patch['dynamicIsland.progressStyle'] !== undefined
+    ) {
+      api.setDynamicIslandContent(
+        getPrefValue(preferences, 'dynamicIsland.showStatus') !== 'false',
+        getPrefValue(preferences, 'dynamicIsland.showCover') !== 'false',
+        getPrefValue(preferences, 'dynamicIsland.showClosedCover') !== 'false',
+        getPrefValue(preferences, 'dynamicIsland.showArtist') !== 'false',
+        getPrefValue(preferences, 'dynamicIsland.showLyric') !== 'false',
+        getPrefValue(preferences, 'dynamicIsland.showHeart') !== 'false',
+        getPrefValue(preferences, 'dynamicIsland.showDots') !== 'false',
+        getPrefValue(preferences, 'dynamicIsland.showProgress') !== 'false',
+        getPrefValue(preferences, 'dynamicIsland.progressStyle') || 'thin'
+      );
     }
     if (patch['general.zoomLevel'] !== undefined) {
       const z = Number(patch['general.zoomLevel']);
@@ -1289,7 +1338,16 @@
       await navigate({ name: 'search', query: q });
     }
     if (q.trim()) {
-      await handleSearchYTMusic(q);
+      const startFilter = getPrefValue(preferences, 'content.searchStart') || 'song';
+      if (startFilter === 'album') {
+        await handleSearchYTMusicAlbums(q);
+      } else if (startFilter === 'artist') {
+        await handleSearchYTMusicArtists(q);
+      } else if (startFilter === 'playlist') {
+        await handleSearchYTMusicPlaylists(q);
+      } else {
+        await handleSearchYTMusic(q);
+      }
     }
   }
 
@@ -1300,18 +1358,17 @@
       ytResults = [];
     }
     try {
-      const primary = await api.searchYouTubeMusic(q);
+      const primary = filterExplicit((await api.searchYouTubeMusic(q)) || []);
       if (seq !== ytSearchSeq) return;
-      if (!q.trim() || (primary && primary.length >= 20)) {
-        const list = primary || [];
-        ytResults = !q.trim() ? shuffleAndSpreadByArtist(list, (t) => t.artist || '') : list;
+      if (!q.trim() || primary.length >= 20) {
+        ytResults = !q.trim() ? shuffleAndSpreadByArtist(primary, (t) => t.artist || '') : primary;
         return;
       }
-      const seen = new Set((primary || []).map((t) => t.videoId));
-      const merged = [...(primary || [])];
-      const extra = await api.searchYouTubeMusic(`${q} populer`).catch(() => []);
+      const seen = new Set(primary.map((t) => t.videoId));
+      const merged = [...primary];
+      const extra = filterExplicit((await api.searchYouTubeMusic(`${q} populer`).catch(() => [])) || []);
       if (seq !== ytSearchSeq) return;
-      for (const item of extra || []) {
+      for (const item of extra) {
         if (!item.videoId || seen.has(item.videoId)) continue;
         seen.add(item.videoId);
         merged.push(item);
@@ -1595,8 +1652,8 @@
           api.getYTMusicTop100Recommended(Array.from(existingVideoIds)).catch(() => []),
           api.getMoreTopSongs((ytMorePage++) * 20, Array.from(existingVideoIds)).catch(() => [])
         ]);
-        pushUniqueTopSongs(recTracks, 'Velora Music');
-        pushUniqueTopSongs(topSongs, 'Top Songs');
+        pushUniqueTopSongs(filterExplicit(recTracks || []), 'Velora Music');
+        pushUniqueTopSongs(filterExplicit(topSongs || []), 'Top Songs');
 
         let attempts = 0;
         while (pool.length < targetBatch && attempts < 3) {
@@ -1604,7 +1661,7 @@
           const page = ytMorePage++;
           const q = MORESONGS_QUERIES[page % MORESONGS_QUERIES.length];
           const moreTracks = await api.searchYouTubeMusic(q).catch(() => []);
-          pushUniqueTopSongs(moreTracks, 'Top Songs');
+          pushUniqueTopSongs(filterExplicit(moreTracks || []), 'Top Songs');
         }
 
         if (pool.length === 0) return;
@@ -1666,8 +1723,8 @@
             api.getYTMusicTop100Recommended(Array.from(existingIds)).catch(() => []),
             api.getMoreTopSongs(ytResults.length + (ytMorePage++) * 20, Array.from(existingIds)).catch(() => [])
           ]);
-          collectTracks(rec);
-          collectTracks(topSongs);
+          collectTracks(filterExplicit(rec || []));
+          collectTracks(filterExplicit(topSongs || []));
         }
 
         const queries = CATEGORY_MORE_QUERIES[activeCategory] || CATEGORY_MORE_QUERIES.musik;
@@ -1675,7 +1732,7 @@
           const page = ytMorePage++;
           const q = queries[page % queries.length];
           const moreTracks = await api.searchYouTubeMusic(q).catch(() => []);
-          collectTracks(moreTracks);
+          collectTracks(filterExplicit(moreTracks || []));
         }
 
         if (added.length > 0) {
@@ -1855,6 +1912,7 @@
       const recItems = await api.getYTMusicTop100Recommended(excludeVideoIds);
       for (const item of recItems || []) {
         if (!item.videoId) continue;
+        if (isHideExplicitEnabled() && isExplicitItem(item)) continue;
         const key = `yt:${item.videoId}`;
         if (seen.has(key)) continue;
         seen.add(key);
@@ -1872,6 +1930,7 @@
       for (const list of responses) {
         for (const item of list || []) {
           if (!item.videoId) continue;
+          if (isHideExplicitEnabled() && isExplicitItem(item)) continue;
           const key = `yt:${item.videoId}`;
           if (seen.has(key)) continue;
           seen.add(key);
@@ -2742,7 +2801,11 @@
           {ytArtistLoading}
           {detailTracks}
           {ytResults}
+          {ytPlaylistResults}
+          {ytAlbumResults}
+          {ytArtistResults}
           {ytLoading}
+          searchStart={(getPrefValue(preferences, 'content.searchStart') as 'song' | 'album' | 'artist' | 'playlist' | 'video') || 'song'}
           {playlists}
           {downloadStates}
           currentTrackId={currentTrack?.id ?? null}
@@ -2762,6 +2825,11 @@
             await refreshAll();
           }}
           onSearchYTMusic={handleSearchYTMusic}
+          onSearchYTMusicPlaylists={handleSearchYTMusicPlaylists}
+          onSearchYTMusicAlbums={handleSearchYTMusicAlbums}
+          onSearchYTMusicArtists={handleSearchYTMusicArtists}
+          onOpenYTCard={openYTAlbumCard}
+          onPlayYTCollection={handlePlayYTCollection}
           onToggleFavoriteTrack={handleToggleFavoriteTrack}
           onToggleFavoriteAlbum={handleToggleFavoriteAlbum}
           onToggleFavoriteArtist={handleToggleFavoriteArtist}

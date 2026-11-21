@@ -205,6 +205,16 @@ export interface ListeningStats {
   topArtists: TopStatItem[];
 }
 
+export interface UpdateCheckResult {
+  currentVersion: string;
+  latestVersion: string;
+  hasUpdate: boolean;
+  releaseUrl: string;
+  downloadUrl: string;
+  releaseNotes: string;
+  publishedAt: string;
+}
+
 export interface YTMusicTrack {
   videoId: string;
   title: string;
@@ -214,6 +224,7 @@ export interface YTMusicTrack {
   coverUrl: string;
   format: string;
   playCountText?: string;
+  explicit?: boolean;
 }
 
 export interface YTMusicCard {
@@ -228,6 +239,7 @@ export interface YTMusicCard {
   artist: string;
   album: string;
   durationSec: number;
+  explicit?: boolean;
 }
 
 export interface YTMusicShelf {

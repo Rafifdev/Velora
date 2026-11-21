@@ -312,6 +312,32 @@ export const api = {
   async clearCache(): Promise<number> {
     return appBridge().ClearCache();
   },
+  async getDataDir(): Promise<string> {
+    return (await appBridge()?.GetDataDir?.()) || '';
+  },
+  openExternalUrl(url: string): void {
+    const fn = appBridge()?.OpenExternalURL;
+    if (fn) {
+      void fn(url);
+    } else if (typeof window !== 'undefined') {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  },
+  async checkForUpdates(): Promise<import('./types').UpdateCheckResult> {
+    const fn = appBridge()?.CheckForUpdates;
+    if (!fn) {
+      return {
+        currentVersion: '1.0.0',
+        latestVersion: '1.0.0',
+        hasUpdate: false,
+        releaseUrl: 'https://github.com/Rafifdev/Velora/releases',
+        downloadUrl: '',
+        releaseNotes: '',
+        publishedAt: ''
+      };
+    }
+    return await fn();
+  },
   async openDataFolder(): Promise<void> {
     return appBridge()?.OpenDataFolder?.();
   },
@@ -430,6 +456,30 @@ export const api = {
   setDynamicIslandPauseHideSeconds(sec: number): void {
     if (isJamRemote) return;
     appBridge()?.SetDynamicIslandPauseHideSeconds?.(sec);
+  },
+  setDynamicIslandContent(
+    showStatus: boolean,
+    showCover: boolean,
+    showClosedCover: boolean,
+    showArtist: boolean,
+    showLyric: boolean,
+    showHeart: boolean,
+    showDots: boolean,
+    showProgress: boolean,
+    progressStyle: string
+  ): void {
+    if (isJamRemote) return;
+    appBridge()?.SetDynamicIslandContent?.(
+      showStatus,
+      showCover,
+      showClosedCover,
+      showArtist,
+      showLyric,
+      showHeart,
+      showDots,
+      showProgress,
+      progressStyle
+    );
   },
   syncDynamicIsland(payload: {
     title: string;
