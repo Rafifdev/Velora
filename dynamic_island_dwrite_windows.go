@@ -552,6 +552,12 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 	if contentOp <= 0.02 {
 		return true
 	}
+	c.mu.Lock()
+	showStatus := c.showStatus
+	showCover := c.showCover
+	showArtist := c.showArtist
+	showLyric := c.showLyric
+	c.mu.Unlock()
 	diStr := getDIStrings(diLang)
 
 	// Preserve existing alpha mask inside pix because D2D1_ALPHA_MODE_IGNORE
@@ -663,7 +669,7 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 		miniPx := maxInt(21, int(math.Round(20.8*u)))
 		topCov := int(math.Round((h/2.0)*u - float64(miniPx)/2.0))
 		cyExact := float64(topCov) + float64(miniPx)/2.0
-		if playing && lyricsOpen && len(lyrics) > 0 {
+		if showLyric && playing && lyricsOpen && len(lyrics) > 0 {
 			txtHeightPx := float64(miniPx) * 0.72
 			fClosed := c.getDWriteTextFormat(1, txtHeightPx, dwTextAlignCenter, dwParaAlignCenter, false, true)
 			c.pushD2DClip((nx+35.0)*u, 0, (w-70.0)*u, h*u)
@@ -757,14 +763,34 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 		}
 
 	case diModeMusic:
-		c.drawD2DStr(timeStr, f135Semi, pal.TextMain, contentOp, mapXStatic(22), mapY(8), mapW(140), 22*u, false)
-		drawMarquee(title, f155Bold, fNoTrim155Bold, pal.TextMain, contentOp, mapX(78), mapY(33), mapW(238), 24*u)
-		drawMarquee(artist, f115Reg, fNoTrim115Reg, pal.TextVariant, 0.85*contentOp, mapX(78), mapY(56), mapW(238), 18*u)
+		if showStatus {
+			c.drawD2DStr(timeStr, f135Semi, pal.TextMain, contentOp, mapXStatic(22), mapY(8), mapW(140), 22*u, false)
+		}
+		mTextX := 78.0
+		mTextW := 238.0
+		if !showCover {
+			mTextX = 22.0
+			mTextW = 294.0
+		}
+		drawMarquee(title, f155Bold, fNoTrim155Bold, pal.TextMain, contentOp, mapX(mTextX), mapY(33), mapW(mTextW), 24*u)
+		if showArtist {
+			drawMarquee(artist, f115Reg, fNoTrim115Reg, pal.TextVariant, 0.85*contentOp, mapX(mTextX), mapY(56), mapW(mTextW), 18*u)
+		}
 
 	case diModeLyrics:
-		c.drawD2DStr(timeStr, f135Semi, pal.TextMain, contentOp, mapXStatic(22), mapY(8), mapW(140), 22*u, false)
-		drawMarquee(title, f145Bold, fNoTrim145Bold, pal.TextMain, contentOp, mapX(76), mapY(33), mapW(164), 22*u)
-		drawMarquee(artist, f11Reg, fNoTrim11Reg, pal.TextVariant, 0.85*contentOp, mapX(76), mapY(56), mapW(164), 18*u)
+		if showStatus {
+			c.drawD2DStr(timeStr, f135Semi, pal.TextMain, contentOp, mapXStatic(22), mapY(8), mapW(140), 22*u, false)
+		}
+		lTextX := 76.0
+		lTextW := 164.0
+		if !showCover {
+			lTextX = 22.0
+			lTextW = 218.0
+		}
+		drawMarquee(title, f145Bold, fNoTrim145Bold, pal.TextMain, contentOp, mapX(lTextX), mapY(33), mapW(lTextW), 22*u)
+		if showArtist {
+			drawMarquee(artist, f11Reg, fNoTrim11Reg, pal.TextVariant, 0.85*contentOp, mapX(lTextX), mapY(56), mapW(lTextW), 18*u)
+		}
 
 		onPrimCont := color.RGBA{R: 0xD8, G: 0xF3, B: 0xFF, A: 255}
 		if len(lyrics) == 0 {
