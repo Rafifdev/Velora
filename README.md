@@ -10,6 +10,7 @@
     <img src="https://img.shields.io/badge/Go-1.24-00ADD8?style=flat-square&logo=go" alt="Go 1.24" />
     <img src="https://img.shields.io/badge/Svelte-5-FF3E00?style=flat-square&logo=svelte" alt="Svelte 5" />
     <img src="https://img.shields.io/badge/Wails-v2-DF0000?style=flat-square" alt="Wails v2" />
+    <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-22C55E?style=flat-square" alt="MIT License" /></a>
   </p>
 </div>
 
@@ -135,6 +136,12 @@ velora/
 | `Ctrl` + `+` / `-` | Zoom interface in / out (`70%` – `130%`) |
 | `Ctrl` + `0` | Reset interface zoom to `100%` |
 | `Tab` | Focus global search bar |
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
 
 ---
 
