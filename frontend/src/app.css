@@ -138,6 +138,9 @@ body,
 }
 
 .win-caption-btn {
+  --wails-draggable: no-drag;
+  position: relative;
+  z-index: 60;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -359,6 +362,12 @@ select.m3-input option:checked {
   gap: 0.75rem;
 }
 
+.velora-home-content {
+  width: 100%;
+  min-inline-size: 0;
+  container: home / inline-size;
+}
+
 .velora-card-grid-7 {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -366,9 +375,131 @@ select.m3-input option:checked {
   gap: 0.75rem;
 }
 
-.velora-card-grid-7 .velora-card-artwork {
+.velora-playlist-grid-7 {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  align-items: start;
+  gap: 0.75rem;
+}
+
+@media (max-width: 767px) {
+  .velora-playlist-grid-7 {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .velora-playlist-grid-7 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.velora-shelf-2row {
+  display: grid;
+  grid-template-rows: repeat(2, auto);
+  grid-auto-flow: column;
+  grid-auto-columns: 258px;
+  align-items: stretch;
+  gap: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .velora-shelf-2row {
+    grid-auto-columns: 296px;
+  }
+}
+
+.velora-card-grid-7 .velora-card-artwork,
+.velora-playlist-grid-7 .velora-card-artwork,
+.velora-card-grid-large .velora-card-artwork,
+.velora-card-grid-small .velora-card-artwork {
   width: 100%;
   height: auto;
+}
+
+.velora-card-grid-large {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 0.875rem;
+}
+
+.velora-card-grid-small {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 0.625rem;
+}
+
+.velora-card-grid-wide {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 0.75rem;
+}
+
+.velora-card-grid-compact {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+@container home (inline-size >= 460px) {
+  .velora-card-grid-compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container home (inline-size >= 480px) {
+  .velora-card-grid-small {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .velora-card-grid-wide {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container home (inline-size >= 560px) {
+  .velora-card-grid-large {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container home (inline-size >= 680px) {
+  .velora-card-grid-small {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+}
+
+@container home (inline-size >= 700px) {
+  .velora-card-grid-compact {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container home (inline-size >= 860px) {
+  .velora-card-grid-large {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@container home (inline-size >= 900px) {
+  .velora-card-grid-wide {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container home (inline-size >= 1080px) {
+  .velora-card-grid-small {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+}
+
+@container home (inline-size >= 1200px) {
+  .velora-card-grid-large {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
 }
 
 .velora-card-artwork {

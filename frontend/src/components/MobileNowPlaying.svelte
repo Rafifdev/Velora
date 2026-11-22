@@ -206,10 +206,17 @@
             type="button"
             onclick={onToggleShuffle}
             aria-label="Shuffle"
-            class="w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
-            style={shuffle ? 'color: var(--md-sys-color-tertiary);' : 'color: var(--md-sys-color-on-surface-variant);'}
+            aria-pressed={shuffle}
+            class="w-10 h-10 rounded-full relative flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+            style={shuffle ? 'color: var(--md-sys-color-primary);' : 'color: var(--md-sys-color-on-surface-variant);'}
           >
             <Icon name="shuffle" weight={shuffle ? 'bold' : 'regular'} size={22} />
+            {#if shuffle}
+              <span
+                class="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full"
+                style="background-color: var(--md-sys-color-primary);"
+              ></span>
+            {/if}
           </button>
 
           <button

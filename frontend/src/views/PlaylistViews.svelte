@@ -22,7 +22,10 @@
     onRefreshRecommendations?: () => void;
     currentTrackId: number | null;
     isPlaying?: boolean;
+    shuffle?: boolean;
+    queueSourceKey?: string | null;
     onTogglePlay?: () => void;
+    onToggleShuffle?: () => void;
     mediaBaseUrl: string;
     accentColor: string;
     onOpenPlaylist: (id: number) => void;
@@ -31,6 +34,7 @@
     onRenamePlaylist: (id: number, name: string, description: string, color: string) => void;
     onDeletePlaylist: (id: number) => void;
     onPlayTrack: (track: Track, list: Track[]) => void;
+    onPlayShuffled?: (list: Track[], sourceTitle?: string, sourceKey?: string) => void;
     onPlayYTMusic?: (yt: YTMusicTrack) => void;
     onAddTrack: (playlistId: number, trackId: number) => void;
     onAddYTMusicTrack?: (playlistId: number, yt: YTMusicTrack) => void;
@@ -62,7 +66,10 @@
     onRefreshRecommendations,
     currentTrackId,
     isPlaying = false,
+    shuffle = false,
+    queueSourceKey = null,
     onTogglePlay,
+    onToggleShuffle,
     mediaBaseUrl,
     accentColor,
     onOpenPlaylist,
@@ -71,6 +78,7 @@
     onRenamePlaylist,
     onDeletePlaylist,
     onPlayTrack,
+    onPlayShuffled,
     onPlayYTMusic,
     onAddTrack,
     onAddYTMusicTrack,
@@ -99,6 +107,7 @@
   let openActionTrackId = $state<number | null>(null);
   let failedRecCovers = $state<Record<string, boolean>>({});
   let importModalOpen = $state(false);
+  let confirmDeleteOpen = $state(false);
   let spotifyUrl = $state('');
   let spotifyImporting = $state(false);
   let spotifyError = $state('');
@@ -206,6 +215,18 @@
 
   function playShuffledPlaylist(list: Track[]) {
     if (list.length === 0) return;
+    const isPlaylistQueueActive =
+      Boolean(detail) &&
+      ((queueSourceKey && queueSourceKey === `local-playlist:${detail!.playlist.id}`) ||
+        (currentTrackId !== null && detail!.tracks.some((t) => t.id === currentTrackId)));
+    if (shuffle && isPlaylistQueueActive && onToggleShuffle) {
+      onToggleShuffle();
+      return;
+    }
+    if (onPlayShuffled && detail) {
+      onPlayShuffled(list, detail.playlist.name, `local-playlist:${detail.playlist.id}`);
+      return;
+    }
     const copy = [...list];
     for (let i = copy.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -263,26 +284,24 @@
     style="background-color: var(--md-sys-color-surface-container-low);"
   >
     <section
-      class="relative z-10 px-6 sm:px-7 pt-7 pb-7"
+      class="relative z-10 shrink-0 px-6 sm:px-10 pt-8 pb-8"
       style="background: linear-gradient(180deg, var(--md-sys-color-surface-container-high) 0%, var(--md-sys-color-surface-container-low) 100%);"
     >
-      <div class="flex flex-wrap items-end justify-between gap-5">
-        <div class="flex flex-wrap items-end gap-5">
-          <div class="w-28 h-28 rounded-lg bg-[var(--md-sys-color-surface-container-highest)] shrink-0"></div>
-          <div class="space-y-2.5 min-w-[200px] mb-[4px]">
-            <div class="h-3 w-16 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
-            <div class="h-8 w-52 sm:w-72 rounded-md bg-[var(--md-sys-color-surface-container-highest)]"></div>
-            <div class="h-3.5 w-36 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
+      <div class="flex flex-col sm:flex-row sm:items-end gap-6">
+        <div class="w-44 h-44 sm:w-52 sm:h-52 rounded-2xl bg-[var(--md-sys-color-surface-container-highest)] shrink-0"></div>
+        <div class="min-w-0 flex-1 space-y-2.5">
+          <div class="h-5 w-24 rounded-full bg-[var(--md-sys-color-surface-container-highest)]"></div>
+          <div class="h-10 w-64 max-w-full rounded-lg bg-[var(--md-sys-color-surface-container-highest)]"></div>
+          <div class="h-4 w-44 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
+          <div class="pt-1 flex items-center gap-3">
+            <div class="w-11 h-11 rounded-full bg-[var(--md-sys-color-surface-container-highest)]"></div>
+            <div class="w-11 h-11 rounded-full bg-[var(--md-sys-color-surface-container-high)]"></div>
           </div>
-        </div>
-        <div class="mb-[4px] flex items-center gap-2.5">
-          <div class="w-11 h-11 rounded-full bg-[var(--md-sys-color-surface-container-highest)]"></div>
-          <div class="w-11 h-11 rounded-full bg-[var(--md-sys-color-surface-container-high)]"></div>
         </div>
       </div>
     </section>
 
-    <div class="relative z-10 px-6 sm:px-7 pt-5 pb-10 flex-1 flex flex-col gap-3">
+    <div class="relative z-10 px-6 sm:px-10 pt-4 pb-10 flex-1 flex flex-col gap-3">
       <div
         class="-mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] gap-4 px-3 py-2 text-[11px] font-bold uppercase tracking-wider"
         style="color: var(--md-sys-color-on-surface-variant);"
@@ -340,90 +359,144 @@
     role="presentation"
     use:svelteMotionEnter={{ y: 8 }}
   >
-    <section
-      class="relative z-10 px-6 sm:px-7 pt-7 pb-7"
-      style="background: linear-gradient(180deg, color-mix(in srgb, {heroTint} 30%, var(--md-sys-color-surface-container-high)) 0%, color-mix(in srgb, {heroTint} 16%, var(--md-sys-color-surface-container-low)) 100%);"
-    >
-      <div class="flex flex-wrap items-end justify-between gap-5">
-        <div class="flex flex-wrap items-end gap-5">
-          <button
-            type="button"
-            onclick={startEdit}
-            aria-label="Edit detail playlist"
-            class="w-28 h-28 rounded-lg overflow-hidden shrink-0 shadow-[0_12px_36px_rgba(0,0,0,0.42)] flex items-center justify-center cursor-pointer transition-transform hover:scale-[1.02]"
-            style="background: linear-gradient(135deg, color-mix(in srgb, {heroTint} 55%, var(--md-sys-color-primary-container)) 0%, color-mix(in srgb, {heroTint} 85%, var(--md-sys-color-surface-container-highest)) 100%);"
-          >
-            {#if plCover}
-              <img src={plCover} alt={pl.name} class="block w-full h-full object-cover object-center" />
-            {:else}
-              <Icon name="playlist" weight="fill" size={44} class="text-white drop-shadow-sm" />
-            {/if}
-          </button>
+    <section class="relative shrink-0 overflow-hidden px-6 sm:px-10 pt-8 pb-8">
+      {#if plCover}
+        <img
+          src={plCover}
+          alt=""
+          aria-hidden="true"
+          class="pointer-events-none absolute inset-0 w-full h-full object-cover scale-125 blur-3xl opacity-35"
+        />
+      {/if}
+      <div
+        class="pointer-events-none absolute inset-0"
+        style="background: linear-gradient(180deg, color-mix(in srgb, {heroTint} 22%, rgba(11, 12, 14, 0.35)) 0%, var(--md-sys-color-surface-container-low) 100%);"
+      ></div>
 
-          <div class="space-y-1.5 min-w-[200px] mb-[4px]">
-            <div
-              class="text-[11px] font-bold uppercase tracking-wider"
-              style="color: color-mix(in srgb, {heroTint} 78%, #ffffff);"
+      <div class="relative z-10 flex flex-col sm:flex-row sm:items-end gap-6">
+        <button
+          type="button"
+          onclick={startEdit}
+          aria-label="Edit detail playlist"
+          class="w-44 h-44 sm:w-52 sm:h-52 rounded-2xl overflow-hidden shrink-0 shadow-2xl flex items-center justify-center cursor-pointer transition-transform hover:scale-[1.02]"
+          style={plCover
+            ? 'background-color: var(--md-sys-color-surface-container-highest);'
+            : `background: linear-gradient(135deg, color-mix(in srgb, ${heroTint} 55%, var(--md-sys-color-primary-container)) 0%, color-mix(in srgb, ${heroTint} 85%, var(--md-sys-color-surface-container-highest)) 100%);`}
+        >
+          {#if plCover}
+            <CoverImage
+              src={plCover}
+              fallbackIcon="playlist"
+              iconSize={56}
+              isVideoThumb={isYTVideoThumb(plCover)}
+              loading="eager"
+            />
+          {:else}
+            <Icon name="playlist" weight="fill" size={56} class="text-white drop-shadow-sm" />
+          {/if}
+        </button>
+
+        <div class="min-w-0 flex-1 space-y-2">
+          <div class="flex flex-wrap items-center gap-2 text-xs font-semibold">
+            <span
+              class="px-2.5 py-0.5 rounded-full"
+              style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
             >
-              Playlist
-            </div>
-
-            <button type="button" onclick={startEdit} class="block text-left cursor-pointer group">
-              <h1 class="text-3xl font-bold tracking-tight group-hover:underline decoration-2 underline-offset-4" style="color: var(--md-sys-color-on-surface);">
-                {pl.name}
-              </h1>
-            </button>
-
-            <p class="text-xs tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
-              {#if pl.description}{pl.description} • {/if}{detail.tracks.length} {tr(lang, 'nav.songs').toLowerCase()} • {formatTotalMinutes(pl.totalSec)}
-            </p>
+              {pl.isLocal ? tr(lang, 'nav.localPlaylist') : tr(lang, 'nav.savedPlaylist')}
+            </span>
           </div>
-        </div>
 
-        <div class="mb-[4px] flex items-center gap-2.5">
-          <button
-            type="button"
-            disabled={detail.tracks.length === 0}
-            onclick={() => detail.tracks[0] && onPlayTrack(detail.tracks[0], detail.tracks)}
-            title={tr(lang, 'nav.playAll')}
-            aria-label={tr(lang, 'nav.playAll')}
-            class="w-11 h-11 rounded-full border-0 outline-none shadow-none inline-flex items-center justify-center cursor-pointer transition-transform duration-150 hover:scale-[1.04] active:scale-95 disabled:opacity-40"
-            style="background-color: {heroAccent}; color: var(--md-sys-color-on-primary);"
-          >
-            <Icon name="play" weight="fill" size={18} />
-          </button>
-
-          <button
-            type="button"
-            disabled={detail.tracks.length === 0}
-            onclick={() => playShuffledPlaylist(detail.tracks)}
-            title={tr(lang, 'nav.shuffle')}
-            aria-label={tr(lang, 'nav.shuffle')}
-            class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors disabled:opacity-40"
-            style="color: var(--md-sys-color-on-surface);"
-          >
-            <Icon name="shuffle" size={18} />
-          </button>
-
-          {#if pl.isLocal}
-            <button
-              type="button"
-              onclick={() => onExportM3U(pl.id)}
-              title="Export .M3U"
-              aria-label="Export .M3U"
-              class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors"
+          <button type="button" onclick={startEdit} class="block max-w-full text-left cursor-pointer group">
+            <h1
+              class="{pl.name.length > 44
+                ? 'text-lg sm:text-xl lg:text-[24px]'
+                : pl.name.length > 24
+                  ? 'text-xl sm:text-2xl lg:text-[28px]'
+                  : 'text-2xl sm:text-3xl lg:text-[38px]'} font-bold tracking-tight leading-[1.18] line-clamp-2 group-hover:underline decoration-2 underline-offset-4"
               style="color: var(--md-sys-color-on-surface);"
             >
-              <Icon name="download" size={18} />
+              {pl.name}
+            </h1>
+          </button>
+
+          <div
+            class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm"
+            style="color: var(--md-sys-color-on-surface-variant);"
+          >
+            {#if pl.description}
+              <span class="font-medium" style="color: var(--md-sys-color-on-surface);">{pl.description}</span>
+              <span>•</span>
+            {/if}
+            <span class="tabular-nums">{detail.tracks.length} {tr(lang, 'nav.songs').toLowerCase()}</span>
+            <span>•</span>
+            <span class="tabular-nums">{formatTotalMinutes(pl.totalSec)}</span>
+          </div>
+
+          <div class="pt-1 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              disabled={detail.tracks.length === 0}
+              onclick={() => detail.tracks[0] && onPlayTrack(detail.tracks[0], detail.tracks)}
+              title={tr(lang, 'nav.playAll')}
+              aria-label={tr(lang, 'nav.playAll')}
+              class="w-11 h-11 rounded-full border-0 outline-none shadow-none inline-flex items-center justify-center cursor-pointer transition-transform duration-150 hover:scale-[1.04] active:scale-95 disabled:opacity-40"
+              style="background-color: {heroAccent}; color: var(--md-sys-color-on-primary);"
+            >
+              <Icon name="play" weight="fill" size={20} />
             </button>
-          {/if}
+
+            <button
+              type="button"
+              disabled={detail.tracks.length === 0}
+              onclick={() => playShuffledPlaylist(detail.tracks)}
+              title={tr(lang, 'nav.shuffle')}
+              aria-label={tr(lang, 'nav.shuffle')}
+              aria-pressed={shuffle}
+              class="w-11 h-11 rounded-full relative inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110 disabled:opacity-40"
+              style={shuffle
+                ? `background-color: color-mix(in srgb, ${heroAccent} 24%, var(--md-sys-color-surface-container-high)); color: ${heroAccent};`
+                : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);'}
+            >
+              <Icon name="shuffle" weight={shuffle ? 'bold' : 'regular'} size={18} />
+              {#if shuffle}
+                <span
+                  class="absolute bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full"
+                  style="background-color: {heroAccent};"
+                ></span>
+              {/if}
+            </button>
+
+            {#if pl.isLocal}
+              <button
+                type="button"
+                onclick={() => onExportM3U(pl.id)}
+                title="Export .M3U"
+                aria-label="Export .M3U"
+                class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors"
+                style="color: var(--md-sys-color-on-surface);"
+              >
+                <Icon name="download" size={18} />
+              </button>
+            {/if}
+
+            <button
+              type="button"
+              onclick={() => (confirmDeleteOpen = true)}
+              title={tr(lang, 'nav.deletePlaylist')}
+              aria-label={tr(lang, 'nav.deletePlaylist')}
+              class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-rose-500/20 hover:text-rose-400 transition-colors"
+              style="color: var(--md-sys-color-on-surface);"
+            >
+              <Icon name="trash" size={18} />
+            </button>
+          </div>
         </div>
       </div>
     </section>
 
     <div
-      class="relative z-10 px-6 sm:px-7 pt-5 pb-10 flex-1 flex flex-col gap-6"
-      style="background: linear-gradient(180deg, color-mix(in srgb, {heroTint} 12%, var(--md-sys-color-surface-container-low)) 0%, color-mix(in srgb, {heroTint} 6%, var(--md-sys-color-surface-container-low)) 120px, color-mix(in srgb, {heroTint} 2%, var(--md-sys-color-surface-container-low)) 240px, var(--md-sys-color-surface-container-low) 340px);"
+      class="relative z-10 px-6 sm:px-10 pt-2 pb-10 flex-1 flex flex-col gap-6"
+      style="background-color: var(--md-sys-color-surface-container-low);"
     >
       {#if detail.tracks.length > 0}
         <div class="space-y-1">
@@ -714,7 +787,7 @@
     use:svelteMotionEnter={{ y: 8 }}
   >
     <section
-      class="relative z-10 px-6 sm:px-7 pt-7 pb-7"
+      class="relative z-10 shrink-0 px-6 sm:px-7 pt-7 pb-7"
       style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-primary) 30%, var(--md-sys-color-primary-container)) 0%, color-mix(in srgb, var(--md-sys-color-primary-container) 74%, var(--md-sys-color-surface-container-low)) 100%);"
     >
       <div class="flex flex-wrap items-end justify-between gap-5">
@@ -734,7 +807,7 @@
               {tr(lang, 'nav.playlists')}
             </h1>
             <p class="text-xs tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
-              {playlists.length} playlist • Local (.m3u) & YouTube Music
+              {playlists.length} playlist • {tr(lang, 'nav.localPlaylists')} (.m3u) & {tr(lang, 'nav.savedPlaylists')}
             </p>
           </div>
         </div>
@@ -769,8 +842,8 @@
       <div class="flex flex-wrap items-center gap-2">
         {#each [
           { id: 'all', label: tr(lang, 'nav.all') },
-          { id: 'local', label: tr(lang, 'nav.localPlaylists') },
-          { id: 'ytmusic', label: 'YouTube Music' }
+          { id: 'ytmusic', label: tr(lang, 'nav.savedPlaylists') },
+          { id: 'local', label: tr(lang, 'nav.localPlaylists') }
         ] as tab (tab.id)}
           <button
             type="button"
@@ -786,9 +859,9 @@
       </div>
 
       {#if playlistsLoading && playlists.length === 0}
-        <div class="velora-card-grid animate-pulse">
-          {#each Array.from({ length: 12 }) as _, idx (idx)}
-            <div class="w-[172px] flex flex-col gap-2.5 p-2.5">
+        <div class="velora-playlist-grid-7 animate-pulse">
+          {#each Array.from({ length: 14 }) as _, idx (idx)}
+            <div class="w-full min-w-0 flex flex-col gap-2.5 p-2.5">
               <div class="velora-card-artwork bg-[var(--md-sys-color-surface-container-highest)]"></div>
               <div class="h-3.5 w-3/4 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
               <div class="h-2.5 w-1/2 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
@@ -813,15 +886,16 @@
           </button>
         </EmptyState>
       {:else}
-      <div class="velora-card-grid">
+      <div class="velora-playlist-grid-7">
         {#each visiblePlaylists as pl (pl.id)}
           {@const cover = resolveCoverUrl(pl.coverUrl, mediaBaseUrl)}
-          <div class="group w-[172px] flex flex-col justify-start items-stretch self-start p-2.5 rounded-lg transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]">
+          {@const cardTint = pl.coverColor || 'var(--md-sys-color-primary)'}
+          <div class="group w-full min-w-0 flex flex-col justify-start items-stretch self-start p-2.5 rounded-lg transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]">
             <div
               class="velora-card-artwork mb-2.5 flex items-center justify-center"
               style={cover
                 ? 'background-color: var(--md-sys-color-surface-container-high);'
-                : `background: linear-gradient(135deg, color-mix(in srgb, ${pl.coverColor || 'var(--md-sys-color-primary)'} 38%, var(--md-sys-color-surface-container-high)), var(--md-sys-color-surface-container-highest));`}
+                : `background: linear-gradient(135deg, color-mix(in srgb, ${cardTint} 55%, var(--md-sys-color-primary-container)) 0%, color-mix(in srgb, ${cardTint} 85%, var(--md-sys-color-surface-container-highest)) 100%);`}
             >
               <button
                 type="button"
@@ -854,7 +928,7 @@
                 {pl.name}
               </div>
               <div class="text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-                {pl.description || `${pl.isLocal ? tr(lang, 'nav.localPlaylists') : 'YT Music'} • ${pl.trackCount} ${tr(lang, 'nav.songs').toLowerCase()}`}
+                {pl.description || `${pl.isLocal ? tr(lang, 'nav.localPlaylists') : tr(lang, 'nav.savedPlaylist')} • ${pl.trackCount} ${tr(lang, 'nav.songs').toLowerCase()}`}
               </div>
             </button>
           </div>
@@ -931,6 +1005,43 @@
       >
         <Icon name="folder-open" size={16} />
         <span>{tr(lang, 'nav.chooseFile')}</span>
+      </button>
+    </div>
+  </div>
+</ModalDialog>
+
+<ModalDialog
+  open={confirmDeleteOpen}
+  onClose={() => (confirmDeleteOpen = false)}
+  ariaLabelledby="delete-playlist-title"
+  maxWidthClass="max-w-sm"
+  class="p-6"
+>
+  <div class="space-y-3">
+    <h2 id="delete-playlist-title" class="text-base font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+      {tr(lang, 'nav.deletePlaylist')}
+    </h2>
+    <p class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
+      {tr(lang, 'nav.deletePlaylistDesc')}
+    </p>
+    <div class="pt-2 flex items-center justify-end gap-2">
+      <button
+        type="button"
+        onclick={() => (confirmDeleteOpen = false)}
+        class="h-9 px-4 rounded-full bg-[var(--md-sys-color-surface-container)] hover:bg-[var(--md-sys-color-surface-container-highest)] text-xs font-semibold cursor-pointer"
+      >
+        {tr(lang, 'nav.cancel')}
+      </button>
+      <button
+        type="button"
+        onclick={() => {
+          const pid = detail?.playlist.id;
+          confirmDeleteOpen = false;
+          if (pid) onDeletePlaylist(pid);
+        }}
+        class="h-9 px-5 rounded-full bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold cursor-pointer transition-colors"
+      >
+        {tr(lang, 'nav.delete')}
       </button>
     </div>
   </div>

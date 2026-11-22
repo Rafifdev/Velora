@@ -35,8 +35,14 @@
     onRemoveDownload?: (trackId: number) => void;
     onOpenArtist: (artistId: number) => void;
     onOpenAlbum: (albumId: number) => void;
+    shuffle?: boolean;
+    queueSourceKey?: string | null;
+    onToggleShuffle?: () => void;
+    onPlayShuffled?: (list: Track[], sourceTitle?: string, sourceKey?: string) => void;
     ytAlbum?: YTMusicAlbumView | null;
     ytAlbumLoading?: boolean;
+    routeKind?: 'album' | 'playlist';
+    recommendedPlaylists?: YTMusicCard[];
     onOpenYTAlbum?: (card: YTMusicCard) => void;
     onToggleFavoriteYTMusicAlbum?: (payload: {
       browseId: string;
@@ -45,6 +51,13 @@
       coverUrl: string;
       releaseYear: number;
     }) => void;
+    onToggleSaveYTMusicPlaylist?: (payload: {
+      browseId: string;
+      title: string;
+      subtitle: string;
+      coverUrl: string;
+      trackIds: number[];
+    }) => Promise<void> | void;
   }
 
   let {
@@ -74,20 +87,40 @@
     onRemoveDownload,
     onOpenArtist,
     onOpenAlbum,
+    shuffle = false,
+    queueSourceKey = null,
+    onToggleShuffle,
+    onPlayShuffled,
     ytAlbum = null,
     ytAlbumLoading = false,
+    routeKind,
+    recommendedPlaylists = [],
     onOpenYTAlbum,
-    onToggleFavoriteYTMusicAlbum
+    onToggleFavoriteYTMusicAlbum,
+    onToggleSaveYTMusicPlaylist
   }: Props = $props();
 
+  const isPlaylistView = $derived(ytAlbum?.kind === 'playlist' || (!album && routeKind === 'playlist'));
   const displayTitle = $derived(ytAlbum?.title || album?.title || track?.albumTitle || track?.title || 'Album');
   const displayArtist = $derived(ytAlbum?.artist || album?.artistName || track?.artistName || 'Unknown Artist');
   const displayArtistId = $derived(ytAlbum ? 0 : track?.artistId || 0);
   const rawCover = $derived(ytAlbum?.coverUrl || album?.coverUrl || track?.coverUrl || '');
   const cover = $derived(resolveCoverUrl(rawCover, mediaBaseUrl));
 
+  let savingPlaylist = $state(false);
+  const isYTSavedPlaylist = $derived.by(() => {
+    if (!ytAlbum || !isPlaylistView) return false;
+    const bid = (ytAlbum.browseId || '').trim();
+    const tLow = displayTitle.trim().toLowerCase();
+    return playlists.some(
+      (p) =>
+        !p.isLocal &&
+        ((bid !== '' && p.externalId === bid) || p.name.trim().toLowerCase() === tLow)
+    );
+  });
+
   const isYTFavAlbum = $derived.by(() => {
-    if (!ytAlbum) return false;
+    if (!ytAlbum || isPlaylistView) return false;
     const bid = (ytAlbum.browseId || '').trim();
     const tLow = displayTitle.trim().toLowerCase();
     const aLow = displayArtist.trim().toLowerCase();
@@ -156,8 +189,22 @@
     }
   }
 
+  const isViewQueueActive = $derived.by(() => {
+    const viewKey = ytAlbum?.browseId || (album ? `local-album:${album.id}` : '');
+    if (queueSourceKey && viewKey && queueSourceKey === viewKey) return true;
+    return currentTrackId !== null && listTracks.some((t) => t.id === currentTrackId);
+  });
+
   function playShuffled(list: Track[]) {
     if (list.length === 0) return;
+    if (shuffle && isViewQueueActive && onToggleShuffle) {
+      onToggleShuffle();
+      return;
+    }
+    if (onPlayShuffled) {
+      onPlayShuffled(list, displayTitle, ytAlbum?.browseId || (album ? `local-album:${album.id}` : ''));
+      return;
+    }
     const copy = [...list];
     for (let i = copy.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -196,6 +243,31 @@
 
     const cards: ArtistReleaseCard[] = [];
     const seenTitles = new Set<string>();
+
+    if (isPlaylistView) {
+      const currentBrowse = (ytAlbum?.browseId || '').trim().toLowerCase();
+      const currentTitleLow = displayTitle.trim().toLowerCase();
+      if (currentTitleLow) seenTitles.add(currentTitleLow);
+      const seenKeys = new Set<string>();
+      if (currentBrowse) seenKeys.add(currentBrowse);
+      for (const yt of [...(ytAlbum?.artistAlbums ?? []), ...recommendedPlaylists]) {
+        const k = (yt.browseId || yt.playlistId || yt.id || '').trim().toLowerCase();
+        const titleLow = yt.title.trim().toLowerCase();
+        if (!titleLow || seenTitles.has(titleLow) || (k && seenKeys.has(k))) continue;
+        seenTitles.add(titleLow);
+        if (k) seenKeys.add(k);
+        cards.push({
+          kind: 'yt-album',
+          key: `yt-pl-${k || titleLow}`,
+          title: yt.title,
+          subtitle: yt.subtitle || 'Playlist',
+          cover: yt.coverUrl,
+          ytCard: { ...yt, kind: yt.kind || 'playlist' }
+        });
+        if (cards.length >= 12) break;
+      }
+      return cards;
+    }
 
     if (ytAlbum) {
       for (const yt of ytAlbum.artistAlbums ?? []) {
@@ -308,20 +380,20 @@
       >
         <CoverImage
           src={cover}
-          fallbackIcon="vinyl-record"
+          fallbackIcon={isPlaylistView ? 'playlist' : 'vinyl-record'}
           iconSize={56}
           isVideoThumb={isYTVideoThumb(cover)}
           loading="eager"
         />
       </div>
 
-      <div class="min-w-0 flex-1 space-y-3">
+      <div class="min-w-0 flex-1 space-y-2">
         <div class="flex flex-wrap items-center gap-2 text-xs font-semibold">
           <span
             class="px-2.5 py-0.5 rounded-full"
             style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
           >
-            {tr(lang, 'nav.album')}
+            {isPlaylistView ? tr(lang, 'nav.playlist') : tr(lang, 'nav.album')}
           </span>
           {#if album?.releaseYear}
             <span
@@ -334,7 +406,11 @@
         </div>
 
         <h1
-          class="text-2xl sm:text-4xl lg:text-[42px] font-bold tracking-tight leading-tight line-clamp-2"
+          class="{displayTitle.length > 44
+            ? 'text-lg sm:text-xl lg:text-[24px]'
+            : displayTitle.length > 24
+              ? 'text-xl sm:text-2xl lg:text-[28px]'
+              : 'text-2xl sm:text-3xl lg:text-[38px]'} font-bold tracking-tight leading-[1.18] line-clamp-2"
           style="color: var(--md-sys-color-on-surface);"
         >
           {displayTitle}
@@ -367,7 +443,7 @@
           {/if}
         </div>
 
-        <div class="pt-2 flex flex-wrap items-center gap-3">
+        <div class="pt-1 flex flex-wrap items-center gap-3">
           <button
             type="button"
             disabled={listTracks.length === 0}
@@ -378,8 +454,8 @@
                 onPlayTrack(listTracks[0], listTracks);
               }
             }}
-            title={isAlbumCurrentlyPlaying ? 'Jeda' : 'Putar Album'}
-            aria-label={isAlbumCurrentlyPlaying ? 'Jeda' : 'Putar Album'}
+            title={isAlbumCurrentlyPlaying ? tr(lang, 'nav.pause') : isPlaylistView ? 'Putar Playlist' : 'Putar Album'}
+            aria-label={isAlbumCurrentlyPlaying ? tr(lang, 'nav.pause') : isPlaylistView ? 'Putar Playlist' : 'Putar Album'}
             class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110 disabled:opacity-40"
             style="background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);"
           >
@@ -390,12 +466,21 @@
             type="button"
             disabled={listTracks.length === 0}
             onclick={() => playShuffled(listTracks)}
-            title="Acak (Shuffle)"
-            aria-label="Acak (Shuffle)"
-            class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110 disabled:opacity-40"
-            style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+            title={tr(lang, 'nav.shuffle')}
+            aria-label={tr(lang, 'nav.shuffle')}
+            aria-pressed={shuffle}
+            class="w-11 h-11 rounded-full relative inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110 disabled:opacity-40"
+            style={shuffle
+              ? 'background-color: color-mix(in srgb, var(--md-sys-color-primary) 22%, var(--md-sys-color-surface-container-high)); color: var(--md-sys-color-primary);'
+              : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);'}
           >
-            <Icon name="shuffle" size={18} />
+            <Icon name="shuffle" weight={shuffle ? 'bold' : 'regular'} size={18} />
+            {#if shuffle}
+              <span
+                class="absolute bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full"
+                style="background-color: var(--md-sys-color-primary);"
+              ></span>
+            {/if}
           </button>
 
           {#if album}
@@ -410,6 +495,38 @@
               aria-label={album.isFavorite ? 'Hapus Album dari Favorit' : 'Sukai Album'}
             >
               <Icon name="heart" weight={album.isFavorite ? 'fill' : 'regular'} size={18} />
+            </button>
+          {:else if ytAlbum && isPlaylistView && onToggleSaveYTMusicPlaylist}
+            <button
+              type="button"
+              disabled={savingPlaylist}
+              onclick={async () => {
+                if (savingPlaylist) return;
+                savingPlaylist = true;
+                try {
+                  await onToggleSaveYTMusicPlaylist({
+                    browseId: ytAlbum.browseId || '',
+                    title: displayTitle,
+                    subtitle: ytAlbum.subtitle || displayArtist || 'YouTube Music',
+                    coverUrl: rawCover,
+                    trackIds: listTracks.map((t) => t.id).filter((id) => id > 0)
+                  });
+                } finally {
+                  savingPlaylist = false;
+                }
+              }}
+              class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110 disabled:opacity-60"
+              style={isYTSavedPlaylist
+                ? 'background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);'
+                : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);'}
+              title={isYTSavedPlaylist ? tr(lang, 'nav.savedPlaylist') : tr(lang, 'nav.savePlaylist')}
+              aria-label={isYTSavedPlaylist ? tr(lang, 'nav.savedPlaylist') : tr(lang, 'nav.savePlaylist')}
+            >
+              <Icon
+                name={isYTSavedPlaylist ? 'check' : 'bookmark-simple'}
+                weight={isYTSavedPlaylist ? 'bold' : 'regular'}
+                size={18}
+              />
             </button>
           {:else if ytAlbum && onToggleFavoriteYTMusicAlbum}
             <button
@@ -619,7 +736,9 @@
   {#if artistReleases.length > 0}
     <section class="px-6 sm:px-10 pb-10">
       <h2 class="text-lg font-bold mb-4" style="color: var(--md-sys-color-on-surface);">
-        {tr(lang, 'nav.moreFromArtist')} {displayArtist}
+        {isPlaylistView
+          ? tr(lang, 'nav.recommendedPlaylists')
+          : `${tr(lang, 'nav.moreFromArtist')} ${displayArtist}`}
       </h2>
       <div
         use:shelfEdgeFade
@@ -645,7 +764,7 @@
             >
               <CoverImage
                 src={card.cover}
-                fallbackIcon="music-note"
+                fallbackIcon={card.kind === 'yt-album' && card.ytCard.kind === 'playlist' ? 'playlist' : 'music-note'}
                 iconSize={32}
                 imgClass="block w-full h-full object-cover object-center transition-transform duration-300 group-hover:scale-[1.03]"
                 isVideoThumb={isYTVideoThumb(card.cover)}

@@ -144,6 +144,11 @@
   let ytLoadingMore = $state(false);
   let ytMorePage = $state(0);
   let ytMoreAllBuffer: YTMusicCard[] = [];
+  let ytMoreMusicBuffer: YTMusicTrack[] = [];
+  let ytMoreAlbumBuffer: YTMusicCard[] = [];
+  let ytMoreArtistBuffer: YTMusicCard[] = [];
+  let ytMorePlaylistBuffer: YTMusicCard[] = [];
+  let ytMorePopularArtistsBuffer: YTMusicCard[] = [];
   let loadingCollectionId = $state<string | null>(null);
   let playRequestSeq = 0;
   let switchingTrack = false;
@@ -301,6 +306,9 @@
   let queue = $state<Track[]>([]);
   let queueSourceTitle = $state('');
   let queueSourceKey = $state('');
+  let originalQueue: Track[] = [];
+  let shufflePlayedKeys = new Set<string>();
+  let shuffleHistory: Track[] = [];
   let playedAlgoKeys = new Set<string>();
   let algoBatchRound = 0;
   let currentTrack = $state<Track | null>(null);
@@ -728,7 +736,8 @@
       low.includes("today's indonesian hits") ||
       low.includes('today indonesian hits') ||
       low.includes('today indonesia hits') ||
-      low.includes('hits indonesia hari ini')
+      low.includes('hits indonesia hari ini') ||
+      low.includes('hits indonesia')
     ) {
       return 1;
     }
@@ -756,6 +765,12 @@
 
   async function loadYTMusicHome() {
     ytHomeLoading = true;
+    ytMoreAllBuffer = [];
+    ytMoreMusicBuffer = [];
+    ytMoreAlbumBuffer = [];
+    ytMoreArtistBuffer = [];
+    ytMorePlaylistBuffer = [];
+    ytMorePopularArtistsBuffer = [];
     try {
       const feed = await api.getYTMusicHome();
       ytHomeContinuation = (feed?.continuation || '').trim();
@@ -1403,10 +1418,15 @@
     if (card.kind !== 'song' && !bID && card.playlistId) {
       bID = card.playlistId.startsWith('VL') ? card.playlistId : `VL${card.playlistId}`;
     }
+    const kind: 'album' | 'playlist' =
+      card.kind === 'playlist' || bID.startsWith('VL') || bID.startsWith('PL') || bID.startsWith('RD')
+        ? 'playlist'
+        : 'album';
     await navigate({
       name: 'yt-album-detail',
       videoId: card.kind === 'playlist' ? '' : (card.videoId || ''),
       browseId: bID,
+      kind,
       title: card.title,
       artist: card.artist || card.subtitle || '',
       albumTitle: card.kind === 'song' ? (card.album || card.title) : card.title,
@@ -1532,23 +1552,26 @@
   }
 
   async function handleSearchYTMusicPlaylists(q: string) {
+    const seq = ++ytSearchSeq;
     ytLoading = true;
     try {
       const primary = await api.searchYouTubeMusicPlaylists(q);
+      if (seq !== ytSearchSeq) return;
       const seen = new Set<string>();
       const merged: YTMusicCard[] = [];
       const pushUnique = (card: YTMusicCard) => {
-        const key = card.browseId || card.playlistId || card.id;
+        const key = (card.browseId || card.playlistId || card.id || '').trim();
         if (!key || seen.has(key)) return;
         seen.add(key);
         merged.push(card);
       };
       for (const c of primary || []) pushUnique(c);
-      if (merged.length < 20) {
-        const extra = await api.searchYouTubeMusicPlaylists(`${q} mix`).catch(() => []);
+      if (merged.length < 24) {
+        const extra = await api.searchYouTubeMusicPlaylists(q.trim() ? `${q} mix` : 'Top Hits Playlist').catch(() => []);
+        if (seq !== ytSearchSeq) return;
         for (const c of extra || []) pushUnique(c);
       }
-      if (merged.length < 20) {
+      if (merged.length < 24 && !q.trim()) {
         for (const shelf of ytShelves) {
           for (const card of shelf.items) {
             if (card.kind === 'playlist') pushUnique(card);
@@ -1556,8 +1579,14 @@
         }
       }
       ytPlaylistResults = merged;
+    } catch {
+      if (seq === ytSearchSeq) {
+        ytPlaylistResults = [];
+      }
     } finally {
-      ytLoading = false;
+      if (seq === ytSearchSeq) {
+        ytLoading = false;
+      }
     }
   }
 
@@ -1615,19 +1644,31 @@
       'Trending Pop Music Indonesia',
       'Top Hits Indonesia 2025 2026',
       'Viral Pop & R&B Hits',
-      'Best Acoustic Pop Hits'
+      'Best Acoustic Pop Hits',
+      'Lagu Indie & Chill Indonesia',
+      'Top Global Pop Songs',
+      'Throwback Hits 2000s 2010s',
+      'Feel Good & Chill Music'
     ],
     artis: [
       'Popular Indonesian Singers',
       'Top Global Pop Artists',
       'Best Indie Artists Indonesia',
-      'Top R&B & Soul Artists'
+      'Top R&B & Soul Artists',
+      'Popular Rock & Alternative Bands',
+      'Trending Acoustic & Folk Artists',
+      'Electronic & Dance Artists',
+      'Asia Pop & Ballad Singers'
     ],
     album: [
       'Top Pop Indonesia Album',
       'Best Indie Album Indonesia',
       'Top Global Pop Album',
-      'R&B Soul Classic Album'
+      'R&B Soul Classic Album',
+      'Best Rock & Alternative Album',
+      'Acoustic & Singer Songwriter Album',
+      'Trending Hip Hop & R&B Album',
+      'Essential Greatest Hits Album'
     ],
     playlist: [
       'Top Hits Indonesia Playlist',
@@ -1647,6 +1688,94 @@
     ]
   };
 
+  async function loadMoreCollectionBatch(opts: {
+    targetBatch: number;
+    existingList: YTMusicCard[];
+    buffer: YTMusicCard[];
+    fetchPrimary: () => Promise<YTMusicCard[]>;
+    searchFallback: (query: string) => Promise<YTMusicCard[]>;
+    queries: string[];
+    dedupeByCover?: boolean;
+    spreadByArtist?: boolean;
+  }): Promise<{ added: YTMusicCard[]; nextBuffer: YTMusicCard[] }> {
+    const existingKeys = new Set(
+      opts.existingList.map((c) => (c.browseId || c.title.trim().toLowerCase()).trim().toLowerCase()).filter(Boolean)
+    );
+    const existingTitles = new Set(
+      opts.existingList.map((c) => c.title.trim().toLowerCase()).filter(Boolean)
+    );
+    const existingCovers = new Set(
+      opts.existingList.map((c) => (c.coverUrl || '').trim()).filter(Boolean)
+    );
+
+    const pool: YTMusicCard[] = [];
+    for (const c of opts.buffer) {
+      const k = (c.browseId || c.title.trim().toLowerCase()).trim().toLowerCase();
+      const tLow = c.title.trim().toLowerCase();
+      if (!k || existingKeys.has(k) || existingTitles.has(tLow)) continue;
+      existingKeys.add(k);
+      existingTitles.add(tLow);
+      const cov = (c.coverUrl || '').trim();
+      if (cov) existingCovers.add(cov);
+      pool.push(c);
+    }
+
+    const batchArtistCount = new Map<string, number>();
+    const pushCards = (cards: YTMusicCard[] | null | undefined, strict = true) => {
+      for (const c of cards || []) {
+        if (pool.length >= opts.targetBatch) break;
+        const k = (c.browseId || c.title.trim().toLowerCase()).trim().toLowerCase();
+        const tLow = c.title.trim().toLowerCase();
+        if (!k || existingKeys.has(k) || existingTitles.has(tLow)) continue;
+        const cov = (c.coverUrl || '').trim();
+        const ar = (c.artist || c.subtitle || '').trim().toLowerCase();
+        if (strict) {
+          if (opts.dedupeByCover && cov && existingCovers.has(cov)) continue;
+          if (opts.spreadByArtist && ar && (batchArtistCount.get(ar) || 0) >= 2) continue;
+        }
+        existingKeys.add(k);
+        existingTitles.add(tLow);
+        if (cov) existingCovers.add(cov);
+        if (ar) batchArtistCount.set(ar, (batchArtistCount.get(ar) || 0) + 1);
+        pool.push(c);
+      }
+    };
+
+    if (pool.length < opts.targetBatch) {
+      const primary = await opts.fetchPrimary().catch(() => []);
+      pushCards(primary, true);
+    }
+
+    let attempts = 0;
+    while (pool.length < opts.targetBatch && attempts < 6) {
+      attempts++;
+      const page = ytMorePage++;
+      const q = opts.queries[page % opts.queries.length];
+      const more = await opts.searchFallback(q).catch(() => []);
+      pushCards(more, true);
+      if (pool.length < opts.targetBatch && attempts >= 3) {
+        pushCards(more, false);
+      }
+    }
+
+    if (pool.length === 0) {
+      return { added: [], nextBuffer: [] };
+    }
+
+    const ordered = opts.spreadByArtist
+      ? shuffleAndSpreadByArtist(
+          pool,
+          (c) => c.artist || c.subtitle || '',
+          opts.existingList.slice(-3).map((c) => c.artist || c.subtitle || '')
+        )
+      : pool;
+    const takeCount = Math.min(opts.targetBatch, ordered.length);
+    return {
+      added: ordered.slice(0, takeCount),
+      nextBuffer: ordered.slice(takeCount)
+    };
+  }
+
   async function handleLoadMorePopularArtists() {
     if (ytLoadingMorePopularArtists) return;
     ytLoadingMorePopularArtists = true;
@@ -1654,14 +1783,16 @@
       const idx = ytShelves.findIndex((s) => s.title === 'Artis Populer');
       if (idx < 0) return;
       const existingList = ytShelves[idx].items;
-      const existingKeys = new Set(existingList.map((c) => c.browseId || c.title.toLowerCase()));
-      const moreArtists = await api.getMoreArtists(existingList.length, Array.from(existingKeys));
-      const added = (moreArtists || []).filter((c) => {
-        const k = c.browseId || c.title.toLowerCase();
-        if (!k || existingKeys.has(k)) return false;
-        existingKeys.add(k);
-        return true;
+      const existingKeys = existingList.map((c) => c.browseId || c.title.toLowerCase());
+      const { added, nextBuffer } = await loadMoreCollectionBatch({
+        targetBatch: 12,
+        existingList,
+        buffer: ytMorePopularArtistsBuffer,
+        fetchPrimary: () => api.getMoreArtists(existingList.length, existingKeys),
+        searchFallback: (q) => api.searchYouTubeMusicArtists(q),
+        queries: CATEGORY_MORE_QUERIES.artis
       });
+      ytMorePopularArtistsBuffer = nextBuffer;
       if (added.length > 0) {
         const updated = [...ytShelves];
         updated[idx] = {
@@ -1680,23 +1811,18 @@
     ytLoadingMore = true;
     try {
       if (activeCategory === 'album') {
-        const existingKeys = new Set(ytAlbumResults.map((c) => c.browseId || c.id));
-        const existingCovers = new Set(ytAlbumResults.map((c) => (c.coverUrl || '').trim()).filter(Boolean));
-        const added: YTMusicCard[] = [];
-        for (let attempt = 0; attempt < 3 && added.length < 14; attempt++) {
-          const page = ytMorePage++;
-          const q = CATEGORY_MORE_QUERIES.album[page % CATEGORY_MORE_QUERIES.album.length];
-          const moreAlbums = await api.searchYouTubeMusicAlbums(q).catch(() => []);
-          for (const c of moreAlbums || []) {
-            const k = c.browseId || c.id;
-            const cov = (c.coverUrl || '').trim();
-            if (!k || existingKeys.has(k)) continue;
-            if (cov && existingCovers.has(cov)) continue;
-            existingKeys.add(k);
-            if (cov) existingCovers.add(cov);
-            added.push(c);
-          }
-        }
+        const targetBatch = 12;
+        const { added, nextBuffer } = await loadMoreCollectionBatch({
+          targetBatch,
+          existingList: ytAlbumResults,
+          buffer: ytMoreAlbumBuffer,
+          fetchPrimary: () => api.searchYouTubeMusicAlbums(CATEGORY_MORE_QUERIES.album[(ytMorePage++) % CATEGORY_MORE_QUERIES.album.length]),
+          searchFallback: (q) => api.searchYouTubeMusicAlbums(q),
+          queries: CATEGORY_MORE_QUERIES.album,
+          dedupeByCover: true,
+          spreadByArtist: true
+        });
+        ytMoreAlbumBuffer = nextBuffer;
         if (added.length > 0) {
           ytAlbumResults = [...ytAlbumResults, ...added];
         }
@@ -1704,14 +1830,17 @@
       }
 
       if (activeCategory === 'artis') {
-        const existingKeys = new Set(ytArtistResults.map((c) => c.browseId || c.title.toLowerCase()));
-        const moreArtists = await api.getMoreArtists(ytArtistResults.length, Array.from(existingKeys));
-        const added = (moreArtists || []).filter((c) => {
-          const k = c.browseId || c.title.toLowerCase();
-          if (!k || existingKeys.has(k)) return false;
-          existingKeys.add(k);
-          return true;
+        const targetBatch = 12;
+        const existingKeys = ytArtistResults.map((c) => c.browseId || c.title.toLowerCase());
+        const { added, nextBuffer } = await loadMoreCollectionBatch({
+          targetBatch,
+          existingList: ytArtistResults,
+          buffer: ytMoreArtistBuffer,
+          fetchPrimary: () => api.getMoreArtists(ytArtistResults.length, existingKeys),
+          searchFallback: (q) => api.searchYouTubeMusicArtists(q),
+          queries: CATEGORY_MORE_QUERIES.artis
         });
+        ytMoreArtistBuffer = nextBuffer;
         if (added.length > 0) {
           ytArtistResults = [...ytArtistResults, ...added];
         }
@@ -1719,20 +1848,20 @@
       }
 
       if (activeCategory === 'playlist') {
-        const existingKeys = new Set(ytPlaylistResults.map((c) => c.browseId || c.playlistId || c.id));
-        const added: YTMusicCard[] = [];
-        for (let attempt = 0; attempt < 3 && added.length < 14; attempt++) {
-          const page = ytMorePage++;
-          const q = CATEGORY_MORE_QUERIES.playlist[page % CATEGORY_MORE_QUERIES.playlist.length];
-          const morePlaylists = await api.searchYouTubeMusicPlaylists(q).catch(() => []);
-          for (const c of morePlaylists || []) {
-            const k = c.browseId || c.playlistId || c.id;
-            if (k && !existingKeys.has(k)) {
-              existingKeys.add(k);
-              added.push(c);
-            }
-          }
-        }
+        const targetBatch = 12;
+        const { added, nextBuffer } = await loadMoreCollectionBatch({
+          targetBatch,
+          existingList: ytPlaylistResults,
+          buffer: ytMorePlaylistBuffer,
+          fetchPrimary: () =>
+            api.searchYouTubeMusicPlaylists(
+              CATEGORY_MORE_QUERIES.playlist[(ytMorePage++) % CATEGORY_MORE_QUERIES.playlist.length]
+            ),
+          searchFallback: (q) => api.searchYouTubeMusicPlaylists(q),
+          queries: CATEGORY_MORE_QUERIES.playlist,
+          dedupeByCover: true
+        });
+        ytMorePlaylistBuffer = nextBuffer;
         if (added.length > 0) {
           ytPlaylistResults = [...ytPlaylistResults, ...added];
         }
@@ -1865,54 +1994,76 @@
           }
         }
       } else {
+        const targetBatch = 12; // 2 rows x 6 items (matching More songs for you)
         const existingIds = new Set(ytResults.map((t) => t.videoId));
         const existingCovers = new Set(ytResults.map((t) => (t.coverUrl || '').trim()).filter(Boolean));
         const existingAlbums = new Set(
           ytResults.map((t) => (t.album || '').trim().toLowerCase()).filter((a) => a && a !== 'single')
         );
+        for (const t of ytMoreMusicBuffer) {
+          if (t.videoId) existingIds.add(t.videoId);
+          const cov = (t.coverUrl || '').trim();
+          if (cov) existingCovers.add(cov);
+          const alb = (t.album || '').trim().toLowerCase();
+          if (alb && alb !== 'single') existingAlbums.add(alb);
+        }
         const tailArtists = ytResults.slice(-3).map((t) => t.artist || '');
+        const pool: YTMusicTrack[] = [...ytMoreMusicBuffer];
         const batchArtistCount = new Map<string, number>();
-        const added: YTMusicTrack[] = [];
-        const targetMore = 21;
+        for (const item of pool) {
+          const ar = (item.artist || '').trim().toLowerCase();
+          if (ar) batchArtistCount.set(ar, (batchArtistCount.get(ar) || 0) + 1);
+        }
 
-        const collectTracks = (list: YTMusicTrack[] | null | undefined) => {
+        const collectTracks = (list: YTMusicTrack[] | null | undefined, strict = true) => {
           for (const t of list || []) {
+            if (pool.length >= targetBatch) break;
             if (!t.videoId || existingIds.has(t.videoId)) continue;
             const cov = (t.coverUrl || '').trim();
             const alb = (t.album || '').trim().toLowerCase();
             const ar = (t.artist || '').trim().toLowerCase();
-            if (cov && existingCovers.has(cov)) continue;
-            if (alb && alb !== 'single' && existingAlbums.has(alb)) continue;
-            if (ar && (batchArtistCount.get(ar) || 0) >= 2) continue;
+            if (strict) {
+              if (cov && existingCovers.has(cov)) continue;
+              if (alb && alb !== 'single' && existingAlbums.has(alb)) continue;
+              if (ar && (batchArtistCount.get(ar) || 0) >= 2) continue;
+            }
 
             existingIds.add(t.videoId);
             if (cov) existingCovers.add(cov);
             if (alb && alb !== 'single') existingAlbums.add(alb);
             if (ar) batchArtistCount.set(ar, (batchArtistCount.get(ar) || 0) + 1);
-            added.push(t);
+            pool.push(t);
           }
         };
 
-        if (activeCategory === 'musik') {
+        if (activeCategory === 'musik' && pool.length < targetBatch) {
           const [rec, topSongs] = await Promise.all([
             api.getYTMusicTop100Recommended(Array.from(existingIds)).catch(() => []),
             api.getMoreTopSongs(ytResults.length + (ytMorePage++) * 20, Array.from(existingIds)).catch(() => [])
           ]);
-          collectTracks(filterExplicit(rec || []));
-          collectTracks(filterExplicit(topSongs || []));
+          collectTracks(filterExplicit(rec || []), true);
+          collectTracks(filterExplicit(topSongs || []), true);
         }
 
         const queries = CATEGORY_MORE_QUERIES[activeCategory] || CATEGORY_MORE_QUERIES.musik;
-        for (let attempt = 0; attempt < 3 && added.length < targetMore; attempt++) {
+        let attempts = 0;
+        while (pool.length < targetBatch && attempts < 6) {
+          attempts++;
           const page = ytMorePage++;
           const q = queries[page % queries.length];
           const moreTracks = await api.searchYouTubeMusic(q).catch(() => []);
-          collectTracks(filterExplicit(moreTracks || []));
+          const filtered = filterExplicit(moreTracks || []);
+          collectTracks(filtered, true);
+          if (pool.length < targetBatch && attempts >= 3) {
+            collectTracks(filtered, false);
+          }
         }
 
-        if (added.length > 0) {
-          const spreadAdded = shuffleAndSpreadByArtist(added, (t) => t.artist || '', tailArtists);
-          ytResults = [...ytResults, ...spreadAdded];
+        if (pool.length > 0) {
+          const spreadPool = shuffleAndSpreadByArtist(pool, (t) => t.artist || '', tailArtists);
+          const takeCount = Math.min(targetBatch, spreadPool.length);
+          ytMoreMusicBuffer = spreadPool.slice(takeCount);
+          ytResults = [...ytResults, ...spreadPool.slice(0, takeCount)];
         }
       }
     } finally {
@@ -2283,7 +2434,69 @@
     }
   }
 
-  async function playTrack(tr: Track, list: Track[] = [], sourceTitle?: string, sourceKey?: string) {
+  function fisherYatesShuffle<T>(arr: T[]): T[] {
+    const copy = [...arr];
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+  }
+
+  function toggleShuffleMode() {
+    const next = !shuffle;
+    shuffle = next;
+    if (isJamRemote) {
+      void sendJamCommand('shuffle');
+      return;
+    }
+    api.playerControl('shuffle');
+    if (queue.length === 0) return;
+
+    if (next) {
+      if (originalQueue.length === 0) {
+        originalQueue = [...queue];
+      }
+      const curKey = currentTrack ? trackQueueKey(currentTrack) : '';
+      shufflePlayedKeys = new Set(curKey ? [curKey] : []);
+      const rest = curKey
+        ? queue.filter((t) => trackQueueKey(t) !== curKey)
+        : [...queue];
+      const shuffledRest = fisherYatesShuffle(rest);
+      queue = currentTrack ? [currentTrack, ...shuffledRest] : shuffledRest;
+      saveLastQueue(true);
+    } else {
+      if (originalQueue.length > 0) {
+        const orderByKey = new Map<string, number>();
+        originalQueue.forEach((t, i) => orderByKey.set(trackQueueKey(t), i));
+        queue = [...queue].sort((a, b) => {
+          const ia = orderByKey.get(trackQueueKey(a)) ?? Number.MAX_SAFE_INTEGER;
+          const ib = orderByKey.get(trackQueueKey(b)) ?? Number.MAX_SAFE_INTEGER;
+          return ia - ib;
+        });
+        originalQueue = [];
+      }
+      shufflePlayedKeys.clear();
+      shuffleHistory = [];
+      saveLastQueue(true);
+    }
+  }
+
+  async function playShuffledList(list: Track[], sourceTitle?: string, sourceKey?: string) {
+    if (!list || list.length === 0) return;
+    const wasShuffled = shuffle;
+    shuffle = true;
+    if (!wasShuffled) {
+      api.playerControl('shuffle');
+    }
+    originalQueue = [...list];
+    const shuffled = fisherYatesShuffle(list);
+    shufflePlayedKeys = new Set([trackQueueKey(shuffled[0])]);
+    shuffleHistory = [];
+    await playTrack(shuffled[0], shuffled, sourceTitle, sourceKey, true);
+  }
+
+  async function playTrack(tr: Track, list: Track[] = [], sourceTitle?: string, sourceKey?: string, keepOriginalQueue = false) {
     if (isJamRemote) {
       await sendJamCommand('play-track', {
         trackId: tr.id,
@@ -2329,20 +2542,34 @@
       if (list === queue) {
         queue = [...list];
       } else {
+        if (!keepOriginalQueue) {
+          originalQueue = [...list];
+        }
         const curKey = trackQueueKey(tr);
-        const rest = list.filter((item) => trackQueueKey(item) !== curKey);
-        queue = [tr, ...shuffleAndSpreadByArtist(rest, (item) => item.artistName || item.albumTitle || '')];
+        shufflePlayedKeys = new Set([curKey]);
+        if (shuffle && !keepOriginalQueue) {
+          const rest = list.filter((item) => trackQueueKey(item) !== curKey);
+          queue = [tr, ...fisherYatesShuffle(rest)];
+        } else {
+          queue = [...list];
+        }
       }
     } else {
+      originalQueue = [];
       if (getPrefBool(preferences, 'playback.radioOnPick')) {
         queue = buildLocalAlgorithmQueue(tr);
         void populateYTMusicAlgorithmQueue(tr);
       } else {
         queue = [tr];
       }
+      shufflePlayedKeys = new Set([trackQueueKey(tr)]);
     }
 
     const prevTrack = currentTrack;
+    if (shuffle && prevTrack && trackQueueKey(prevTrack) !== trackQueueKey(tr)) {
+      shuffleHistory = [...shuffleHistory.slice(-49), prevTrack];
+    }
+    shufflePlayedKeys.add(trackQueueKey(tr));
     const prevAcc = listenedAccumulator;
     const prevRecorded = recordedForCurrentTrack;
     if (prevTrack && prevAcc >= 3 && !prevRecorded) {
@@ -2543,9 +2770,49 @@
       return;
     }
     if (queue.length === 0) return;
-    if (shuffle && queue.length > 1 && queueSourceTitle !== '') {
-      const rand = Math.floor(Math.random() * queue.length);
-      await playTrack(queue[rand], queue, queueSourceTitle);
+    if (currentTrack) {
+      shufflePlayedKeys.add(trackQueueKey(currentTrack));
+    }
+    if (shuffle && queue.length > 1) {
+      const curKey = currentTrack ? trackQueueKey(currentTrack) : '';
+      const curIdx = currentTrack ? queue.findIndex((t) => trackQueueKey(t) === curKey) : -1;
+      let nextCandidate: Track | null = null;
+      for (let step = 1; step <= queue.length; step++) {
+        const cand = queue[(Math.max(0, curIdx) + step) % queue.length];
+        const cKey = trackQueueKey(cand);
+        if (cKey !== curKey && !shufflePlayedKeys.has(cKey)) {
+          nextCandidate = cand;
+          break;
+        }
+      }
+      if (nextCandidate) {
+        shufflePlayedKeys.add(trackQueueKey(nextCandidate));
+        await playTrack(nextCandidate, queue, queueSourceTitle, queueSourceKey, true);
+        return;
+      }
+      // All tracks in the current shuffle cycle have been played once.
+      if (repeatMode === 'all') {
+        let reshuffled = fisherYatesShuffle(queue);
+        if (reshuffled.length > 1 && trackQueueKey(reshuffled[0]) === curKey) {
+          const swapIdx = 1 + Math.floor(Math.random() * (reshuffled.length - 1));
+          [reshuffled[0], reshuffled[swapIdx]] = [reshuffled[swapIdx], reshuffled[0]];
+        }
+        shufflePlayedKeys = new Set(curKey ? [curKey] : []);
+        const pick = reshuffled[0];
+        shufflePlayedKeys.add(trackQueueKey(pick));
+        queue = reshuffled;
+        await playTrack(pick, queue, queueSourceTitle, queueSourceKey, true);
+        return;
+      }
+      if (currentTrack && getPrefBool(preferences, 'playback.autoplay') && queueSourceTitle === '') {
+        algoBatchRound += 1;
+        const nextBatch = await fetchTwentyGenreTracks(currentTrack, playedAlgoKeys, algoBatchRound);
+        if (nextBatch.length > 0) {
+          await playTrack(nextBatch[0], nextBatch, '');
+          return;
+        }
+      }
+      isPlaying = false;
       return;
     }
     const idx = currentTrack ? queue.findIndex((t) => t.id === currentTrack!.id) : -1;
@@ -2588,6 +2855,12 @@
       return;
     }
     if (queue.length === 0) return;
+    if (shuffle && shuffleHistory.length > 0) {
+      const prevTrack = shuffleHistory[shuffleHistory.length - 1];
+      shuffleHistory = shuffleHistory.slice(0, -1);
+      await playTrack(prevTrack, queue, queueSourceTitle, queueSourceKey, true);
+      return;
+    }
     const idx = currentTrack ? queue.findIndex((t) => t.id === currentTrack!.id) : 0;
     const prevIdx = idx - 1 >= 0 ? idx - 1 : queue.length - 1;
     await playTrack(queue[prevIdx], queue);
@@ -2787,6 +3060,23 @@
     albums = exists
       ? albums.map((a) => (a.id === updated.id ? updated : a))
       : [updated, ...albums];
+  }
+
+  async function handleToggleSaveYTMusicPlaylist(payload: {
+    browseId: string;
+    title: string;
+    subtitle: string;
+    coverUrl: string;
+    trackIds: number[];
+  }) {
+    await api.toggleSaveYTMusicPlaylist(
+      payload.browseId,
+      payload.title,
+      payload.subtitle,
+      payload.coverUrl,
+      payload.trackIds
+    );
+    playlists = await api.getPlaylists(false);
   }
 
   async function handleToggleFavoriteArtist(id: number) {
@@ -3043,6 +3333,7 @@
           onRefreshYTMusicHome={loadYTMusicHome}
           onLoadMoreYTMusic={handleLoadMoreYTMusic}
           onLoadMorePopularArtists={handleLoadMorePopularArtists}
+          onCreatePlaylist={() => (showCreatePlaylistModal = true)}
           onNavigate={navigate}
         />
       {:else if currentRoute.name === 'search' || currentRoute.name === 'liked-songs' || currentRoute.name === 'downloaded' || currentRoute.name === 'favorite-albums' || currentRoute.name === 'favorite-artists' || currentRoute.name === 'artist-detail'}
@@ -3114,6 +3405,10 @@
           onOpenAlbum={handleOpenAlbum}
           onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
           onOpenTrackAlbum={openTrackAlbumDetail}
+          {shuffle}
+          {queueSourceKey}
+          onToggleShuffle={toggleShuffleMode}
+          onPlayShuffled={playShuffledList}
           onOpenYTMusicAlbum={(yt) =>
             navigate({
               name: 'yt-album-detail',
@@ -3167,6 +3462,10 @@
             await navigate({ name: 'playlists' });
           }}
           onPlayTrack={playTrack}
+          {shuffle}
+          {queueSourceKey}
+          onToggleShuffle={toggleShuffleMode}
+          onPlayShuffled={playShuffledList}
           onPlayYTMusic={playYTMusicSingle}
           onAddTrack={async (pid, tid) => {
             await api.addTrackToPlaylist(pid, tid);
@@ -3279,6 +3578,10 @@
           albumTracks={albumTrackList}
           ytAlbum={currentRoute.name === 'yt-album-detail' ? ytAlbumDetail : null}
           ytAlbumLoading={currentRoute.name === 'yt-album-detail' ? ytAlbumLoading : false}
+          routeKind={currentRoute.name === 'yt-album-detail' ? currentRoute.kind : undefined}
+          recommendedPlaylists={currentRoute.name === 'yt-album-detail' && currentRoute.kind === 'playlist'
+            ? [...ytShelves.flatMap((s) => s.items).filter((i) => i.kind === 'playlist'), ...ytPlaylistResults]
+            : []}
           currentTrackId={currentTrack?.id ?? null}
           currentExternalId={currentTrack?.externalId ?? null}
           currentTrackTitle={currentTrack?.title ?? null}
@@ -3290,10 +3593,15 @@
           {mediaBaseUrl}
           {accentColor}
           onPlayTrack={playTrack}
+          {shuffle}
+          {queueSourceKey}
+          onToggleShuffle={toggleShuffleMode}
+          onPlayShuffled={playShuffledList}
           onTogglePlay={() => void togglePlay()}
           onToggleFavoriteTrack={handleToggleFavoriteTrack}
           onToggleFavoriteAlbum={handleToggleFavoriteAlbum}
           onToggleFavoriteYTMusicAlbum={handleToggleFavoriteYTMusicAlbum}
+          onToggleSaveYTMusicPlaylist={handleToggleSaveYTMusicPlaylist}
           onAddToPlaylist={async (plId, trId) => {
             await api.addTrackToPlaylist(plId, trId);
             playlists = await api.getPlaylists(false);
@@ -3331,6 +3639,13 @@
           {fireStreak}
           {preferences}
           {tracks}
+          {playlists}
+          {downloadStates}
+          currentTrackId={currentTrack?.id ?? null}
+          currentExternalId={currentTrack?.externalId ?? null}
+          currentTrackTitle={currentTrack?.title ?? null}
+          currentTrackArtist={currentTrack?.artistName ?? null}
+          {isPlaying}
           {mediaBaseUrl}
           {accentColor}
           {isMobile}
@@ -3341,6 +3656,18 @@
             else navigate({ name: 'home' });
           }}
           onPlayTrack={playTrack}
+          onTogglePlay={togglePlay}
+          onPlayNext={handleQueuePlayNext}
+          onAddToQueue={handleAddToQueue}
+          onAddToPlaylist={async (pid, tid) => {
+            await api.addTrackToPlaylist(pid, tid);
+            playlists = await api.getPlaylists(false);
+          }}
+          onToggleFavorite={handleToggleFavoriteTrack}
+          onDownloadTrack={handleDownloadTrack}
+          onRemoveDownload={handleRemoveDownload}
+          onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
+          onOpenTrackAlbum={openTrackAlbumDetail}
           onClearHistory={async () => {
             await api.clearPlayHistory();
             history = [];
@@ -3425,11 +3752,7 @@
       onSeek={handleSeek}
       onVolumeChange={handleVolumeChange}
       onToggleMute={handleToggleMute}
-      onToggleShuffle={() => {
-        shuffle = !shuffle;
-        if (isJamRemote) void sendJamCommand('shuffle');
-        else api.playerControl('shuffle');
-      }}
+      onToggleShuffle={toggleShuffleMode}
       onCycleRepeat={() => {
         repeatMode = repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off';
         if (isJamRemote) void sendJamCommand('repeat');
@@ -3661,11 +3984,7 @@
       onPrev={playPrev}
       onNext={playNext}
       onSeek={handleSeek}
-      onToggleShuffle={() => {
-        shuffle = !shuffle;
-        if (isJamRemote) void sendJamCommand('shuffle');
-        else api.playerControl('shuffle');
-      }}
+      onToggleShuffle={toggleShuffleMode}
       onCycleRepeat={() => {
         repeatMode = repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off';
         if (isJamRemote) void sendJamCommand('repeat');
