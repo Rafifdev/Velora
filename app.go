@@ -3,13 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
 	"math"
-	"mime/multipart"
 	"net/http"
 	"os"
 	"os/exec"
@@ -68,6 +66,7 @@ type App struct {
 	ytHomeFeed   sources.YTMusicHomeFeed
 	ytHomeErr    error
 	ytHomeCached bool
+	ytHomeAt     time.Time
 }
 
 func NewApp() *App {
@@ -115,7 +114,11 @@ func (a *App) startup(ctx context.Context) {
 	a.deezerClient = sources.NewDeezerClient()
 	if prefs, pErr := a.store.GetPreferences(); pErr == nil {
 		a.spotifyClient.SetCredentials(prefs["integrations.spotify.clientId"], prefs["integrations.spotify.clientSecret"])
-		a.applyContentRegions(prefs["content.country"])
+		lang := prefs["content.language"]
+		if strings.TrimSpace(lang) == "" {
+			lang = detectSystemLanguage()
+		}
+		a.applyContentLocale(prefs["content.country"], lang)
 	}
 	a.downloader = sources.NewDownloadManager(store, a.ytClient, a.downloadsDir, func(eventName string, data any) {
 		if a.ctx != nil {
@@ -237,61 +240,36 @@ func (a *App) startYTMusicHomePrefetch() {
 
 	go func() {
 		defer close(done)
-		reqCtx, cancel := context.WithTimeout(context.Background(), 14*time.Second)
+		reqCtx, cancel := context.WithTimeout(context.Background(), 18*time.Second)
 		defer cancel()
 		feed, err := a.buildHomeFeed(reqCtx)
 		a.ytHomeMu.Lock()
 		a.ytHomeFeed = feed
 		a.ytHomeErr = err
 		a.ytHomeCached = err == nil && (len(feed.Shelves) > 0 || len(feed.Tracks) > 0)
+		if a.ytHomeCached {
+			a.ytHomeAt = time.Now()
+		}
 		a.ytHomeMu.Unlock()
 	}()
 }
 
 func (a *App) buildHomeFeed(ctx context.Context) (sources.YTMusicHomeFeed, error) {
-	var feed sources.YTMusicHomeFeed
-	var err error
-	if a.useSpotifyMetadata() {
-		feed, err = a.spotifyClient.GetHomeFeed(ctx)
+	// Primary: direct YouTube Music InnerTube (WEB_REMIX with country/language locale, matching Auralys).
+	feed, err := a.ytClient.GetHomeFeed(ctx)
+	if err == nil && (len(feed.Shelves) > 0 || len(feed.Tracks) > 0) {
+		return feed, nil
 	}
-	if (err != nil || (len(feed.Shelves) == 0 && len(feed.Tracks) == 0)) && a.useDeezerMetadata() {
-		feed, err = a.deezerClient.GetHomeFeed(ctx)
-		if err == nil && a.store != nil {
-			var seeds []sources.HistorySeed
-			if recent, sErr := a.store.GetRecentSeedTracks(12); sErr == nil {
-				for _, tr := range recent {
-					seeds = append(seeds, sources.HistorySeed{
-						VideoID: strings.TrimSpace(tr.ExternalID),
-						Title:   tr.Title,
-						Artist:  tr.ArtistName,
-					})
-				}
-			}
-			if recTracks, rErr := a.deezerClient.GetRecommendedTracks(ctx, seeds, nil, 28); rErr == nil && len(recTracks) > 0 {
-				items := make([]sources.YTMusicCard, 0, len(recTracks))
-				for _, t := range recTracks {
-					items = append(items, sources.YTMusicCard{
-						ID:          "song:" + t.VideoID,
-						Title:       t.Title,
-						Subtitle:    t.Artist,
-						CoverURL:    t.CoverURL,
-						Kind:        "song",
-						VideoID:     t.VideoID,
-						Artist:      t.Artist,
-						Album:       t.Album,
-						DurationSec: t.DurationSec,
-					})
-				}
-				feed.Shelves = append(feed.Shelves, sources.YTMusicShelf{
-					Title: "Lagu Lainnya untuk Anda",
-					Items: items,
-				})
-				feed.Tracks = recTracks
-			}
+	// Graceful fallbacks if YouTube Music browse is temporarily unavailable.
+	if a.useSpotifyMetadata() {
+		if spFeed, spErr := a.spotifyClient.GetHomeFeed(ctx); spErr == nil && (len(spFeed.Shelves) > 0 || len(spFeed.Tracks) > 0) {
+			return spFeed, nil
 		}
 	}
-	if err != nil || (len(feed.Shelves) == 0 && len(feed.Tracks) == 0) {
-		feed, err = a.ytClient.GetHomeFeed(ctx)
+	if a.useDeezerMetadata() {
+		if dzFeed, dzErr := a.deezerClient.GetHomeFeed(ctx); dzErr == nil && (len(dzFeed.Shelves) > 0 || len(dzFeed.Tracks) > 0) {
+			return dzFeed, nil
+		}
 	}
 	return feed, err
 }
@@ -332,6 +310,7 @@ func isHybridTrackID(extID string) bool {
 func (a *App) invalidateHomeCache() {
 	a.ytHomeMu.Lock()
 	a.ytHomeCached = false
+	a.ytHomeAt = time.Time{}
 	a.ytHomeFeed = sources.YTMusicHomeFeed{}
 	a.ytHomeErr = nil
 	a.ytHomeDone = nil
@@ -672,6 +651,9 @@ func (a *App) SearchYouTubeMusic(query string) ([]sources.YTMusicTrack, error) {
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
+	if tracks, err := a.ytClient.Search(reqCtx, query); err == nil && len(tracks) > 0 {
+		return tracks, nil
+	}
 	if a.useSpotifyMetadata() {
 		if tracks, err := a.spotifyClient.SearchTracks(reqCtx, query); err == nil && len(tracks) > 0 {
 			return tracks, nil
@@ -682,7 +664,7 @@ func (a *App) SearchYouTubeMusic(query string) ([]sources.YTMusicTrack, error) {
 			return tracks, nil
 		}
 	}
-	return a.ytClient.Search(reqCtx, query)
+	return []sources.YTMusicTrack{}, nil
 }
 
 func (a *App) SearchYouTubeMusicPlaylists(query string) ([]sources.YTMusicCard, error) {
@@ -690,8 +672,11 @@ func (a *App) SearchYouTubeMusicPlaylists(query string) ([]sources.YTMusicCard, 
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	reqCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, 14*time.Second)
 	defer cancel()
+	if cards, err := a.ytClient.SearchPlaylists(reqCtx, query); err == nil && len(cards) > 0 {
+		return cards, nil
+	}
 	if a.useSpotifyMetadata() {
 		if cards, err := a.spotifyClient.SearchPlaylists(reqCtx, query); err == nil && len(cards) > 0 {
 			return cards, nil
@@ -702,7 +687,7 @@ func (a *App) SearchYouTubeMusicPlaylists(query string) ([]sources.YTMusicCard, 
 			return cards, nil
 		}
 	}
-	return a.ytClient.SearchPlaylists(reqCtx, query)
+	return []sources.YTMusicCard{}, nil
 }
 
 func (a *App) SearchYouTubeMusicAlbums(query string) ([]sources.YTMusicCard, error) {
@@ -712,6 +697,9 @@ func (a *App) SearchYouTubeMusicAlbums(query string) ([]sources.YTMusicCard, err
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+	if cards, err := a.ytClient.SearchAlbums(reqCtx, query); err == nil && len(cards) > 0 {
+		return cards, nil
+	}
 	if a.useSpotifyMetadata() {
 		if cards, err := a.spotifyClient.SearchAlbums(reqCtx, query); err == nil && len(cards) > 0 {
 			return cards, nil
@@ -722,7 +710,7 @@ func (a *App) SearchYouTubeMusicAlbums(query string) ([]sources.YTMusicCard, err
 			return cards, nil
 		}
 	}
-	return a.ytClient.SearchAlbums(reqCtx, query)
+	return []sources.YTMusicCard{}, nil
 }
 
 func (a *App) SearchYouTubeMusicArtists(query string) ([]sources.YTMusicCard, error) {
@@ -732,6 +720,9 @@ func (a *App) SearchYouTubeMusicArtists(query string) ([]sources.YTMusicCard, er
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+	if cards, err := a.ytClient.SearchArtists(reqCtx, query); err == nil && len(cards) > 0 {
+		return cards, nil
+	}
 	if a.useSpotifyMetadata() {
 		if cards, err := a.spotifyClient.SearchArtists(reqCtx, query); err == nil && len(cards) > 0 {
 			return cards, nil
@@ -742,7 +733,7 @@ func (a *App) SearchYouTubeMusicArtists(query string) ([]sources.YTMusicCard, er
 			return cards, nil
 		}
 	}
-	return a.ytClient.SearchArtists(reqCtx, query)
+	return []sources.YTMusicCard{}, nil
 }
 
 func (a *App) GetMoreArtists(offset int, excludeBrowseIDs []string) ([]sources.YTMusicCard, error) {
@@ -752,19 +743,33 @@ func (a *App) GetMoreArtists(offset int, excludeBrowseIDs []string) ([]sources.Y
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+	queries := []string{"", "Top Pop Artists", "Trending Music Artists", "Popular Rock Indie Artists"}
+	q := queries[(offset/28)%len(queries)]
+	if cards, err := a.ytClient.SearchArtists(reqCtx, q); err == nil && len(cards) > 0 {
+		excl := map[string]struct{}{}
+		for _, id := range excludeBrowseIDs {
+			excl[strings.ToLower(strings.TrimSpace(id))] = struct{}{}
+		}
+		out := make([]sources.YTMusicCard, 0, len(cards))
+		for _, c := range cards {
+			k := strings.ToLower(strings.TrimSpace(c.BrowseID))
+			if k == "" {
+				k = strings.ToLower(strings.TrimSpace(c.Title))
+			}
+			if _, skip := excl[k]; !skip {
+				out = append(out, c)
+			}
+		}
+		if len(out) > 0 {
+			return out, nil
+		}
+	}
 	if a.useDeezerMetadata() {
 		if cards, err := a.deezerClient.GetMoreArtists(reqCtx, offset, excludeBrowseIDs); err == nil && len(cards) > 0 {
 			return cards, nil
 		}
 	}
-	if a.useSpotifyMetadata() {
-		fallbackQ := []string{"pop", "rock", "rnb", "indie"}[(offset/28)%4]
-		if cards, err := a.spotifyClient.SearchArtists(reqCtx, fallbackQ); err == nil && len(cards) > 0 {
-			return cards, nil
-		}
-	}
-	fallbackQ := []string{"Popular Indonesian Singers", "Top Global Pop Artists", "Best Indie Artists Indonesia"}[(offset/28)%3]
-	return a.ytClient.SearchArtists(reqCtx, fallbackQ)
+	return []sources.YTMusicCard{}, nil
 }
 
 func (a *App) GetYTMusicTop100() ([]sources.YTMusicTrack, error) {
@@ -795,12 +800,15 @@ func (a *App) GetYTMusicTop100Recommended(excludeVideoIDs []string) ([]sources.Y
 			})
 		}
 	}
+	if tracks, err := a.ytClient.GetHistoryBasedRecommended(reqCtx, seeds, excludeVideoIDs); err == nil && len(tracks) > 0 {
+		return tracks, nil
+	}
 	if a.useDeezerMetadata() {
 		if tracks, dErr := a.deezerClient.GetRecommendedTracks(reqCtx, seeds, excludeVideoIDs, 28); dErr == nil && len(tracks) > 0 {
 			return tracks, nil
 		}
 	}
-	return a.ytClient.GetHistoryBasedRecommended(reqCtx, seeds, excludeVideoIDs)
+	return []sources.YTMusicTrack{}, nil
 }
 
 func (a *App) GetMoreTopSongs(offset int, excludeVideoIDs []string) ([]sources.YTMusicTrack, error) {
@@ -810,12 +818,30 @@ func (a *App) GetMoreTopSongs(offset int, excludeVideoIDs []string) ([]sources.Y
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
+	if tracks, err := a.ytClient.GetTop100Tracks(reqCtx); err == nil && len(tracks) > 0 {
+		excl := map[string]struct{}{}
+		for _, id := range excludeVideoIDs {
+			excl[strings.TrimSpace(id)] = struct{}{}
+		}
+		out := make([]sources.YTMusicTrack, 0, len(tracks))
+		for _, tr := range tracks {
+			if _, skip := excl[tr.VideoID]; !skip {
+				out = append(out, tr)
+			}
+		}
+		if len(out) > 0 {
+			return out, nil
+		}
+	}
+	if tracks, err := a.ytClient.GetHistoryBasedRecommended(reqCtx, nil, excludeVideoIDs); err == nil && len(tracks) > 0 {
+		return tracks, nil
+	}
 	if a.useDeezerMetadata() {
 		if tracks, err := a.deezerClient.GetMoreTopSongs(reqCtx, offset, excludeVideoIDs, 35); err == nil && len(tracks) > 0 {
 			return tracks, nil
 		}
 	}
-	return a.ytClient.GetHistoryBasedRecommended(reqCtx, nil, excludeVideoIDs)
+	return []sources.YTMusicTrack{}, nil
 }
 
 func (a *App) GetYTMusicHome() (sources.YTMusicHomeFeed, error) {
@@ -825,7 +851,7 @@ func (a *App) GetYTMusicHome() (sources.YTMusicHomeFeed, error) {
 	}
 
 	a.ytHomeMu.Lock()
-	if a.ytHomeCached {
+	if a.ytHomeCached && time.Since(a.ytHomeAt) < 10*time.Minute {
 		feed := a.ytHomeFeed
 		a.ytHomeMu.Unlock()
 		return feed, nil
@@ -837,7 +863,7 @@ func (a *App) GetYTMusicHome() (sources.YTMusicHomeFeed, error) {
 		select {
 		case <-done:
 			a.ytHomeMu.Lock()
-			cached := a.ytHomeCached
+			cached := a.ytHomeCached && time.Since(a.ytHomeAt) < 10*time.Minute
 			feed := a.ytHomeFeed
 			a.ytHomeMu.Unlock()
 			if cached {
@@ -848,7 +874,7 @@ func (a *App) GetYTMusicHome() (sources.YTMusicHomeFeed, error) {
 		}
 	}
 
-	reqCtx, cancel := context.WithTimeout(ctx, 14*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, 18*time.Second)
 	defer cancel()
 	feed, err := a.buildHomeFeed(reqCtx)
 	if err == nil && (len(feed.Shelves) > 0 || len(feed.Tracks) > 0) {
@@ -856,9 +882,20 @@ func (a *App) GetYTMusicHome() (sources.YTMusicHomeFeed, error) {
 		a.ytHomeFeed = feed
 		a.ytHomeErr = nil
 		a.ytHomeCached = true
+		a.ytHomeAt = time.Now()
 		a.ytHomeMu.Unlock()
 	}
 	return feed, err
+}
+
+func (a *App) GetYTMusicHomeContinuation(continuation string) (sources.YTMusicHomeFeed, error) {
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	return a.ytClient.GetHomeContinuation(reqCtx, continuation)
 }
 
 func (a *App) PlayYTMusicCollection(browseID, playlistID, title, subtitle, coverURL string) ([]db.Track, error) {
@@ -1271,8 +1308,18 @@ func (a *App) SavePreferences(prefs map[string]string) error {
 			_ = a.store.PrunePlayHistory(d)
 		}
 	}
-	if countryVal, ok := prefs["content.country"]; ok {
-		a.applyContentRegions(countryVal)
+	_, hasCountry := prefs["content.country"]
+	_, hasLang := prefs["content.language"]
+	if hasCountry || hasLang {
+		if all, err := a.store.GetPreferences(); err == nil {
+			lang := all["content.language"]
+			if strings.TrimSpace(lang) == "" {
+				lang = detectSystemLanguage()
+			}
+			a.applyContentLocale(all["content.country"], lang)
+		} else {
+			a.applyContentLocale(prefs["content.country"], prefs["content.language"])
+		}
 		a.invalidateHomeCache()
 	}
 	_, hasID := prefs["integrations.spotify.clientId"]
@@ -1310,9 +1357,17 @@ func parseContentRegions(raw string) []string {
 }
 
 func (a *App) applyContentRegions(raw string) {
-	regions := parseContentRegions(raw)
+	a.applyContentLocale(raw, "")
+}
+
+func (a *App) applyContentLocale(rawCountry, rawLang string) {
+	regions := parseContentRegions(rawCountry)
 	if a.ytClient != nil {
-		a.ytClient.SetRegions(regions)
+		if strings.TrimSpace(rawLang) != "" {
+			a.ytClient.SetLocale(regions, rawLang)
+		} else {
+			a.ytClient.SetRegions(regions)
+		}
 	}
 	if a.spotifyClient != nil {
 		a.spotifyClient.SetRegion(regions[0])
@@ -1353,10 +1408,10 @@ type UpdateCheckResult struct {
 }
 
 const (
-	veloraAppVersion            = "1.0.0"
-	veloraReleasesLatestAPI     = "https://api.github.com/repos/Rafifdev/Velora/releases/latest"
-	veloraReleasesPageURL       = "https://github.com/Rafifdev/Velora/releases"
-	veloraFeedbackFormspreeURL  = "https://formspree.io/f/xoedkapp"
+	veloraAppVersion         = "1.0.0"
+	veloraReleasesLatestAPI  = "https://api.github.com/repos/Rafifdev/Velora/releases/latest"
+	veloraReleasesPageURL    = "https://github.com/Rafifdev/Velora/releases"
+	veloraFeedbackWebhookURL = "https://script.google.com/macros/s/AKfycbwhnfjZ_CFzPRc-3Yw6rtz39IKqbjRlc7CIz2OOUhe8tk64sDR1y5oMWa4zxgx66j9Cxw/exec"
 )
 
 func (a *App) SubmitFeedback(title string, detail string, screenshotName string, screenshotDataURL string) error {
@@ -1365,70 +1420,35 @@ func (a *App) SubmitFeedback(title string, detail string, screenshotName string,
 	if cleanTitle == "" || cleanDetail == "" {
 		return fmt.Errorf("judul dan detail masukan wajib diisi")
 	}
-	if veloraFeedbackFormspreeURL == "" || strings.Contains(veloraFeedbackFormspreeURL, "YOUR_FORM_ID") {
-		return fmt.Errorf("Formspree endpoint belum dikonfigurasi")
+	if veloraFeedbackWebhookURL == "" || strings.Contains(veloraFeedbackWebhookURL, "YOUR_SCRIPT_ID") {
+		return fmt.Errorf("endpoint masukan belum dikonfigurasi")
 	}
 
-	reqCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	reqCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	if a.ctx != nil {
-		reqCtx, cancel = context.WithTimeout(a.ctx, 15*time.Second)
+		reqCtx, cancel = context.WithTimeout(a.ctx, 20*time.Second)
 		defer cancel()
 	}
 
+	payload := map[string]string{
+		"title":             cleanTitle,
+		"message":           cleanDetail,
+		"appVersion":        veloraAppVersion,
+		"os":                goruntime.GOOS + "/" + goruntime.GOARCH,
+		"screenshotName":    strings.TrimSpace(screenshotName),
+		"screenshotDataURL": strings.TrimSpace(screenshotDataURL),
+	}
 	var body bytes.Buffer
-	var contentType string
-
-	dataURL := strings.TrimSpace(screenshotDataURL)
-	if dataURL != "" {
-		commaIdx := strings.Index(dataURL, ",")
-		if commaIdx <= 0 {
-			return fmt.Errorf("format screenshot tidak valid")
-		}
-		rawBytes, err := base64.StdEncoding.DecodeString(dataURL[commaIdx+1:])
-		if err != nil {
-			return fmt.Errorf("gagal membaca data screenshot: %w", err)
-		}
-		mw := multipart.NewWriter(&body)
-		_ = mw.WriteField("_subject", "[Velora Feedback] "+cleanTitle)
-		_ = mw.WriteField("title", cleanTitle)
-		_ = mw.WriteField("message", cleanDetail)
-		_ = mw.WriteField("appVersion", veloraAppVersion)
-		_ = mw.WriteField("os", goruntime.GOOS+"/"+goruntime.GOARCH)
-		fileName := strings.TrimSpace(screenshotName)
-		if fileName == "" {
-			fileName = "screenshot.png"
-		}
-		fw, err := mw.CreateFormFile("screenshot", filepath.Base(fileName))
-		if err != nil {
-			return err
-		}
-		if _, err := fw.Write(rawBytes); err != nil {
-			return err
-		}
-		if err := mw.Close(); err != nil {
-			return err
-		}
-		contentType = mw.FormDataContentType()
-	} else {
-		payload := map[string]string{
-			"_subject":   "[Velora Feedback] " + cleanTitle,
-			"title":      cleanTitle,
-			"message":    cleanDetail,
-			"appVersion": veloraAppVersion,
-			"os":         goruntime.GOOS + "/" + goruntime.GOARCH,
-		}
-		if err := json.NewEncoder(&body).Encode(payload); err != nil {
-			return err
-		}
-		contentType = "application/json"
+	if err := json.NewEncoder(&body).Encode(payload); err != nil {
+		return err
 	}
 
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, veloraFeedbackFormspreeURL, &body)
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, veloraFeedbackWebhookURL, &body)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -1437,13 +1457,15 @@ func (a *App) SubmitFeedback(title string, detail string, screenshotName string,
 	}
 	defer resp.Body.Close()
 
+	respBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		respBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		rawMsg := strings.TrimSpace(string(respBytes))
-		if dataURL != "" && strings.Contains(strings.ToLower(rawMsg), "file uploads not permitted") {
-			// Formspree free plan rejects multipart file uploads; retry as JSON text so feedback still arrives.
-			return a.SubmitFeedback(cleanTitle, cleanDetail, "", "")
-		}
+		return fmt.Errorf("gagal mengirim masukan, silakan coba lagi nanti")
+	}
+	var parsed struct {
+		OK    *bool  `json:"ok"`
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(respBytes, &parsed) == nil && parsed.OK != nil && !*parsed.OK {
 		return fmt.Errorf("gagal mengirim masukan, silakan coba lagi nanti")
 	}
 	return nil

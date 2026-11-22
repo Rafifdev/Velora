@@ -193,12 +193,23 @@ export interface TopStatItem {
   minutes: number;
 }
 
+export interface RangeBucket {
+  label: string;
+  minutes: number;
+  plays: number;
+}
+
 export interface ListeningStats {
   timeOfDay: HourBucket[];
+  todayHours?: HourBucket[];
+  weekSeries?: RangeBucket[];
+  monthSeries?: RangeBucket[];
+  yearSeries?: RangeBucket[];
   dayOfWeek: DayBucket[];
   totalMinutes: number;
   totalPlays: number;
   uniqueTracks: number;
+  activeDays?: number;
   peakHourLabel: string;
   peakPersona: string;
   mostActiveDay: string;
@@ -233,7 +244,7 @@ export interface YTMusicCard {
   title: string;
   subtitle: string;
   coverUrl: string;
-  kind: 'playlist' | 'album' | 'song' | string;
+  kind: 'playlist' | 'album' | 'song' | 'artist' | string;
   videoId: string;
   browseId: string;
   playlistId: string;
@@ -251,6 +262,7 @@ export interface YTMusicShelf {
 export interface YTMusicHomeFeed {
   shelves: YTMusicShelf[];
   tracks: YTMusicTrack[];
+  continuation?: string;
 }
 
 export interface YTMusicAlbumView {

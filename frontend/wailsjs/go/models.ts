@@ -504,6 +504,7 @@ export namespace main {
 	    accentColor: string;
 	    streakDays: number;
 	    lyricsLoading: boolean;
+	    trackLoading: boolean;
 	    queueTitle: string;
 	    queueIndex: number;
 	    queue: DynamicIslandQueueItem[];
@@ -531,6 +532,7 @@ export namespace main {
 	        this.accentColor = source["accentColor"];
 	        this.streakDays = source["streakDays"];
 	        this.lyricsLoading = source["lyricsLoading"];
+	        this.trackLoading = source["trackLoading"];
 	        this.queueTitle = source["queueTitle"];
 	        this.queueIndex = source["queueIndex"];
 	        this.queue = this.convertValues(source["queue"], DynamicIslandQueueItem);
@@ -846,6 +848,7 @@ export namespace sources {
 	export class YTMusicHomeFeed {
 	    shelves: YTMusicShelf[];
 	    tracks: YTMusicTrack[];
+	    continuation?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new YTMusicHomeFeed(source);
@@ -855,6 +858,7 @@ export namespace sources {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.shelves = this.convertValues(source["shelves"], YTMusicShelf);
 	        this.tracks = this.convertValues(source["tracks"], YTMusicTrack);
+	        this.continuation = source["continuation"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -987,12 +991,33 @@ export namespace stats {
 	        this.minutes = source["minutes"];
 	    }
 	}
+	export class RangeBucket {
+	    label: string;
+	    minutes: number;
+	    plays: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new RangeBucket(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.label = source["label"];
+	        this.minutes = source["minutes"];
+	        this.plays = source["plays"];
+	    }
+	}
 	export class ListeningStats {
 	    timeOfDay: HourBucket[];
+	    todayHours: HourBucket[];
+	    weekSeries: RangeBucket[];
+	    monthSeries: RangeBucket[];
+	    yearSeries: RangeBucket[];
 	    dayOfWeek: DayBucket[];
 	    totalMinutes: number;
 	    totalPlays: number;
 	    uniqueTracks: number;
+	    activeDays: number;
 	    peakHourLabel: string;
 	    peakPersona: string;
 	    mostActiveDay: string;
@@ -1006,10 +1031,15 @@ export namespace stats {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.timeOfDay = this.convertValues(source["timeOfDay"], HourBucket);
+	        this.todayHours = this.convertValues(source["todayHours"], HourBucket);
+	        this.weekSeries = this.convertValues(source["weekSeries"], RangeBucket);
+	        this.monthSeries = this.convertValues(source["monthSeries"], RangeBucket);
+	        this.yearSeries = this.convertValues(source["yearSeries"], RangeBucket);
 	        this.dayOfWeek = this.convertValues(source["dayOfWeek"], DayBucket);
 	        this.totalMinutes = source["totalMinutes"];
 	        this.totalPlays = source["totalPlays"];
 	        this.uniqueTracks = source["uniqueTracks"];
+	        this.activeDays = source["activeDays"];
 	        this.peakHourLabel = source["peakHourLabel"];
 	        this.peakPersona = source["peakPersona"];
 	        this.mostActiveDay = source["mostActiveDay"];
@@ -1035,6 +1065,7 @@ export namespace stats {
 		    return a;
 		}
 	}
+	
 
 }
 

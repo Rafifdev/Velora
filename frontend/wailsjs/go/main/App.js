@@ -146,6 +146,10 @@ export function GetYTMusicHome() {
   return window['go']['main']['App']['GetYTMusicHome']();
 }
 
+export function GetYTMusicHomeContinuation(arg1) {
+  return window['go']['main']['App']['GetYTMusicHomeContinuation'](arg1);
+}
+
 export function GetYTMusicTop100() {
   return window['go']['main']['App']['GetYTMusicTop100']();
 }
