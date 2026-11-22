@@ -113,4 +113,25 @@ func TestStoreCRUD(t *testing.T) {
 	if err != nil || renamed.Name != "Renamed Local Mix" {
 		t.Fatalf("rename playlist failed: %+v err=%v", renamed, err)
 	}
+
+	// Verify oldest-first ordering and YT Music playlist save/unsave toggle
+	savedYT, err := store.ToggleSaveYTMusicPlaylist("VLPL_test123", "Shades of Love", "YouTube Music", "https://example.com/pl.jpg", "#1DB954", []int64{tr.ID, tr2.ID})
+	if err != nil || !savedYT {
+		t.Fatalf("expected YT playlist saved, got saved=%v err=%v", savedYT, err)
+	}
+	pls, err := store.GetPlaylists(false)
+	if err != nil || len(pls) != 2 {
+		t.Fatalf("expected 2 playlists, got %d err=%v", len(pls), err)
+	}
+	if pls[0].ID != pl.ID || pls[1].ExternalID != "VLPL_test123" || pls[1].TrackCount != 2 {
+		t.Fatalf("unexpected playlists order/data: %+v", pls)
+	}
+	savedYT2, err := store.ToggleSaveYTMusicPlaylist("VLPL_test123", "Shades of Love", "YouTube Music", "https://example.com/pl.jpg", "#1DB954", []int64{tr.ID, tr2.ID})
+	if err != nil || savedYT2 {
+		t.Fatalf("expected YT playlist unsaved on toggle, got saved=%v err=%v", savedYT2, err)
+	}
+	plsAfter, _ := store.GetPlaylists(false)
+	if len(plsAfter) != 1 {
+		t.Fatalf("expected 1 playlist after toggle off, got %d", len(plsAfter))
+	}
 }
