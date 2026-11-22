@@ -34,12 +34,23 @@ type TopStatItem struct {
 	Minutes  float64 `json:"minutes"`
 }
 
+type RangeBucket struct {
+	Label   string  `json:"label"`
+	Minutes float64 `json:"minutes"`
+	Plays   int     `json:"plays"`
+}
+
 type ListeningStats struct {
 	TimeOfDay     []HourBucket  `json:"timeOfDay"`
+	TodayHours    []HourBucket  `json:"todayHours"`
+	WeekSeries    []RangeBucket `json:"weekSeries"`
+	MonthSeries   []RangeBucket `json:"monthSeries"`
+	YearSeries    []RangeBucket `json:"yearSeries"`
 	DayOfWeek     []DayBucket   `json:"dayOfWeek"`
 	TotalMinutes  float64       `json:"totalMinutes"`
 	TotalPlays    int           `json:"totalPlays"`
 	UniqueTracks  int           `json:"uniqueTracks"`
+	ActiveDays    int           `json:"activeDays"`
 	PeakHourLabel string        `json:"peakHourLabel"`
 	PeakPersona   string        `json:"peakPersona"`
 	MostActiveDay string        `json:"mostActiveDay"`
@@ -87,8 +98,10 @@ func (s *Service) getGoalTargets() (int, int) {
 	return goalMinutes, goalTracks
 }
 
+const minStatsListenSeconds = 20
+
 func (s *Service) RecordListen(trackID int64, secondsListened int, completed bool, playedAt time.Time) error {
-	if trackID <= 0 || secondsListened <= 0 {
+	if trackID <= 0 || secondsListened < minStatsListenSeconds {
 		return nil
 	}
 	if playedAt.IsZero() {
@@ -339,27 +352,79 @@ func (s *Service) GetListeningStatsByDate(dateStr string) (ListeningStats, error
 	var rows *sql.Rows
 	var err error
 	if dateFilter != "" {
-		rows, err = s.store.DB().Query(`SELECT track_id, played_at, duration_listened_sec FROM play_history WHERE played_at LIKE ?`, dateFilter+"%")
+		rows, err = s.store.DB().Query(`
+			SELECT h.track_id, COALESCE(t.title, ''), COALESCE(t.artist_name, ''), h.played_at, h.duration_listened_sec
+			FROM play_history h
+			LEFT JOIN tracks t ON t.id = h.track_id
+			WHERE h.duration_listened_sec >= ? AND h.played_at LIKE ?`, minStatsListenSeconds, dateFilter+"%")
 	} else {
-		rows, err = s.store.DB().Query(`SELECT track_id, played_at, duration_listened_sec FROM play_history`)
+		rows, err = s.store.DB().Query(`
+			SELECT h.track_id, COALESCE(t.title, ''), COALESCE(t.artist_name, ''), h.played_at, h.duration_listened_sec
+			FROM play_history h
+			LEFT JOIN tracks t ON t.id = h.track_id
+			WHERE h.duration_listened_sec >= ?`, minStatsListenSeconds)
 	}
 	if err != nil {
 		return ListeningStats{}, err
 	}
 	defer rows.Close()
 
-	uniqueTracks := map[int64]struct{}{}
+	uniqueTracks := map[string]struct{}{}
+	uniqueDays := map[string]struct{}{}
 	totalSec := 0
 	totalPlays := 0
 
+	now := time.Now()
+	todayStr := now.Format("2006-01-02")
+	targetHourDate := todayStr
+	if dateFilter != "" {
+		targetHourDate = dateFilter
+	}
+	todayHours := make([]HourBucket, 24)
+	for h := 0; h < 24; h++ {
+		todayHours[h] = HourBucket{
+			Hour:  h,
+			Label: fmt.Sprintf("%02d:00", h),
+		}
+	}
+
+	// Current week (Monday..Sunday)
+	weekdayOffset := (int(now.Weekday()) + 6) % 7
+	weekStart := time.Date(now.Year(), now.Month(), now.Day()-weekdayOffset, 0, 0, 0, 0, time.Local)
+	weekSeries := make([]RangeBucket, 7)
+	for i := 0; i < 7; i++ {
+		weekSeries[i] = RangeBucket{Label: dayNames[i].Short}
+	}
+
+	// Current month (1..daysInMonth)
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
+	daysInMonth := monthStart.AddDate(0, 1, -1).Day()
+	monthSeries := make([]RangeBucket, daysInMonth)
+	for i := 0; i < daysInMonth; i++ {
+		monthSeries[i] = RangeBucket{Label: fmt.Sprintf("%d", i+1)}
+	}
+
+	// Current year (Jan..Dec)
+	monthNames := []string{"Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"}
+	yearSeries := make([]RangeBucket, 12)
+	for i := 0; i < 12; i++ {
+		yearSeries[i] = RangeBucket{Label: monthNames[i]}
+	}
+
 	for rows.Next() {
 		var trackID int64
-		var playedAtStr string
+		var title, artistName, playedAtStr string
 		var durSec int
-		if err := rows.Scan(&trackID, &playedAtStr, &durSec); err != nil {
+		if err := rows.Scan(&trackID, &title, &artistName, &playedAtStr, &durSec); err != nil {
 			return ListeningStats{}, err
 		}
-		uniqueTracks[trackID] = struct{}{}
+		normTitle := strings.ToLower(strings.TrimSpace(title))
+		normArtist := strings.ToLower(strings.TrimSpace(artistName))
+		trackKey := fmt.Sprintf("id:%d", trackID)
+		if normTitle != "" {
+			trackKey = normTitle + "|" + normArtist
+		}
+		uniqueTracks[trackKey] = struct{}{}
 		totalSec += durSec
 		totalPlays++
 
@@ -367,14 +432,55 @@ func (s *Service) GetListeningStatsByDate(dateStr string) (ListeningStats, error
 		if err != nil {
 			continue
 		}
+		dayKey := dt.Format("2006-01-02")
+		uniqueDays[dayKey] = struct{}{}
+
 		h := dt.Hour()
 		hours[h].Plays++
 		hours[h].Minutes += float64(durSec) / 60.0
+		if dayKey == targetHourDate {
+			todayHours[h].Plays++
+			todayHours[h].Minutes += float64(durSec) / 60.0
+		}
 
 		// Map Sunday=0..Saturday=6 to Monday=0..Sunday=6
 		wd := (int(dt.Weekday()) + 6) % 7
 		days[wd].Plays++
 		days[wd].Minutes += float64(durSec) / 60.0
+
+		dtDay := time.Date(dt.Year(), dt.Month(), dt.Day(), 0, 0, 0, 0, time.Local)
+		diffDays := int(dtDay.Sub(weekStart).Hours() / 24)
+		if diffDays >= 0 && diffDays < 7 {
+			weekSeries[diffDays].Plays++
+			weekSeries[diffDays].Minutes += float64(durSec) / 60.0
+		}
+		if dt.Year() == now.Year() && dt.Month() == now.Month() {
+			mIdx := dt.Day() - 1
+			if mIdx >= 0 && mIdx < len(monthSeries) {
+				monthSeries[mIdx].Plays++
+				monthSeries[mIdx].Minutes += float64(durSec) / 60.0
+			}
+		}
+		if dt.Year() == now.Year() {
+			yIdx := int(dt.Month()) - 1
+			if yIdx >= 0 && yIdx < 12 {
+				yearSeries[yIdx].Plays++
+				yearSeries[yIdx].Minutes += float64(durSec) / 60.0
+			}
+		}
+	}
+
+	for i := range todayHours {
+		todayHours[i].Minutes = math.Round(todayHours[i].Minutes*10) / 10
+	}
+	for i := range weekSeries {
+		weekSeries[i].Minutes = math.Round(weekSeries[i].Minutes*10) / 10
+	}
+	for i := range monthSeries {
+		monthSeries[i].Minutes = math.Round(monthSeries[i].Minutes*10) / 10
+	}
+	for i := range yearSeries {
+		yearSeries[i].Minutes = math.Round(yearSeries[i].Minutes*10) / 10
 	}
 
 	peakHour := 0
@@ -422,21 +528,22 @@ func (s *Service) GetListeningStatsByDate(dateStr string) (ListeningStats, error
 	var tRows *sql.Rows
 	if dateFilter != "" {
 		tRows, err = s.store.DB().Query(`
-			SELECT t.title, t.artist_name, COALESCE(t.cover_url, ''), COUNT(h.id) AS plays, COALESCE(SUM(h.duration_listened_sec), 0) AS secs
+			SELECT MIN(t.title), MIN(t.artist_name), COALESCE(MAX(NULLIF(t.cover_url, '')), ''), COUNT(h.id) AS plays, COALESCE(SUM(h.duration_listened_sec), 0) AS secs
 			FROM play_history h
 			JOIN tracks t ON t.id = h.track_id
-			WHERE h.played_at LIKE ?
-			GROUP BY h.track_id
+			WHERE h.duration_listened_sec >= ? AND h.played_at LIKE ?
+			GROUP BY LOWER(TRIM(t.title)), LOWER(TRIM(t.artist_name))
 			ORDER BY plays DESC, secs DESC
-			LIMIT 5`, dateFilter+"%")
+			LIMIT 25`, minStatsListenSeconds, dateFilter+"%")
 	} else {
 		tRows, err = s.store.DB().Query(`
-			SELECT t.title, t.artist_name, COALESCE(t.cover_url, ''), COUNT(h.id) AS plays, COALESCE(SUM(h.duration_listened_sec), 0) AS secs
+			SELECT MIN(t.title), MIN(t.artist_name), COALESCE(MAX(NULLIF(t.cover_url, '')), ''), COUNT(h.id) AS plays, COALESCE(SUM(h.duration_listened_sec), 0) AS secs
 			FROM play_history h
 			JOIN tracks t ON t.id = h.track_id
-			GROUP BY h.track_id
+			WHERE h.duration_listened_sec >= ?
+			GROUP BY LOWER(TRIM(t.title)), LOWER(TRIM(t.artist_name))
 			ORDER BY plays DESC, secs DESC
-			LIMIT 5`)
+			LIMIT 25`, minStatsListenSeconds)
 	}
 	if err == nil {
 		defer tRows.Close()
@@ -454,23 +561,24 @@ func (s *Service) GetListeningStatsByDate(dateStr string) (ListeningStats, error
 	var aRows *sql.Rows
 	if dateFilter != "" {
 		aRows, err = s.store.DB().Query(`
-			SELECT t.artist_name, COALESCE(MAX(NULLIF(a.avatar_url, '')), MAX(NULLIF(t.cover_url, '')), ''), COUNT(h.id) AS plays, COALESCE(SUM(h.duration_listened_sec), 0) AS secs
+			SELECT MIN(t.artist_name), COALESCE(MAX(NULLIF(a.avatar_url, '')), MAX(NULLIF(t.cover_url, '')), ''), COUNT(h.id) AS plays, COALESCE(SUM(h.duration_listened_sec), 0) AS secs
 			FROM play_history h
 			JOIN tracks t ON t.id = h.track_id
 			LEFT JOIN artists a ON a.id = t.artist_id
-			WHERE h.played_at LIKE ?
-			GROUP BY t.artist_name
+			WHERE h.duration_listened_sec >= ? AND h.played_at LIKE ?
+			GROUP BY LOWER(TRIM(t.artist_name))
 			ORDER BY plays DESC, secs DESC
-			LIMIT 5`, dateFilter+"%")
+			LIMIT 25`, minStatsListenSeconds, dateFilter+"%")
 	} else {
 		aRows, err = s.store.DB().Query(`
-			SELECT t.artist_name, COALESCE(MAX(NULLIF(a.avatar_url, '')), MAX(NULLIF(t.cover_url, '')), ''), COUNT(h.id) AS plays, COALESCE(SUM(h.duration_listened_sec), 0) AS secs
+			SELECT MIN(t.artist_name), COALESCE(MAX(NULLIF(a.avatar_url, '')), MAX(NULLIF(t.cover_url, '')), ''), COUNT(h.id) AS plays, COALESCE(SUM(h.duration_listened_sec), 0) AS secs
 			FROM play_history h
 			JOIN tracks t ON t.id = h.track_id
 			LEFT JOIN artists a ON a.id = t.artist_id
-			GROUP BY t.artist_name
+			WHERE h.duration_listened_sec >= ?
+			GROUP BY LOWER(TRIM(t.artist_name))
 			ORDER BY plays DESC, secs DESC
-			LIMIT 5`)
+			LIMIT 25`, minStatsListenSeconds)
 	}
 	if err == nil {
 		defer aRows.Close()
@@ -487,10 +595,15 @@ func (s *Service) GetListeningStatsByDate(dateStr string) (ListeningStats, error
 
 	return ListeningStats{
 		TimeOfDay:     hours,
+		TodayHours:    todayHours,
+		WeekSeries:    weekSeries,
+		MonthSeries:   monthSeries,
+		YearSeries:    yearSeries,
 		DayOfWeek:     days,
 		TotalMinutes:  math.Round((float64(totalSec)/60.0)*10) / 10,
 		TotalPlays:    totalPlays,
 		UniqueTracks:  len(uniqueTracks),
+		ActiveDays:    len(uniqueDays),
 		PeakHourLabel: peakLabel,
 		PeakPersona:   persona,
 		MostActiveDay: mostActiveDay,
