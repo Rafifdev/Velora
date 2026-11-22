@@ -267,6 +267,7 @@ export interface YTMusicHomeFeed {
 
 export interface YTMusicAlbumView {
   browseId: string;
+  kind?: 'album' | 'playlist';
   title: string;
   artist: string;
   artistBrowseId: string;
@@ -339,6 +340,7 @@ export type ViewRoute =
       name: 'yt-album-detail';
       videoId: string;
       browseId?: string;
+      kind?: 'album' | 'playlist';
       title: string;
       artist: string;
       albumTitle: string;

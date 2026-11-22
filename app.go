@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -59,7 +60,9 @@ type App struct {
 	frontendFS   fs.FS
 	trayIcon     []byte
 	trayCtrl     *tray.Controller
-	quitting     bool
+	quitting     atomic.Bool
+	closeToTray  atomic.Bool
+	closingOnce  sync.Once
 	player       *audio.PlayerController
 	ytHomeMu     sync.Mutex
 	ytHomeDone   chan struct{}
@@ -113,6 +116,7 @@ func (a *App) startup(ctx context.Context) {
 	a.spotifyClient = sources.NewSpotifyClient()
 	a.deezerClient = sources.NewDeezerClient()
 	if prefs, pErr := a.store.GetPreferences(); pErr == nil {
+		a.closeToTray.Store(prefs["system.closeToTray"] == "true")
 		a.spotifyClient.SetCredentials(prefs["integrations.spotify.clientId"], prefs["integrations.spotify.clientSecret"])
 		lang := prefs["content.language"]
 		if strings.TrimSpace(lang) == "" {
@@ -215,10 +219,7 @@ func (a *App) startup(ctx context.Context) {
 			a.StopJam()
 		},
 		func() {
-			a.quitting = true
-			if a.ctx != nil {
-				runtime.Quit(a.ctx)
-			}
+			a.forceQuitApp()
 		},
 	)
 	if prefs, pErr := a.store.GetPreferences(); pErr == nil {
@@ -362,45 +363,82 @@ func (a *App) domReady(ctx context.Context) {
 	a.initDynamicIsland(ctx)
 }
 
+func (a *App) forceQuitApp() {
+	a.quitting.Store(true)
+	a.closingOnce.Do(func() {
+		if a.ctx != nil {
+			runtime.WindowHide(a.ctx)
+		}
+		time.AfterFunc(2*time.Second, func() {
+			os.Exit(0)
+		})
+		if a.ctx != nil {
+			go runtime.Quit(a.ctx)
+		} else {
+			os.Exit(0)
+		}
+	})
+}
+
 func (a *App) beforeClose(ctx context.Context) (prevent bool) {
-	if a.quitting {
+	if a.quitting.Load() {
 		return false
 	}
-	closeToTray := false
-	if a.store != nil {
-		if prefs, err := a.store.GetPreferences(); err == nil {
-			closeToTray = prefs["system.closeToTray"] == "true"
-		}
-	}
-	if closeToTray {
-		if a.trayCtrl != nil {
-			remoteURL := ""
-			running := false
-			if a.jamSrv != nil {
-				st := a.jamSrv.Status()
-				running = st.Running
-				remoteURL = st.RemoteURL
+	if a.closeToTray.Load() {
+		go func() {
+			if a.trayCtrl != nil {
+				remoteURL := ""
+				running := false
+				if a.jamSrv != nil {
+					st := a.jamSrv.Status()
+					running = st.Running
+					remoteURL = st.RemoteURL
+				}
+				a.trayCtrl.EnsureStarted(running, remoteURL)
 			}
-			a.trayCtrl.EnsureStarted(running, remoteURL)
-		}
+		}()
 		runtime.WindowHide(ctx)
 		return true
 	}
+	a.forceQuitApp()
 	return false
 }
 
 func (a *App) shutdown(ctx context.Context) {
 	setSystemKeepAwake(false)
-	a.shutdownTaskbar()
-	a.shutdownDynamicIsland()
-	if a.trayCtrl != nil {
-		a.trayCtrl.Shutdown()
-	}
-	if a.jamSrv != nil {
-		a.jamSrv.Stop()
-	}
-	if a.player != nil {
-		a.player.Shutdown()
+	var wg sync.WaitGroup
+	wg.Add(4)
+	go func() {
+		defer wg.Done()
+		a.shutdownTaskbar()
+	}()
+	go func() {
+		defer wg.Done()
+		a.shutdownDynamicIsland()
+	}()
+	go func() {
+		defer wg.Done()
+		if a.trayCtrl != nil {
+			a.trayCtrl.Shutdown()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if a.jamSrv != nil {
+			a.jamSrv.Stop()
+		}
+		if a.player != nil {
+			a.player.Shutdown()
+		}
+	}()
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(1200 * time.Millisecond):
 	}
 	if a.store != nil {
 		_ = a.store.Close()
@@ -469,6 +507,10 @@ func (a *App) ToggleFavoriteAlbum(id int64) (bool, error) {
 
 func (a *App) ToggleFavoriteYTMusicAlbum(browseID, title, artistName, coverURL string, releaseYear int) (db.Album, error) {
 	return a.store.ToggleFavoriteYTMusicAlbum(browseID, title, artistName, coverURL, releaseYear)
+}
+
+func (a *App) ToggleSaveYTMusicPlaylist(browseID, title, subtitle, coverURL string, trackIDs []int64) (bool, error) {
+	return a.store.ToggleSaveYTMusicPlaylist(browseID, title, subtitle, coverURL, "#1DB954", trackIDs)
 }
 
 func (a *App) ToggleFavoriteArtist(id int64) (bool, error) {
@@ -743,25 +785,40 @@ func (a *App) GetMoreArtists(offset int, excludeBrowseIDs []string) ([]sources.Y
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	queries := []string{"", "Top Pop Artists", "Trending Music Artists", "Popular Rock Indie Artists"}
-	q := queries[(offset/28)%len(queries)]
-	if cards, err := a.ytClient.SearchArtists(reqCtx, q); err == nil && len(cards) > 0 {
-		excl := map[string]struct{}{}
-		for _, id := range excludeBrowseIDs {
-			excl[strings.ToLower(strings.TrimSpace(id))] = struct{}{}
-		}
-		out := make([]sources.YTMusicCard, 0, len(cards))
-		for _, c := range cards {
-			k := strings.ToLower(strings.TrimSpace(c.BrowseID))
-			if k == "" {
-				k = strings.ToLower(strings.TrimSpace(c.Title))
+	queries := []string{
+		"",
+		"Top Pop Artists",
+		"Popular Indonesian Singers",
+		"Trending Music Artists",
+		"Best Indie Artists Indonesia",
+		"Popular Rock Bands",
+		"Top R&B Soul Artists",
+		"Acoustic Singer Songwriter",
+	}
+	excl := map[string]struct{}{}
+	for _, id := range excludeBrowseIDs {
+		excl[strings.ToLower(strings.TrimSpace(id))] = struct{}{}
+	}
+	startIdx := 0
+	if offset > 0 {
+		startIdx = (offset / 12) % len(queries)
+	}
+	for step := 0; step < len(queries); step++ {
+		q := queries[(startIdx+step)%len(queries)]
+		if cards, err := a.ytClient.SearchArtists(reqCtx, q); err == nil && len(cards) > 0 {
+			out := make([]sources.YTMusicCard, 0, len(cards))
+			for _, c := range cards {
+				k := strings.ToLower(strings.TrimSpace(c.BrowseID))
+				if k == "" {
+					k = strings.ToLower(strings.TrimSpace(c.Title))
+				}
+				if _, skip := excl[k]; !skip {
+					out = append(out, c)
+				}
 			}
-			if _, skip := excl[k]; !skip {
-				out = append(out, c)
+			if len(out) > 0 {
+				return out, nil
 			}
-		}
-		if len(out) > 0 {
-			return out, nil
 		}
 	}
 	if a.useDeezerMetadata() {
@@ -944,6 +1001,7 @@ func (a *App) PlayYTMusicCollection(browseID, playlistID, title, subtitle, cover
 
 type YTMusicAlbumView struct {
 	BrowseID       string                `json:"browseId"`
+	Kind           string                `json:"kind"`
 	Title          string                `json:"title"`
 	Artist         string                `json:"artist"`
 	ArtistBrowseID string                `json:"artistBrowseId"`
@@ -990,8 +1048,8 @@ func (a *App) GetYTMusicTrackAlbum(videoID, browseID, title, artist, albumTitle,
 	}
 
 	limit := len(detail.Tracks)
-	if limit > 35 {
-		limit = 35
+	if limit > 200 {
+		limit = 200
 	}
 	saved := make([]db.Track, 0, limit)
 	for i := 0; i < limit; i++ {
@@ -1002,8 +1060,14 @@ func (a *App) GetYTMusicTrackAlbum(videoID, browseID, title, artist, albumTitle,
 		}
 	}
 
+	kind := strings.TrimSpace(detail.Kind)
+	if kind == "" {
+		kind = "album"
+	}
+
 	return YTMusicAlbumView{
 		BrowseID:       detail.BrowseID,
+		Kind:           kind,
 		Title:          detail.Title,
 		Artist:         detail.Artist,
 		ArtistBrowseID: detail.ArtistBrowseID,
@@ -1302,6 +1366,9 @@ func (a *App) SavePreferences(prefs map[string]string) error {
 	if v, ok := prefs["dynamicIsland.pauseHide"]; ok {
 		sec, _ := strconv.Atoi(strings.TrimSpace(v))
 		a.SetDynamicIslandPauseHideSeconds(sec)
+	}
+	if v, ok := prefs["system.closeToTray"]; ok {
+		a.closeToTray.Store(strings.EqualFold(strings.TrimSpace(v), "true"))
 	}
 	if daysStr, ok := prefs["privacy.historyDays"]; ok {
 		if d, err := strconv.Atoi(daysStr); err == nil && d > 0 {
@@ -1659,7 +1726,15 @@ func (a *App) WindowIsMaximized() bool {
 }
 
 func (a *App) WindowClose() {
-	runtime.Quit(a.ctx)
+	if a.closeToTray.Load() && !a.quitting.Load() {
+		go func() {
+			if a.ctx != nil {
+				a.beforeClose(a.ctx)
+			}
+		}()
+		return
+	}
+	go a.forceQuitApp()
 }
 
 func (a *App) DownloadTrack(trackID int64) (db.Track, error) {

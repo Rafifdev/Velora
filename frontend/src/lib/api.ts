@@ -151,6 +151,15 @@ export const api = {
   ): Promise<Album> {
     return appBridge().ToggleFavoriteYTMusicAlbum(browseId, title, artistName, coverUrl, releaseYear);
   },
+  async toggleSaveYTMusicPlaylist(
+    browseId: string,
+    title: string,
+    subtitle: string,
+    coverUrl: string,
+    trackIds: number[]
+  ): Promise<boolean> {
+    return appBridge().ToggleSaveYTMusicPlaylist(browseId, title, subtitle, coverUrl, trackIds);
+  },
   async toggleFavoriteArtist(id: number): Promise<boolean> {
     return appBridge().ToggleFavoriteArtist(id);
   },
@@ -428,7 +437,17 @@ export const api = {
   },
   windowClose(): void {
     if (isJamRemote) return;
-    appBridge()?.WindowClose();
+    try {
+      const fn = appBridge()?.WindowClose;
+      if (fn) {
+        void Promise.resolve(fn()).catch(() => {
+          (window as any)?.runtime?.Quit?.();
+        });
+        return;
+      }
+    } catch {
+    }
+    (window as any)?.runtime?.Quit?.();
   },
   updateTaskbarState(title: string, artist: string, coverUrl: string, isPlaying: boolean): void {
     if (isJamRemote) return;
