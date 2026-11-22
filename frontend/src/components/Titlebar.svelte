@@ -855,9 +855,10 @@
     {/if}
 
     {#if !isJamRemote}
-      <div class="flex items-stretch self-stretch ml-2">
+      <div class="wails-no-drag relative z-[60] flex items-stretch self-stretch ml-2">
         <button
           type="button"
+          onpointerdown={(e) => e.stopPropagation()}
           onclick={() => api.windowMinimize()}
           title="Minimize"
           aria-label="Minimize"
@@ -869,6 +870,7 @@
         </button>
         <button
           type="button"
+          onpointerdown={(e) => e.stopPropagation()}
           onclick={handleToggleMaximize}
           title={isMaximized ? 'Restore Down' : 'Maximize'}
           aria-label={isMaximized ? 'Restore Down' : 'Maximize'}
@@ -887,6 +889,7 @@
         </button>
         <button
           type="button"
+          onpointerdown={(e) => e.stopPropagation()}
           onclick={() => api.windowClose()}
           title="Close"
           aria-label="Close"

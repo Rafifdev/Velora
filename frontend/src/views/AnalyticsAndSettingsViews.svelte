@@ -12,12 +12,14 @@
     type PreferenceItemDef
   } from '../lib/preferences';
   import { getPrefLang, tr } from '../lib/i18n';
-  import type { DailyStreakRow, FireStreakStatus, ListeningStats, PlayHistoryItem, Track, UpdateCheckResult, ViewRoute } from '../lib/types';
+  import type { DailyStreakRow, DownloadProgress, FireStreakStatus, ListeningStats, PlayHistoryItem, Playlist, Track, UpdateCheckResult, ViewRoute } from '../lib/types';
+  import CoverImage from '../components/CoverImage.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import EqIndicator from '../components/EqIndicator.svelte';
   import Icon from '../components/Icon.svelte';
   import ModalDialog from '../components/ModalDialog.svelte';
   import StatsChart from '../components/StatsChart.svelte';
+  import TrackActionMenu from '../components/TrackActionMenu.svelte';
 
   interface Props {
     mode: 'history' | 'listening-stats' | 'fire-streak' | 'preferences';
@@ -26,12 +28,29 @@
     fireStreak: FireStreakStatus;
     preferences: Record<string, string>;
     tracks: Track[];
+    playlists?: Playlist[];
+    downloadStates?: Record<number, DownloadProgress>;
+    currentTrackId?: number | null;
+    currentExternalId?: string | null;
+    currentTrackTitle?: string | null;
+    currentTrackArtist?: string | null;
+    isPlaying?: boolean;
     mediaBaseUrl: string;
     accentColor: string;
     isMobile?: boolean;
     activePrefTab?: string;
     prefSearch?: string;
     onPlayTrack: (track: Track, list: Track[]) => void;
+    onTogglePlay?: () => void;
+    onPlayNext?: (track: Track) => void;
+    onAddToQueue?: (track: Track) => void;
+    onAddToPlaylist?: (playlistId: number, trackId: number) => void;
+    onToggleFavorite?: (trackId: number) => void;
+    onDownloadTrack?: (track: Track) => void;
+    onRemoveDownload?: (trackId: number) => void;
+    onOpenArtist?: (artistId: number) => void;
+    onOpenTrackAlbum?: (track: Track) => void;
+    onCopyLink?: (track: Track) => void;
     onClearHistory: () => void;
     onSavePreferences: (prefs: Record<string, string>) => void;
     onClearCache: () => Promise<number>;
@@ -46,12 +65,29 @@
     fireStreak,
     preferences,
     tracks,
+    playlists = [],
+    downloadStates = {},
+    currentTrackId = null,
+    currentExternalId = null,
+    currentTrackTitle = null,
+    currentTrackArtist = null,
+    isPlaying = false,
     mediaBaseUrl,
     accentColor: _accentColor,
     isMobile = false,
     activePrefTab = $bindable('appearance'),
     prefSearch = $bindable(''),
     onPlayTrack,
+    onTogglePlay,
+    onPlayNext,
+    onAddToQueue,
+    onAddToPlaylist,
+    onToggleFavorite,
+    onDownloadTrack,
+    onRemoveDownload,
+    onOpenArtist,
+    onOpenTrackAlbum,
+    onCopyLink,
     onClearHistory,
     onSavePreferences,
     onClearCache,
@@ -82,6 +118,7 @@
   let confirmClearCache = $state(false);
   let historyTab = $state<'recent' | 'stats'>('recent');
   let historyFilter = $state('');
+  let openHistoryActionId = $state<number | null>(null);
   let confirmClearHistory = $state(false);
   let confirmResetIsland = $state(false);
   let showShortcutsModal = $state(false);
@@ -647,8 +684,18 @@
   }
 
   function historyItemToTrack(item: PlayHistoryItem): Track {
-    const found = tracks.find((t) => t.id === item.trackId);
-    if (found) return found;
+    const byId = tracks.find((t) => t.id === item.trackId);
+    if (byId) return byId;
+    const targetTitle = normHistoryTitle(item.title);
+    const targetArtist = (item.artistName || '').trim().toLowerCase();
+    const byMeta = targetTitle
+      ? tracks.find(
+          (t) =>
+            normHistoryTitle(t.title) === targetTitle &&
+            (!targetArtist || t.artistName.trim().toLowerCase().includes(targetArtist))
+        )
+      : undefined;
+    if (byMeta) return byMeta;
     return {
       id: item.trackId,
       title: item.title,
@@ -667,6 +714,30 @@
       playCount: 1,
       createdAt: item.playedAt || ''
     };
+  }
+
+  function normHistoryTitle(s: string): string {
+    return (s || '')
+      .toLowerCase()
+      .replace(/\s*[\(\[](?:official|audio|video|mv|lyrics?|hd|4k).*?[\)\]]/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function isHistoryTrackActive(tr: Track): boolean {
+    if (currentTrackId !== null && tr.id === currentTrackId) return true;
+    if (currentExternalId && tr.externalId && tr.externalId === currentExternalId) return true;
+    if (currentTrackTitle) {
+      const nt = normHistoryTitle(tr.title);
+      const nc = normHistoryTitle(currentTrackTitle);
+      if (nt && nc && nt === nc) {
+        if (!currentTrackArtist) return true;
+        const a1 = (tr.artistName || '').toLowerCase();
+        const a2 = currentTrackArtist.toLowerCase();
+        if (a1.includes(a2) || a2.includes(a1)) return true;
+      }
+    }
+    return false;
   }
 
   function playHistoryTrack(item: PlayHistoryItem) {
@@ -1253,6 +1324,8 @@
   <div
     class="relative h-full w-full overflow-y-auto rounded-xl select-none flex flex-col"
     style="background-color: var(--md-sys-color-surface-container-low);"
+    onclick={() => (openHistoryActionId = null)}
+    role="presentation"
     use:svelteMotionEnter={{ y: 8 }}
   >
     <section
@@ -1326,7 +1399,7 @@
       {:else}
         <div class="space-y-1">
           <div
-            class="-mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(100px,0.6fr)_minmax(150px,0.75fr)_56px_32px] items-center gap-4 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider"
+            class="-mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_96px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(100px,0.6fr)_minmax(150px,0.75fr)_56px_96px] items-center gap-4 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider"
             style="color: var(--md-sys-color-on-surface-variant);"
           >
             <span class="text-center">#</span>
@@ -1341,48 +1414,88 @@
 
           <div class="space-y-0.5" role="list">
             {#each history as item, idx (item.id)}
-              {@const cover = resolveCoverUrl(item.coverUrl, mediaBaseUrl)}
+              {@const trItem = historyItemToTrack(item)}
+              {@const cover = resolveCoverUrl(trItem.coverUrl || item.coverUrl, mediaBaseUrl)}
+              {@const active = isHistoryTrackActive(trItem)}
+              {@const menuOpen = openHistoryActionId === item.id}
+              {@const dlState = downloadStates[trItem.id]}
+              {@const isDlActive = dlState && (dlState.status === 'queued' || dlState.status === 'downloading')}
               <div
                 role="listitem"
-                class="group -mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(100px,0.6fr)_minmax(150px,0.75fr)_56px_32px] items-center gap-4 px-3 py-2 rounded-md transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+                class="velora-track-row group -mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_96px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(100px,0.6fr)_minmax(150px,0.75fr)_56px_96px] items-center gap-4 px-3 py-2 rounded-lg transition-colors duration-150 {active
+                  ? 'bg-[var(--md-sys-color-state-hover)]'
+                  : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
                 style="color: var(--md-sys-color-on-surface);"
               >
                 <div class="flex items-center justify-center">
-                  <span class="text-xs font-medium tabular-nums group-hover:hidden opacity-65">
-                    {idx + 1}
-                  </span>
-                  <button
-                    type="button"
-                    onclick={() => playHistoryTrack(item)}
-                    aria-label="Putar {item.title}"
-                    class="hidden group-hover:flex items-center justify-center cursor-pointer"
-                    style="color: var(--md-sys-color-primary);"
-                  >
-                    <Icon name="play" weight="fill" size={14} />
-                  </button>
+                  {#if active && isPlaying}
+                    <EqIndicator class="group-hover:hidden" />
+                    <button
+                      type="button"
+                      onclick={() => (onTogglePlay ? onTogglePlay() : playHistoryTrack(item))}
+                      aria-label="{tr(lang, 'nav.pause')} {item.title}"
+                      class="hidden group-hover:flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
+                    >
+                      <Icon name="pause" weight="fill" size={14} />
+                    </button>
+                  {:else if active && !isPlaying}
+                    <button
+                      type="button"
+                      onclick={() => (onTogglePlay ? onTogglePlay() : playHistoryTrack(item))}
+                      aria-label="{tr(lang, 'nav.play')} {item.title}"
+                      class="flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
+                    >
+                      <Icon name="play" weight="fill" size={14} />
+                    </button>
+                  {:else}
+                    <span class="text-xs font-medium tabular-nums group-hover:hidden opacity-65">
+                      {idx + 1}
+                    </span>
+                    <button
+                      type="button"
+                      onclick={() => playHistoryTrack(item)}
+                      aria-label="{tr(lang, 'nav.play')} {item.title}"
+                      class="hidden group-hover:flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
+                    >
+                      <Icon name="play" weight="fill" size={14} />
+                    </button>
+                  {/if}
                 </div>
 
-                <button
-                  type="button"
-                  onclick={() => playHistoryTrack(item)}
-                  class="flex items-center gap-3 min-w-0 text-left cursor-pointer"
-                >
-                  {#if cover}
-                    <img src={cover} alt={item.title} class="block w-10 h-10 rounded-md object-cover object-center shrink-0" />
-                  {:else}
-                    <div class="w-10 h-10 rounded-md flex items-center justify-center shrink-0 bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface-variant)]">
-                      <Icon name="music-note" size={16} />
+                <div class="flex items-center gap-3 min-w-0 text-left">
+                  <button
+                    type="button"
+                    onclick={() => (active && onTogglePlay ? onTogglePlay() : playHistoryTrack(item))}
+                    aria-label="{tr(lang, 'nav.play')} {item.title}"
+                    class="shrink-0 cursor-pointer"
+                  >
+                    <div class="w-10 h-10 rounded-md overflow-hidden shrink-0">
+                      <CoverImage src={cover} fallbackIcon="vinyl-record" iconSize={16} />
                     </div>
-                  {/if}
+                  </button>
                   <div class="min-w-0 flex-1">
-                    <div class="text-xs font-bold line-clamp-2 whitespace-normal leading-snug group-hover:text-[var(--md-sys-color-primary)] transition-colors">
-                      {item.title}
-                    </div>
+                    {#if onOpenTrackAlbum}
+                      <button
+                        type="button"
+                        onclick={() => onOpenTrackAlbum(trItem)}
+                        class="block max-w-full text-left text-xs font-bold line-clamp-2 whitespace-normal leading-snug hover:underline cursor-pointer {active ? 'text-[var(--md-sys-color-primary)]' : ''}"
+                      >
+                        {item.title}
+                      </button>
+                    {:else}
+                      <button
+                        type="button"
+                        onclick={() => (active && onTogglePlay ? onTogglePlay() : playHistoryTrack(item))}
+                        class="block max-w-full text-left text-xs font-bold line-clamp-2 whitespace-normal leading-snug cursor-pointer {active ? 'text-[var(--md-sys-color-primary)]' : ''}"
+                      >
+                        {item.title}
+                      </button>
+                    {/if}
                     <div class="text-[11px] truncate opacity-75 mt-0.5">
                       {item.artistName}{item.albumTitle ? ` • ${item.albumTitle}` : ''}
                     </div>
                   </div>
-                </button>
+                </div>
 
                 <span class="hidden md:block text-xs tabular-nums opacity-70 truncate">
                   {formatDuration(item.durationListenedSec)}
@@ -1396,15 +1509,69 @@
                   {formatDuration(item.durationSec)}
                 </span>
 
-                <button
-                  type="button"
-                  onclick={() => playHistoryTrack(item)}
-                  aria-label="Putar ulang {item.title}"
-                  class="w-7 h-7 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:bg-[var(--md-sys-color-state-hover)]"
-                  style="color: var(--md-sys-color-on-surface-variant);"
-                >
-                  <Icon name="play" weight="fill" size={13} />
-                </button>
+                <div class="flex items-center justify-end gap-1 relative">
+                  {#if onDownloadTrack || onRemoveDownload}
+                    {#if isDlActive}
+                      <span
+                        class="inline-flex items-center justify-center w-7 h-7 text-[10px] font-bold tabular-nums text-[var(--md-sys-color-primary)]"
+                        title="{tr(lang, 'nav.downloading')} ({Math.round(dlState.progress || 0)}%)"
+                      >
+                        {Math.round(dlState.progress || 0)}%
+                      </span>
+                    {:else if trItem.isDownloaded}
+                      <button
+                        type="button"
+                        onclick={() => onRemoveDownload?.(trItem.id)}
+                        title={tr(lang, 'nav.savedOfflineRemoveHint')}
+                        aria-label="{tr(lang, 'nav.removeDownload')} {item.title}"
+                        class="m3-icon-btn w-7 h-7 flex items-center justify-center transition cursor-pointer text-[var(--md-sys-color-primary)] opacity-90 hover:opacity-100"
+                      >
+                        <Icon name="check-circle" weight="fill" size={15} />
+                      </button>
+                    {:else if onDownloadTrack}
+                      <button
+                        type="button"
+                        onclick={() => onDownloadTrack(trItem)}
+                        title={tr(lang, 'nav.downloadOffline')}
+                        aria-label="{tr(lang, 'nav.downloadOffline')} {item.title}"
+                        class="m3-icon-btn w-7 h-7 flex items-center justify-center opacity-0 group-hover:opacity-100 transition cursor-pointer"
+                      >
+                        <Icon name="download" size={15} />
+                      </button>
+                    {/if}
+                  {/if}
+
+                  {#if onToggleFavorite}
+                    <button
+                      type="button"
+                      onclick={() => onToggleFavorite(trItem.id)}
+                      aria-label="{tr(lang, 'nav.likeSong')} {item.title}"
+                      class="m3-icon-btn velora-heart-btn w-7 h-7 flex items-center justify-center cursor-pointer {trItem.isFavorite
+                        ? 'is-loved opacity-100 text-[var(--md-sys-color-tertiary)]'
+                        : 'opacity-0 group-hover:opacity-100'}"
+                    >
+                      <Icon name="heart" weight={trItem.isFavorite ? 'fill' : 'regular'} size={15} />
+                    </button>
+                  {/if}
+                  <TrackActionMenu
+                    track={trItem}
+                    open={menuOpen}
+                    {playlists}
+                    {lang}
+                    triggerClass={menuOpen ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 transition'}
+                    onToggleOpen={() => (openHistoryActionId = menuOpen ? null : item.id)}
+                    onClose={() => (openHistoryActionId = null)}
+                    {onPlayNext}
+                    {onAddToQueue}
+                    {onAddToPlaylist}
+                    {onToggleFavorite}
+                    {onDownloadTrack}
+                    {onRemoveDownload}
+                    {onOpenArtist}
+                    {onOpenTrackAlbum}
+                    {onCopyLink}
+                  />
+                </div>
               </div>
             {/each}
           </div>

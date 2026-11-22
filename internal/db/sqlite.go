@@ -637,7 +637,7 @@ func (s *Store) GetPlaylists(localOnly bool) ([]Playlist, error) {
 	if localOnly {
 		query += ` WHERE p.is_local = 1`
 	}
-	query += ` GROUP BY p.id ORDER BY p.id DESC`
+	query += ` GROUP BY p.id ORDER BY p.id ASC`
 
 	rows, err := s.db.Query(query)
 	if err != nil {
@@ -769,6 +769,63 @@ func (s *Store) DeletePlaylist(id int64) error {
 	_, _ = s.db.Exec(`DELETE FROM playlist_tracks WHERE playlist_id = ?`, id)
 	_, err := s.db.Exec(`DELETE FROM playlists WHERE id = ?`, id)
 	return err
+}
+
+func (s *Store) ToggleSaveYTMusicPlaylist(browseID, title, subtitle, coverURL, coverColor string, trackIDs []int64) (bool, error) {
+	bID := strings.TrimSpace(browseID)
+	name := strings.TrimSpace(title)
+	if name == "" {
+		name = "Playlist YouTube Music"
+	}
+	desc := strings.TrimSpace(subtitle)
+	if desc == "" {
+		desc = "YouTube Music"
+	}
+	if strings.TrimSpace(coverColor) == "" {
+		coverColor = "#1DB954"
+	}
+
+	var existingID int64
+	if bID != "" {
+		_ = s.db.QueryRow(
+			`SELECT id FROM playlists WHERE source_type = 'ytmusic' AND external_id = ? LIMIT 1`,
+			bID,
+		).Scan(&existingID)
+	}
+	if existingID == 0 {
+		_ = s.db.QueryRow(
+			`SELECT id FROM playlists WHERE is_local = 0 AND source_type = 'ytmusic' AND LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1`,
+			name,
+		).Scan(&existingID)
+	}
+	if existingID > 0 {
+		if err := s.DeletePlaylist(existingID); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+
+	res, err := s.db.Exec(
+		`INSERT INTO playlists (name, description, cover_url, cover_color, is_local, source_type, external_id) VALUES (?, ?, ?, ?, 0, 'ytmusic', ?)`,
+		name, desc, strings.TrimSpace(coverURL), coverColor, bID,
+	)
+	if err != nil {
+		return false, err
+	}
+	newID, err := res.LastInsertId()
+	if err != nil {
+		return false, err
+	}
+	for pos, tid := range trackIDs {
+		if tid <= 0 {
+			continue
+		}
+		_, _ = s.db.Exec(
+			`INSERT OR IGNORE INTO playlist_tracks (playlist_id, track_id, position) VALUES (?, ?, ?)`,
+			newID, tid, pos,
+		)
+	}
+	return true, nil
 }
 
 func (s *Store) AddTrackToPlaylist(playlistID, trackID int64) error {

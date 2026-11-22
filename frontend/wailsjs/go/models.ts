@@ -582,6 +582,7 @@ export namespace main {
 	}
 	export class YTMusicAlbumView {
 	    browseId: string;
+	    kind: string;
 	    title: string;
 	    artist: string;
 	    artistBrowseId: string;
@@ -598,6 +599,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.browseId = source["browseId"];
+	        this.kind = source["kind"];
 	        this.title = source["title"];
 	        this.artist = source["artist"];
 	        this.artistBrowseId = source["artistBrowseId"];

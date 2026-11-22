@@ -41,10 +41,13 @@
     currentTrackTitle?: string | null;
     currentTrackArtist?: string | null;
     isPlaying: boolean;
+    shuffle?: boolean;
+    queueSourceKey?: string | null;
     mediaBaseUrl: string;
     accentColor: string;
     onPlayTrack: (track: Track, list: Track[]) => void;
     onTogglePlay?: () => void;
+    onToggleShuffle?: () => void;
     onPlayNext?: (track: Track) => void;
     onAddToQueue?: (track: Track) => void;
     onCopyLink?: (track: Track) => void;
@@ -71,6 +74,7 @@
     onOpenArtist: (artistId: number) => void;
     onOpenYTMusicAlbum?: (yt: YTMusicTrack) => void;
     onOpenTrackAlbum?: (track: Track) => void;
+    onPlayShuffled?: (list: Track[], sourceTitle?: string, sourceKey?: string) => void;
     onNavigate?: (route: ViewRoute) => void;
     lang?: LangCode;
   }
@@ -101,10 +105,13 @@
     currentTrackTitle = null,
     currentTrackArtist = null,
     isPlaying,
+    shuffle = false,
+    queueSourceKey = null,
     mediaBaseUrl,
     accentColor,
     onPlayTrack,
     onTogglePlay,
+    onToggleShuffle,
     onPlayNext,
     onAddToQueue,
     onCopyLink,
@@ -131,6 +138,7 @@
     onOpenArtist,
     onOpenYTMusicAlbum,
     onOpenTrackAlbum,
+    onPlayShuffled,
     onNavigate,
     lang = 'en'
   }: Props = $props();
@@ -272,6 +280,29 @@
 
   function playShuffled(list: Track[]) {
     if (list.length === 0) return;
+    const srcKey =
+      mode === 'liked-songs'
+        ? 'liked-songs'
+        : mode === 'downloaded'
+          ? 'downloaded'
+          : artistFallbackBrowseId || (selectedArtist?.id ? `local-artist:${selectedArtist.id}` : '');
+    const isLibQueueActive =
+      Boolean(queueSourceKey && srcKey && queueSourceKey === srcKey) ||
+      (currentTrackId !== null && list.some((t) => t.id === currentTrackId));
+    if (shuffle && isLibQueueActive && onToggleShuffle) {
+      onToggleShuffle();
+      return;
+    }
+    if (onPlayShuffled) {
+      const srcTitle =
+        mode === 'liked-songs'
+          ? 'Favorite music'
+          : mode === 'downloaded'
+            ? 'Downloaded'
+            : selectedArtist?.name || artistFallbackName || '';
+      onPlayShuffled(list, srcTitle, srcKey);
+      return;
+    }
     const copy = [...list];
     for (let i = copy.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -349,10 +380,19 @@
             onclick={() => playShuffled(likedTracks)}
             title={tr(lang, 'nav.shuffle')}
             aria-label={tr(lang, 'nav.shuffle')}
-            class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors disabled:opacity-40"
-            style="color: var(--md-sys-color-on-surface);"
+            aria-pressed={shuffle}
+            class="w-11 h-11 rounded-full relative inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110 disabled:opacity-40"
+            style={shuffle
+              ? 'background-color: color-mix(in srgb, var(--md-sys-color-primary) 22%, var(--md-sys-color-surface-container-high)); color: var(--md-sys-color-primary);'
+              : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);'}
           >
-            <Icon name="shuffle" size={18} />
+            <Icon name="shuffle" weight={shuffle ? 'bold' : 'regular'} size={18} />
+            {#if shuffle}
+              <span
+                class="absolute bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full"
+                style="background-color: var(--md-sys-color-primary);"
+              ></span>
+            {/if}
           </button>
         </div>
       </div>
@@ -456,10 +496,19 @@
             onclick={() => playShuffled(downloadedTracks)}
             title={tr(lang, 'nav.shuffle')}
             aria-label={tr(lang, 'nav.shuffle')}
-            class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors disabled:opacity-40"
-            style="color: var(--md-sys-color-on-surface);"
+            aria-pressed={shuffle}
+            class="w-11 h-11 rounded-full relative inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110 disabled:opacity-40"
+            style={shuffle
+              ? 'background-color: color-mix(in srgb, var(--md-sys-color-primary) 22%, var(--md-sys-color-surface-container-high)); color: var(--md-sys-color-primary);'
+              : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);'}
           >
-            <Icon name="shuffle" size={18} />
+            <Icon name="shuffle" weight={shuffle ? 'bold' : 'regular'} size={18} />
+            {#if shuffle}
+              <span
+                class="absolute bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full"
+                style="background-color: var(--md-sys-color-primary);"
+              ></span>
+            {/if}
           </button>
         </div>
       </div>
@@ -932,12 +981,21 @@
             type="button"
             disabled={artistTracks.length === 0}
             onclick={() => playShuffled(artistTracks)}
-            aria-label="Acak lagu artis"
-            title="Shuffle"
-            class="w-10 h-10 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)] disabled:opacity-40"
-            style="color: var(--md-sys-color-on-surface-variant);"
+            aria-label={tr(lang, 'nav.shuffle')}
+            title={tr(lang, 'nav.shuffle')}
+            aria-pressed={shuffle}
+            class="w-10 h-10 rounded-full relative flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)] disabled:opacity-40"
+            style={shuffle
+              ? 'background-color: color-mix(in srgb, var(--md-sys-color-primary) 20%, transparent); color: var(--md-sys-color-primary);'
+              : 'color: var(--md-sys-color-on-surface-variant);'}
           >
-            <Icon name="shuffle" size={22} />
+            <Icon name="shuffle" weight={shuffle ? 'bold' : 'regular'} size={22} />
+            {#if shuffle}
+              <span
+                class="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full"
+                style="background-color: var(--md-sys-color-primary);"
+              ></span>
+            {/if}
           </button>
 
           <button

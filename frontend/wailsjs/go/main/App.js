@@ -354,6 +354,10 @@ export function ToggleFavoriteYTMusicArtist(arg1, arg2, arg3) {
   return window['go']['main']['App']['ToggleFavoriteYTMusicArtist'](arg1, arg2, arg3);
 }
 
+export function ToggleSaveYTMusicPlaylist(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['ToggleSaveYTMusicPlaylist'](arg1, arg2, arg3, arg4, arg5);
+}
+
 export function UpdateDynamicIslandProgress(arg1, arg2) {
   return window['go']['main']['App']['UpdateDynamicIslandProgress'](arg1, arg2);
 }

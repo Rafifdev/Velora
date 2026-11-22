@@ -598,13 +598,14 @@ func (p *PlayerController) sendMpvCommand(action string, value float64) {
 }
 
 func (p *PlayerController) Shutdown() {
-	if p.server != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		_ = p.server.Shutdown(ctx)
-	}
 	if p.mpvCmd != nil && p.mpvCmd.Process != nil {
 		_ = p.mpvCmd.Process.Kill()
+	}
+	if p.server != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 350*time.Millisecond)
+		_ = p.server.Shutdown(ctx)
+		cancel()
+		_ = p.server.Close()
 	}
 }
 

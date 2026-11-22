@@ -184,6 +184,8 @@ export function ToggleFavoriteYTMusicAlbum(arg1:string,arg2:string,arg3:string,a
 
 export function ToggleFavoriteYTMusicArtist(arg1:string,arg2:string,arg3:string):Promise<db.Artist>;
 
+export function ToggleSaveYTMusicPlaylist(arg1:string,arg2:string,arg3:string,arg4:string,arg5:Array<number>):Promise<boolean>;
+
 export function UpdateDynamicIslandProgress(arg1:number,arg2:number):Promise<void>;
 
 export function UpdateJamState(arg1:jam.PlaybackSnapshot):Promise<void>;
