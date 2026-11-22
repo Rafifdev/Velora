@@ -2,8 +2,10 @@
   import { formatDuration, resolveCoverUrl } from '../lib/api';
   import { tr, type LangCode } from '../lib/i18n';
   import type { DownloadProgress, Playlist, Track } from '../lib/types';
+  import CoverImage from './CoverImage.svelte';
   import EqIndicator from './EqIndicator.svelte';
   import Icon from './Icon.svelte';
+  import TrackActionMenu from './TrackActionMenu.svelte';
 
   interface Props {
     tracks: Track[];
@@ -18,11 +20,15 @@
     downloadStates?: Record<number, DownloadProgress>;
     onPlayTrack: (track: Track, list: Track[]) => void;
     onTogglePlay?: () => void;
+    onPlayNext?: (track: Track) => void;
+    onAddToQueue?: (track: Track) => void;
     onToggleFavorite: (trackId: number) => void;
     onAddToPlaylist: (playlistId: number, trackId: number) => void;
     onDownloadTrack?: (track: Track) => void;
     onRemoveDownload?: (trackId: number) => void;
+    onOpenArtist?: (artistId: number) => void;
     onOpenTrackAlbum?: (track: Track) => void;
+    onCopyLink?: (track: Track) => void;
     showCover?: boolean;
     lang?: LangCode;
   }
@@ -39,11 +45,15 @@
     downloadStates = {},
     onPlayTrack,
     onTogglePlay,
+    onPlayNext,
+    onAddToQueue,
     onToggleFavorite,
     onAddToPlaylist,
     onDownloadTrack,
     onRemoveDownload,
+    onOpenArtist,
     onOpenTrackAlbum,
+    onCopyLink,
     showCover = true,
     lang = 'en'
   }: Props = $props();
@@ -148,16 +158,13 @@
               aria-label="{tr(lang, 'nav.play')} {item.title}"
               class="shrink-0 cursor-pointer"
             >
-              {#if cover}
-                <img src={cover} alt={item.title} loading="lazy" decoding="async" class="block w-10 h-10 rounded-md object-cover object-center shrink-0" />
-              {:else}
-                <div
-                  class="w-10 h-10 rounded-md flex items-center justify-center shrink-0"
-                  style="background: linear-gradient(135deg, var(--md-sys-color-primary-container), var(--md-sys-color-surface-container-highest));"
-                >
-                  <Icon name="vinyl-record" weight="fill" size={18} style="color: var(--md-sys-color-on-primary-container); opacity: 0.6;" />
-                </div>
-              {/if}
+              <div class="w-10 h-10 rounded-md overflow-hidden shrink-0">
+                <CoverImage
+                  src={cover}
+                  fallbackIcon="vinyl-record"
+                  iconSize={18}
+                />
+              </div>
             </button>
           {/if}
           <div class="min-w-0 flex-1">
@@ -233,8 +240,8 @@
             type="button"
             onclick={() => onToggleFavorite(item.id)}
             aria-label="{tr(lang, 'nav.likeSong')} {item.title}"
-            class="m3-icon-btn w-7 h-7 flex items-center justify-center transition cursor-pointer {item.isFavorite
-              ? 'opacity-100 text-[var(--md-sys-color-tertiary)]'
+            class="m3-icon-btn velora-heart-btn w-7 h-7 flex items-center justify-center cursor-pointer {item.isFavorite
+              ? 'is-loved opacity-100 text-[var(--md-sys-color-tertiary)]'
               : 'opacity-0 group-hover:opacity-100'}"
           >
             <Icon
@@ -244,39 +251,28 @@
             />
           </button>
 
-          <button
-            type="button"
-            onclick={() => (openMenuTrackId = openMenuTrackId === item.id ? null : item.id)}
-            aria-label={tr(lang, 'nav.addToPlaylist')}
-            class="m3-icon-btn w-7 h-7 flex items-center justify-center opacity-0 group-hover:opacity-100 transition cursor-pointer"
-          >
-            <Icon name="list-plus" size={15} />
-          </button>
+          <TrackActionMenu
+            track={item}
+            open={openMenuTrackId === item.id}
+            {playlists}
+            {lang}
+            triggerClass={openMenuTrackId === item.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 transition'}
+            onToggleOpen={() => (openMenuTrackId = openMenuTrackId === item.id ? null : item.id)}
+            onClose={() => (openMenuTrackId = null)}
+            {onPlayNext}
+            {onAddToQueue}
+            {onAddToPlaylist}
+            {onToggleFavorite}
+            {onDownloadTrack}
+            {onRemoveDownload}
+            {onOpenArtist}
+            {onOpenTrackAlbum}
+            {onCopyLink}
+          />
 
           <span class="text-[11px] tabular-nums w-9 text-right opacity-75">
             {formatDuration(item.durationSec)}
           </span>
-
-          {#if openMenuTrackId === item.id}
-            <div
-              class="absolute right-0 top-9 z-30 w-52 p-1.5 rounded-lg text-xs shadow-xl"
-              style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
-            >
-              <div class="px-2.5 py-1 text-[11px] font-semibold opacity-70">{tr(lang, 'nav.addToPlaylist')}</div>
-              {#each playlists as pl (pl.id)}
-                <button
-                  type="button"
-                  onclick={() => {
-                    onAddToPlaylist(pl.id, item.id);
-                    openMenuTrackId = null;
-                  }}
-                  class="w-full text-left px-2.5 py-1.5 rounded-md hover:bg-[var(--md-sys-color-state-hover)] truncate cursor-pointer"
-                >
-                  {pl.name} {pl.isLocal ? `(${tr(lang, 'nav.localSource')})` : ''}
-                </button>
-              {/each}
-            </div>
-          {/if}
         </div>
       </div>
     {/each}

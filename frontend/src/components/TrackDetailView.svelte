@@ -3,8 +3,10 @@
   import { formatDuration, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
   import { tr, type LangCode } from '../lib/i18n';
   import type { Album, Playlist, Track, YTMusicAlbumView, YTMusicCard } from '../lib/types';
+  import CoverImage from './CoverImage.svelte';
   import EqIndicator from './EqIndicator.svelte';
   import Icon from './Icon.svelte';
+  import TrackActionMenu from './TrackActionMenu.svelte';
 
   interface Props {
     track: Track | null;
@@ -26,7 +28,9 @@
     onToggleFavoriteTrack: (id: number) => void;
     onToggleFavoriteAlbum: (id: number) => void;
     onAddToPlaylist: (playlistId: number, trackId: number) => void;
+    onPlayNext?: (tr: Track) => void;
     onAddToQueue?: (tr: Track) => void;
+    onCopyLink?: (tr: Track) => void;
     onDownloadTrack?: (tr: Track) => void;
     onRemoveDownload?: (trackId: number) => void;
     onOpenArtist: (artistId: number) => void;
@@ -63,7 +67,9 @@
     onToggleFavoriteTrack,
     onToggleFavoriteAlbum,
     onAddToPlaylist,
+    onPlayNext,
     onAddToQueue,
+    onCopyLink,
     onDownloadTrack,
     onRemoveDownload,
     onOpenArtist,
@@ -110,7 +116,6 @@
 
   let albumScrolled = $state(false);
   let openActionTrackId = $state<number | null>(null);
-  let showPlaylistSubmenu = $state(false);
 
   const releaseDateLabel = $derived.by(() => {
     const y = (ytAlbum?.year || '').trim();
@@ -256,7 +261,6 @@
   onscroll={(e) => (albumScrolled = (e.currentTarget as HTMLElement).scrollTop > 8)}
   onclick={() => {
     openActionTrackId = null;
-    showPlaylistSubmenu = false;
   }}
   role="presentation"
   class="relative h-full w-full overflow-y-auto rounded-xl select-none"
@@ -302,18 +306,13 @@
         class="w-44 h-44 sm:w-52 sm:h-52 rounded-2xl overflow-hidden shadow-2xl shrink-0"
         style="background-color: var(--md-sys-color-surface-container-highest);"
       >
-        {#if cover}
-          <img
-            src={cover}
-            alt={displayTitle}
-            class="block w-full h-full object-cover object-center"
-            class:velora-yt-video-thumb={isYTVideoThumb(cover)}
-          />
-        {:else}
-          <div class="w-full h-full flex items-center justify-center opacity-40">
-            <Icon name="vinyl-record" weight="fill" size={56} />
-          </div>
-        {/if}
+        <CoverImage
+          src={cover}
+          fallbackIcon="vinyl-record"
+          iconSize={56}
+          isVideoThumb={isYTVideoThumb(cover)}
+          loading="eager"
+        />
       </div>
 
       <div class="min-w-0 flex-1 space-y-3">
@@ -403,7 +402,7 @@
             <button
               type="button"
               onclick={() => onToggleFavoriteAlbum(album.id)}
-              class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110"
+              class="velora-heart-btn w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer hover:brightness-110 {album.isFavorite ? 'is-loved' : ''}"
               style="background-color: var(--md-sys-color-surface-container-high); color: {album.isFavorite
                 ? 'var(--md-sys-color-tertiary)'
                 : 'var(--md-sys-color-on-surface)'};"
@@ -423,7 +422,7 @@
                   coverUrl: rawCover,
                   releaseYear: 0
                 })}
-              class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110"
+              class="velora-heart-btn w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer hover:brightness-110 {isYTFavAlbum ? 'is-loved' : ''}"
               style="background-color: var(--md-sys-color-surface-container-high); color: {isYTFavAlbum
                 ? 'var(--md-sys-color-tertiary)'
                 : 'var(--md-sys-color-on-surface)'};"
@@ -436,7 +435,7 @@
             <button
               type="button"
               onclick={() => onToggleFavoriteTrack(track.id)}
-              class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110"
+              class="velora-heart-btn w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer hover:brightness-110 {track.isFavorite ? 'is-loved' : ''}"
               style="background-color: var(--md-sys-color-surface-container-high); color: {track.isFavorite
                 ? 'var(--md-sys-color-tertiary)'
                 : 'var(--md-sys-color-on-surface)'};"
@@ -593,142 +592,23 @@
                 {formatDuration(item.durationSec)}
               </span>
 
-              <div class="relative flex items-center justify-end">
-                <button
-                  type="button"
-                  onclick={(e) => {
-                    e.stopPropagation();
-                    if (menuOpen) {
-                      openActionTrackId = null;
-                      showPlaylistSubmenu = false;
-                    } else {
-                      openActionTrackId = item.id;
-                      showPlaylistSubmenu = false;
-                    }
-                  }}
-                  aria-label="Actions"
-                  class="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-transparent cursor-pointer transition-colors {menuOpen
-                    ? 'opacity-100 text-[var(--md-sys-color-on-surface)]'
-                    : 'opacity-65 hover:opacity-100 text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'}"
-                >
-                  <Icon name="dots-three-vertical" weight="bold" size={18} />
-                </button>
-
-                {#if menuOpen}
-                  <div
-                    onclick={(e) => e.stopPropagation()}
-                    role="menu"
-                    tabindex="-1"
-                    class="absolute right-0 top-9 z-40 w-60 p-1.5 rounded-xl shadow-2xl text-xs"
-                    style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
-                  >
-                    {#if playlists.length > 0}
-                      <div class="relative">
-                        <button
-                          type="button"
-                          onclick={() => (showPlaylistSubmenu = !showPlaylistSubmenu)}
-                          class="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
-                        >
-                          <span class="flex items-center gap-2.5">
-                            <Icon name="plus" size={15} />
-                            <span>{tr(lang, 'nav.addToPlaylist')}</span>
-                          </span>
-                          <Icon name="caret-right" size={12} />
-                        </button>
-                        {#if showPlaylistSubmenu}
-                          <div class="mt-0.5 mb-1 pl-3 space-y-0.5 max-h-36 overflow-y-auto">
-                            {#each playlists as pl (pl.id)}
-                              <button
-                                type="button"
-                                onclick={() => {
-                                  onAddToPlaylist(pl.id, item.id);
-                                  openActionTrackId = null;
-                                  showPlaylistSubmenu = false;
-                                }}
-                                class="w-full text-left px-3 py-1.5 rounded-md hover:bg-[var(--md-sys-color-state-hover)] truncate cursor-pointer opacity-90"
-                              >
-                                {pl.name}
-                              </button>
-                            {/each}
-                          </div>
-                        {/if}
-                      </div>
-                    {/if}
-
-                    <button
-                      type="button"
-                      onclick={() => {
-                        onToggleFavoriteTrack(item.id);
-                        openActionTrackId = null;
-                      }}
-                      class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
-                    >
-                      <Icon
-                        name="heart"
-                        weight={item.isFavorite ? 'fill' : 'regular'}
-                        size={15}
-                        class={item.isFavorite ? 'text-[var(--md-sys-color-tertiary)]' : ''}
-                      />
-                      <span>{item.isFavorite ? tr(lang, 'nav.removeFromLikedSongs') : tr(lang, 'nav.addToLikedSongs')}</span>
-                    </button>
-
-                    {#if item.isDownloaded && onRemoveDownload}
-                      <button
-                        type="button"
-                        onclick={() => {
-                          onRemoveDownload(item.id);
-                          openActionTrackId = null;
-                        }}
-                        class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
-                      >
-                        <Icon name="check-circle" weight="fill" size={15} class="text-[var(--md-sys-color-primary)]" />
-                        <span>{tr(lang, 'nav.removeDownload')}</span>
-                      </button>
-                    {:else if onDownloadTrack}
-                      <button
-                        type="button"
-                        onclick={() => {
-                          onDownloadTrack(item);
-                          openActionTrackId = null;
-                        }}
-                        class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
-                      >
-                        <Icon name="download" size={15} />
-                        <span>{tr(lang, 'nav.downloadOffline')}</span>
-                      </button>
-                    {/if}
-
-                    {#if onAddToQueue}
-                      <button
-                        type="button"
-                        onclick={() => {
-                          onAddToQueue(item);
-                          openActionTrackId = null;
-                        }}
-                        class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
-                      >
-                        <Icon name="queue" size={15} />
-                        <span>{tr(lang, 'nav.addToQueue')}</span>
-                      </button>
-                    {/if}
-
-                    {#if item.artistId > 0}
-                      <div class="my-1 h-px opacity-15" style="background-color: var(--md-sys-color-on-surface);"></div>
-                      <button
-                        type="button"
-                        onclick={() => {
-                          onOpenArtist(item.artistId);
-                          openActionTrackId = null;
-                        }}
-                        class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
-                      >
-                        <Icon name="user" size={15} />
-                        <span>{tr(lang, 'nav.openArtist')}</span>
-                      </button>
-                    {/if}
-                  </div>
-                {/if}
-              </div>
+              <TrackActionMenu
+                track={item}
+                open={menuOpen}
+                {playlists}
+                {lang}
+                triggerClass="w-8 h-8 {menuOpen ? 'opacity-100' : 'opacity-65 hover:opacity-100'}"
+                onToggleOpen={() => (openActionTrackId = menuOpen ? null : item.id)}
+                onClose={() => (openActionTrackId = null)}
+                {onPlayNext}
+                {onAddToQueue}
+                {onAddToPlaylist}
+                onToggleFavorite={onToggleFavoriteTrack}
+                {onDownloadTrack}
+                {onRemoveDownload}
+                {onOpenArtist}
+                {onCopyLink}
+              />
             </div>
           {/each}
         </div>
@@ -743,7 +623,7 @@
       </h2>
       <div
         use:shelfEdgeFade
-        class="flex gap-4 overflow-x-auto no-scrollbar velora-shelf-scroll pb-2"
+        class="flex items-start gap-4 overflow-x-auto no-scrollbar velora-shelf-scroll pb-2"
       >
         {#each artistReleases as card (card.key)}
           <button
@@ -757,31 +637,24 @@
                 onPlayTrack(card.track, tracks);
               }
             }}
-            class="w-36 sm:w-40 shrink-0 text-left group cursor-pointer"
+            class="w-36 sm:w-40 shrink-0 flex flex-col items-stretch justify-start self-start text-left group cursor-pointer"
           >
             <div
               class="w-full aspect-square rounded-lg overflow-hidden mb-2.5 shadow-md"
               style="background-color: var(--md-sys-color-surface-container-highest);"
             >
-              {#if card.cover}
-                <img
-                  src={card.cover}
-                  alt={card.title}
-                  loading="lazy"
-                  decoding="async"
-                  class="block w-full h-full object-cover object-center transition-transform duration-300 group-hover:scale-[1.03]"
-                  class:velora-yt-video-thumb={isYTVideoThumb(card.cover)}
-                />
-              {:else}
-                <div class="w-full h-full flex items-center justify-center opacity-40">
-                  <Icon name="music-note" size={32} />
-                </div>
-              {/if}
+              <CoverImage
+                src={card.cover}
+                fallbackIcon="music-note"
+                iconSize={32}
+                imgClass="block w-full h-full object-cover object-center transition-transform duration-300 group-hover:scale-[1.03]"
+                isVideoThumb={isYTVideoThumb(card.cover)}
+              />
             </div>
-            <div class="text-[13px] font-bold leading-snug break-words whitespace-normal" style="color: var(--md-sys-color-on-surface);">
+            <div class="text-[13px] font-bold leading-snug line-clamp-2 break-words whitespace-normal" style="color: var(--md-sys-color-on-surface);">
               {card.title}
             </div>
-            <div class="text-[11px] leading-snug break-words whitespace-normal mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
+            <div class="text-[11px] leading-snug truncate mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
               {card.subtitle}
             </div>
           </button>

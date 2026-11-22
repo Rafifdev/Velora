@@ -43,6 +43,7 @@
     onOpenTrackDetail?: (track: Track) => void;
     onOpenArtistDetail?: (track: Track) => void;
     onOpenLyrics?: () => void;
+    onOpenQueueSource?: () => void;
   }
 
   let {
@@ -70,7 +71,8 @@
     onSeek,
     onOpenTrackDetail,
     onOpenArtistDetail,
-    onOpenLyrics
+    onOpenLyrics,
+    onOpenQueueSource
   }: Props = $props();
 
   let panelScrollEl: HTMLElement | undefined = $state();
@@ -85,6 +87,39 @@
   let lyricsExpanded = $state(false);
   let queueExpanded = $state(false);
   let lyricsTall = $state(false);
+  let titleWrapEl: HTMLElement | undefined = $state();
+  let titleTextEl: HTMLElement | undefined = $state();
+  let titleMarqueeShift = $state(0);
+  let titleMarqueeDuration = $state(8);
+
+  $effect(() => {
+    const _title = currentTrack?.title ?? '';
+    const wrap = titleWrapEl;
+    const text = titleTextEl;
+    if (!wrap || !text) {
+      titleMarqueeShift = 0;
+      return;
+    }
+
+    const measure = () => {
+      const overflow = Math.ceil(text.scrollWidth - wrap.clientWidth);
+      if (overflow > 2) {
+        titleMarqueeShift = overflow;
+        titleMarqueeDuration = Math.max(6, Math.min(16, 4 + overflow / 24));
+      } else {
+        titleMarqueeShift = 0;
+      }
+    };
+
+    measure();
+    const rafId = requestAnimationFrame(measure);
+    const ro = new ResizeObserver(measure);
+    ro.observe(wrap);
+    return () => {
+      cancelAnimationFrame(rafId);
+      ro.disconnect();
+    };
+  });
 
   const MIN_WIDTH = 280;
   const MAX_WIDTH = 520;
@@ -434,9 +469,23 @@
 
           <section class="space-y-2">
             <h3 class="px-1.5 text-[14px] font-bold leading-snug" style="color: var(--md-sys-color-on-surface);">
-              {queueSourceTitle
-                ? `${tr(lang, 'nav.nextFrom')} ${queueSourceTitle}`
-                : tr(lang, 'nav.upNext')}
+              {#if queueSourceTitle}
+                {tr(lang, 'nav.nextFrom')}
+                {#if onOpenQueueSource}
+                  <button
+                    type="button"
+                    onclick={onOpenQueueSource}
+                    class="hover:underline cursor-pointer text-left inline font-bold"
+                    style="color: var(--md-sys-color-on-surface);"
+                  >
+                    {queueSourceTitle}
+                  </button>
+                {:else}
+                  {queueSourceTitle}
+                {/if}
+              {:else}
+                {tr(lang, 'nav.upNext')}
+              {/if}
             </h3>
             {#if upcomingQueue.length === 0}
               <p class="px-1.5 text-xs py-2" style="color: var(--md-sys-color-on-surface-variant);">
@@ -519,16 +568,25 @@
             <div class="min-w-0 flex-1">
               <button
                 type="button"
+                bind:this={titleWrapEl}
                 onclick={() => onOpenTrackDetail?.(currentTrack)}
-                class="w-full text-left text-[16px] font-bold leading-snug truncate hover:underline cursor-pointer"
+                class="w-full overflow-hidden text-left text-[16px] font-bold leading-snug hover:underline cursor-pointer"
                 title={tr(lang, 'nav.viewTrackDetails')}
               >
-                {currentTrack.title}
+                <span
+                  bind:this={titleTextEl}
+                  class="inline-block whitespace-nowrap {titleMarqueeShift > 0 ? 'velora-title-marquee' : ''}"
+                  style={titleMarqueeShift > 0
+                    ? `--marquee-shift: -${titleMarqueeShift}px; --marquee-duration: ${titleMarqueeDuration}s;`
+                    : undefined}
+                >
+                  {currentTrack.title}
+                </span>
               </button>
               <button
                 type="button"
                 onclick={() => onOpenArtistDetail?.(currentTrack)}
-                class="w-full text-left text-[13px] font-medium text-[var(--md-sys-color-on-surface-variant)] truncate mt-0.5 hover:underline cursor-pointer"
+                class="w-full truncate text-left text-[13px] font-medium text-[var(--md-sys-color-on-surface-variant)] mt-0.5 hover:underline cursor-pointer"
                 title={tr(lang, 'nav.viewArtistPage')}
               >
                 {currentTrack.artistName}
@@ -539,7 +597,7 @@
               type="button"
               onclick={() => onToggleFavorite(currentTrack.id)}
               aria-label={tr(lang, 'nav.likeSong')}
-              class="w-8 h-8 rounded-full flex items-center justify-center shrink-0 cursor-pointer hover:bg-[var(--md-sys-color-state-hover)] transition-colors"
+              class="w-8 h-8 rounded-full flex items-center justify-center shrink-0 cursor-pointer hover:bg-[var(--md-sys-color-state-hover)] velora-heart-btn {currentTrack.isFavorite ? 'is-loved' : ''}"
             >
               <Icon
                 name="heart"
@@ -776,3 +834,34 @@
     </div>
   </div>
 </aside>
+
+<style>
+  @keyframes velora-title-marquee-pingpong {
+    0%,
+    18% {
+      transform: translateX(0);
+    }
+    50%,
+    68% {
+      transform: translateX(var(--marquee-shift, 0px));
+    }
+    100% {
+      transform: translateX(0);
+    }
+  }
+
+  .velora-title-marquee {
+    animation: velora-title-marquee-pingpong var(--marquee-duration, 8s) ease-in-out infinite;
+    will-change: transform;
+  }
+
+  button:hover .velora-title-marquee {
+    animation-play-state: paused;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .velora-title-marquee {
+      animation: none;
+    }
+  }
+</style>

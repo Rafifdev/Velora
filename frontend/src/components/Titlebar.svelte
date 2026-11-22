@@ -722,7 +722,7 @@
                           };
                         }
                       }}
-                      class="w-7 h-7 rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-transform hover:scale-110"
+                      class="velora-heart-btn w-7 h-7 rounded-full flex items-center justify-center shrink-0 cursor-pointer {art.isFavorite ? 'is-loved' : ''}"
                       style="color: {art.isFavorite ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-on-surface-variant)'};"
                     >
                       <Icon name="heart" weight={art.isFavorite ? 'fill' : 'regular'} size={17} />

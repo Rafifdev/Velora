@@ -8,6 +8,7 @@
   interface Props {
     currentTrack: Track | null;
     isPlaying: boolean;
+    trackLoading?: boolean;
     positionSec: number;
     durationSec: number;
     volume: number;
@@ -42,6 +43,7 @@
   let {
     currentTrack,
     isPlaying,
+    trackLoading = false,
     positionSec,
     durationSec,
     volume,
@@ -64,7 +66,7 @@
     onToggleMute,
     onToggleShuffle,
     onCycleRepeat,
-    onToggleFavorite: _onToggleFavorite,
+    onToggleFavorite,
     onFocusRightCard,
     onOpenTrackDetail,
     onOpenArtistDetail,
@@ -147,7 +149,11 @@
           class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
           style="color: var(--md-sys-color-on-surface);"
         >
-          <Icon name={isPlaying ? 'pause' : 'play'} weight="fill" size={20} />
+          {#if trackLoading}
+            <Icon name="circle-notch" weight="bold" size={20} class="animate-spin" />
+          {:else}
+            <Icon name={isPlaying ? 'pause' : 'play'} weight="fill" size={20} />
+          {/if}
         </button>
       </div>
     </div>
@@ -342,7 +348,11 @@
         aria-label={isPlaying ? tr(lang, 'nav.pause') : tr(lang, 'nav.play')}
         class="m3-fab w-12 h-12 flex items-center justify-center cursor-pointer"
       >
-        <Icon name={isPlaying ? 'pause' : 'play'} weight="fill" size={21} />
+        {#if trackLoading}
+          <Icon name="circle-notch" weight="bold" size={21} class="animate-spin" />
+        {:else}
+          <Icon name={isPlaying ? 'pause' : 'play'} weight="fill" size={21} />
+        {/if}
       </button>
 
       <button
@@ -374,6 +384,17 @@
 
     <div class="hidden sm:flex w-[30%] min-w-[180px] items-center justify-end gap-2.5">
       <div class="hidden md:flex items-center gap-1 pr-2">
+        <button
+          type="button"
+          disabled={!currentTrack}
+          onclick={() => currentTrack && onToggleFavorite?.(currentTrack.id)}
+          title={tr(lang, 'nav.likeSong')}
+          aria-label={tr(lang, 'nav.likeSong')}
+          class="m3-icon-btn velora-heart-btn w-8 h-8 flex items-center justify-center cursor-pointer disabled:opacity-35 {currentTrack?.isFavorite ? 'is-loved' : ''}"
+          style={currentTrack?.isFavorite ? 'color: var(--md-sys-color-tertiary);' : ''}
+        >
+          <Icon name="heart" weight={currentTrack?.isFavorite ? 'fill' : 'regular'} size={17} />
+        </button>
         <button
           type="button"
           onclick={() => (onToggleLyrics ? onToggleLyrics() : onFocusRightCard('lyrics'))}

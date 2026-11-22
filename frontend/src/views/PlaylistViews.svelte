@@ -3,10 +3,12 @@
   import { svelteMotionEnter } from '../lib/motion';
   import type { Playlist, PlaylistDetail, Track, YTMusicTrack } from '../lib/types';
   import { tr, type LangCode } from '../lib/i18n';
+  import CoverImage from '../components/CoverImage.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import EqIndicator from '../components/EqIndicator.svelte';
   import Icon from '../components/Icon.svelte';
   import ModalDialog from '../components/ModalDialog.svelte';
+  import TrackActionMenu from '../components/TrackActionMenu.svelte';
 
   interface Props {
     mode: 'playlists' | 'local-playlists' | 'playlist-detail';
@@ -35,7 +37,9 @@
     onRemoveTrack: (playlistId: number, trackId: number) => void;
     onReorderTracks: (playlistId: number, trackIds: number[]) => void;
     onToggleFavorite: (trackId: number) => void;
+    onPlayNext?: (track: Track) => void;
     onAddToQueue?: (track: Track) => void;
+    onCopyLink?: (track: Track) => void;
     onDownloadTrack?: (track: Track) => void;
     onRemoveDownload?: (trackId: number) => void;
     onOpenArtist?: (artistId: number) => void;
@@ -73,7 +77,9 @@
     onRemoveTrack,
     onReorderTracks,
     onToggleFavorite,
+    onPlayNext,
     onAddToQueue,
+    onCopyLink,
     onDownloadTrack,
     onRemoveDownload,
     onOpenArtist,
@@ -91,7 +97,6 @@
   let tabFilter = $state<'all' | 'local' | 'ytmusic'>('all');
   let recSeed = $state(Math.floor(Math.random() * 100000));
   let openActionTrackId = $state<number | null>(null);
-  let showPlaylistSubmenu = $state(false);
   let failedRecCovers = $state<Record<string, boolean>>({});
   let importModalOpen = $state(false);
   let spotifyUrl = $state('');
@@ -331,7 +336,6 @@
     style="background-color: var(--md-sys-color-surface-container-low);"
     onclick={() => {
       openActionTrackId = null;
-      showPlaylistSubmenu = false;
     }}
     role="presentation"
     use:svelteMotionEnter={{ y: 8 }}
@@ -496,16 +500,9 @@
                   onclick={() => (active && onTogglePlay ? onTogglePlay() : onPlayTrack(item, detail.tracks))}
                   class="flex items-center gap-3 min-w-0 text-left cursor-pointer"
                 >
-                  {#if cover}
-                    <img src={cover} alt={item.title} class="block w-10 h-10 rounded-md object-cover object-center shrink-0" />
-                  {:else}
-                    <div
-                      class="w-10 h-10 rounded-md flex items-center justify-center shrink-0"
-                      style="background: linear-gradient(135deg, var(--md-sys-color-primary-container), var(--md-sys-color-surface-container-highest));"
-                    >
-                      <Icon name="vinyl-record" weight="fill" size={16} style="color: var(--md-sys-color-on-primary-container); opacity: 0.6;" />
-                    </div>
-                  {/if}
+                  <div class="w-10 h-10 rounded-md overflow-hidden shrink-0">
+                    <CoverImage src={cover} fallbackIcon="vinyl-record" iconSize={16} />
+                  </div>
                   <div class="min-w-0 pr-4">
                     <div
                       class="text-xs font-bold line-clamp-2 whitespace-normal leading-snug"
@@ -529,169 +526,26 @@
                   {formatDuration(item.durationSec)}
                 </span>
 
-                <div class="relative flex items-center justify-end">
-                  <button
-                    type="button"
-                    onclick={(e) => {
-                      e.stopPropagation();
-                      if (menuOpen) {
-                        openActionTrackId = null;
-                        showPlaylistSubmenu = false;
-                      } else {
-                        openActionTrackId = item.id;
-                        showPlaylistSubmenu = false;
-                      }
-                    }}
-                    aria-label={tr(lang, 'nav.trackActions')}
-                    class="w-8 h-8 flex items-center justify-center bg-transparent hover:bg-transparent cursor-pointer transition-colors {menuOpen ? 'opacity-100 text-[var(--md-sys-color-on-surface)]' : 'opacity-65 hover:opacity-100 text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'}"
-                  >
-                    <Icon name="dots-three-vertical" weight="bold" size={18} />
-                  </button>
-
-                  {#if menuOpen}
-                    <div
-                      onclick={(e) => e.stopPropagation()}
-                      role="menu"
-                      tabindex="-1"
-                      class="absolute right-0 top-9 z-40 w-60 p-1.5 rounded-xl shadow-2xl text-xs"
-                      style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
-                    >
-                      {#if playlists.some((other) => other.id !== pl.id)}
-                        <div class="relative">
-                          <button
-                            type="button"
-                            onclick={() => (showPlaylistSubmenu = !showPlaylistSubmenu)}
-                            class="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
-                          >
-                            <span class="flex items-center gap-2.5">
-                              <Icon name="plus" size={15} />
-                              <span>{tr(lang, 'nav.addToPlaylist')}</span>
-                            </span>
-                            <Icon name="caret-right" size={12} />
-                          </button>
-                          {#if showPlaylistSubmenu}
-                            <div class="mt-0.5 mb-1 pl-3 space-y-0.5 max-h-36 overflow-y-auto">
-                              {#each playlists.filter((other) => other.id !== pl.id) as otherPl (otherPl.id)}
-                                <button
-                                  type="button"
-                                  onclick={() => {
-                                    onAddTrack(otherPl.id, item.id);
-                                    openActionTrackId = null;
-                                    showPlaylistSubmenu = false;
-                                  }}
-                                  class="w-full text-left px-3 py-1.5 rounded-md hover:bg-[var(--md-sys-color-state-hover)] truncate cursor-pointer opacity-90"
-                                >
-                                  {otherPl.name}
-                                </button>
-                              {/each}
-                            </div>
-                          {/if}
-                        </div>
-                      {/if}
-
-                      <button
-                        type="button"
-                        onclick={() => {
-                          onRemoveTrack(pl.id, item.id);
-                          openActionTrackId = null;
-                        }}
-                        class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
-                      >
-                        <Icon name="minus-circle" size={15} />
-                        <span>{tr(lang, 'nav.removeFromThisPlaylist')}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onclick={() => {
-                          onToggleFavorite(item.id);
-                          openActionTrackId = null;
-                        }}
-                        class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
-                      >
-                        <Icon
-                          name="heart"
-                          weight={item.isFavorite ? 'fill' : 'regular'}
-                          size={15}
-                          class={item.isFavorite ? 'text-[var(--md-sys-color-tertiary)]' : ''}
-                        />
-                        <span>{item.isFavorite ? tr(lang, 'nav.removeFromLikedSongs') : tr(lang, 'nav.addToLikedSongs')}</span>
-                      </button>
-
-                      {#if onAddToQueue}
-                        <button
-                          type="button"
-                          onclick={() => {
-                            onAddToQueue(item);
-                            openActionTrackId = null;
-                          }}
-                          class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
-                        >
-                          <Icon name="queue" size={15} />
-                          <span>{tr(lang, 'nav.addToQueue')}</span>
-                        </button>
-                      {/if}
-
-                      {#if item.isDownloaded && onRemoveDownload}
-                        <button
-                          type="button"
-                          onclick={() => {
-                            onRemoveDownload(item.id);
-                            openActionTrackId = null;
-                          }}
-                          class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
-                        >
-                          <Icon name="check-circle" weight="fill" size={15} class="text-[var(--md-sys-color-primary)]" />
-                          <span>{tr(lang, 'nav.removeDownload')}</span>
-                        </button>
-                      {:else if onDownloadTrack}
-                        <button
-                          type="button"
-                          onclick={() => {
-                            onDownloadTrack(item);
-                            openActionTrackId = null;
-                          }}
-                          class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
-                        >
-                          <Icon name="download" size={15} />
-                          <span>{tr(lang, 'nav.downloadOffline')}</span>
-                        </button>
-                      {/if}
-
-                      {#if (onOpenArtist && item.artistId > 0) || onOpenTrackAlbum}
-                        <div class="my-1 h-px opacity-15" style="background-color: var(--md-sys-color-on-surface);"></div>
-                      {/if}
-
-                      {#if onOpenArtist && item.artistId > 0}
-                        <button
-                          type="button"
-                          onclick={() => {
-                            onOpenArtist(item.artistId);
-                            openActionTrackId = null;
-                          }}
-                          class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
-                        >
-                          <Icon name="user" size={15} />
-                          <span>{tr(lang, 'nav.openArtist')}</span>
-                        </button>
-                      {/if}
-
-                      {#if onOpenTrackAlbum}
-                        <button
-                          type="button"
-                          onclick={() => {
-                            onOpenTrackAlbum(item);
-                            openActionTrackId = null;
-                          }}
-                          class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
-                        >
-                          <Icon name="vinyl-record" size={15} />
-                          <span>{tr(lang, 'nav.goToAlbum')}</span>
-                        </button>
-                      {/if}
-                    </div>
-                  {/if}
-                </div>
+                <TrackActionMenu
+                  track={item}
+                  open={menuOpen}
+                  {playlists}
+                  excludePlaylistId={pl.id}
+                  {lang}
+                  triggerClass="w-8 h-8 {menuOpen ? 'opacity-100' : 'opacity-65 hover:opacity-100'}"
+                  onToggleOpen={() => (openActionTrackId = menuOpen ? null : item.id)}
+                  onClose={() => (openActionTrackId = null)}
+                  {onPlayNext}
+                  {onAddToQueue}
+                  onAddToPlaylist={onAddTrack}
+                  onRemoveFromPlaylist={(trackId) => onRemoveTrack(pl.id, trackId)}
+                  {onToggleFavorite}
+                  {onDownloadTrack}
+                  {onRemoveDownload}
+                  {onOpenArtist}
+                  {onOpenTrackAlbum}
+                  {onCopyLink}
+                />
               </div>
             {/each}
           </div>
@@ -976,12 +830,11 @@
                 class="velora-card-artwork-hit flex items-center justify-center cursor-pointer"
               >
                 {#if cover}
-                  <img
+                  <CoverImage
                     src={cover}
-                    alt={pl.name}
-                    loading="lazy"
-                    decoding="async"
-                    class:velora-yt-video-thumb={isYTVideoThumb(cover)}
+                    fallbackIcon="playlist"
+                    iconSize={44}
+                    isVideoThumb={isYTVideoThumb(cover)}
                   />
                 {:else}
                   <Icon name="playlist" weight="fill" size={44} class="text-white/95 drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]" />

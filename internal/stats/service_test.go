@@ -76,4 +76,35 @@ func TestFireStreakAndListeningStats(t *testing.T) {
 	if ls.PeakHourLabel != "21:00" || ls.PeakPersona != "Evening Vibes" {
 		t.Fatalf("unexpected peak hour/persona: %s / %s", ls.PeakHourLabel, ls.PeakPersona)
 	}
+
+	// Plays < 20s must be ignored, and duplicate track entries with same title+artist must merge.
+	if err := svc.RecordListen(tr1.ID, 19, false, now); err != nil {
+		t.Fatalf("record <20s: %v", err)
+	}
+	trDup, err := store.UpsertTrack(db.Track{
+		Title:       "  midnight city ",
+		ArtistName:  "m83",
+		AlbumTitle:  "Hurry Up",
+		DurationSec: 240,
+		Format:      "STREAM",
+		SourceType:  "ytmusic",
+		FilePath:    "yt:midnight-city",
+	})
+	if err != nil {
+		t.Fatalf("upsert dup track: %v", err)
+	}
+	if err := svc.RecordListen(trDup.ID, 25, false, now); err != nil {
+		t.Fatalf("record dup >=20s: %v", err)
+	}
+
+	ls2, err := svc.GetListeningStats()
+	if err != nil {
+		t.Fatalf("get listening stats 2: %v", err)
+	}
+	if ls2.TotalPlays != 7 || ls2.UniqueTracks != 1 {
+		t.Fatalf("expected 7 plays and 1 unique track after <20s ignore + dedup, got %+v", ls2)
+	}
+	if len(ls2.TopTracks) != 1 || ls2.TopTracks[0].Plays != 7 {
+		t.Fatalf("expected merged top track with 7 plays, got %+v", ls2.TopTracks)
+	}
 }

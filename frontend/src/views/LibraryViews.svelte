@@ -3,6 +3,7 @@
   import { svelteMotionEnter } from '../lib/motion';
   import type { Album, Artist, DownloadProgress, Playlist, Track, ViewRoute, YTMusicArtistView, YTMusicCard, YTMusicTrack } from '../lib/types';
   import { tr, type LangCode } from '../lib/i18n';
+  import CoverImage from '../components/CoverImage.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import EqIndicator from '../components/EqIndicator.svelte';
   import Icon from '../components/Icon.svelte';
@@ -44,6 +45,9 @@
     accentColor: string;
     onPlayTrack: (track: Track, list: Track[]) => void;
     onTogglePlay?: () => void;
+    onPlayNext?: (track: Track) => void;
+    onAddToQueue?: (track: Track) => void;
+    onCopyLink?: (track: Track) => void;
     onPlayAlbum?: (albumId: number) => void;
     onPlayArtist?: (artistId: number) => void;
     onPlayYTMusic: (yt: YTMusicTrack) => void;
@@ -101,6 +105,9 @@
     accentColor,
     onPlayTrack,
     onTogglePlay,
+    onPlayNext,
+    onAddToQueue,
+    onCopyLink,
     onPlayAlbum,
     onPlayArtist,
     onPlayYTMusic,
@@ -386,10 +393,14 @@
           {playlists}
           {downloadStates}
           {onPlayTrack}
+          {onPlayNext}
+          {onAddToQueue}
+          {onCopyLink}
           onToggleFavorite={onToggleFavoriteTrack}
           {onAddToPlaylist}
           {onDownloadTrack}
           {onRemoveDownload}
+          {onOpenArtist}
           {onOpenTrackAlbum}
           {lang}
         />
@@ -531,10 +542,14 @@
           {playlists}
           {downloadStates}
           {onPlayTrack}
+          {onPlayNext}
+          {onAddToQueue}
+          {onCopyLink}
           onToggleFavorite={onToggleFavoriteTrack}
           {onAddToPlaylist}
           {onDownloadTrack}
           {onRemoveDownload}
+          {onOpenArtist}
           {onOpenTrackAlbum}
           {lang}
         />
@@ -653,7 +668,7 @@
                 type="button"
                 onclick={() => onToggleFavoriteAlbum(al.id)}
                 aria-label="Hapus {al.title} dari favorit"
-                class="border-0 shadow-none absolute top-4 right-4 w-8 h-8 rounded-full backdrop-blur-xs flex items-center justify-center cursor-pointer transition-all duration-200 opacity-100 hover:scale-110"
+                class="velora-heart-btn is-loved border-0 shadow-none absolute top-4 right-4 w-8 h-8 rounded-full backdrop-blur-xs flex items-center justify-center cursor-pointer opacity-100"
                 style="background-color: color-mix(in srgb, var(--md-sys-color-surface-container-highest) 78%, transparent); color: var(--md-sys-color-tertiary);"
               >
                 <Icon name="heart" weight="fill" size={15} />
@@ -776,7 +791,7 @@
                 type="button"
                 onclick={() => onToggleFavoriteArtist(ar.id)}
                 aria-label="Hapus {ar.name} dari favorit"
-                class="border-0 shadow-none absolute top-4 right-4 w-8 h-8 rounded-full backdrop-blur-xs flex items-center justify-center cursor-pointer transition-all duration-200 opacity-100 hover:scale-110"
+                class="velora-heart-btn is-loved border-0 shadow-none absolute top-4 right-4 w-8 h-8 rounded-full backdrop-blur-xs flex items-center justify-center cursor-pointer opacity-100"
                 style="background-color: color-mix(in srgb, var(--md-sys-color-surface-container-highest) 78%, transparent); color: var(--md-sys-color-tertiary);"
               >
                 <Icon name="heart" weight="fill" size={15} />
@@ -972,10 +987,14 @@
               {playlists}
               {downloadStates}
               {onPlayTrack}
+              {onPlayNext}
+              {onAddToQueue}
+              {onCopyLink}
               onToggleFavorite={onToggleFavoriteTrack}
               {onAddToPlaylist}
               {onDownloadTrack}
               {onRemoveDownload}
+              {onOpenArtist}
               {onOpenTrackAlbum}
               {lang}
             />
@@ -1016,11 +1035,7 @@
                   class="group w-[132px] sm:w-[168px] shrink-0 flex flex-col p-2 sm:p-2.5 rounded-lg text-left cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
                 >
                   <div class="velora-card-artwork mb-2.5 flex items-center justify-center bg-[var(--md-sys-color-surface-container-high)]">
-                    {#if aCover}
-                      <img src={aCover} alt={alb.title} loading="lazy" decoding="async" />
-                    {:else}
-                      <Icon name="vinyl-record" weight="fill" size={38} class="opacity-40" />
-                    {/if}
+                    <CoverImage src={aCover} fallbackIcon="vinyl-record" iconSize={38} />
                   </div>
                   <div class="text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
                     {alb.title}
@@ -1054,11 +1069,7 @@
                   class="group w-[124px] sm:w-[156px] shrink-0 flex flex-col items-center p-2 sm:p-2.5 rounded-lg text-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
                 >
                   <div class="velora-card-artwork velora-artist-avatar !rounded-full mb-2.5 flex items-center justify-center bg-[var(--md-sys-color-surface-container-high)] shadow-sm">
-                    {#if rCover}
-                      <img src={rCover} alt={rel.title} loading="lazy" decoding="async" />
-                    {:else}
-                      <Icon name="user" weight="fill" size={36} class="opacity-40" />
-                    {/if}
+                    <CoverImage src={rCover} fallbackIcon="user" iconSize={36} />
                   </div>
                   <div class="w-full text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
                     {rel.title}
@@ -1241,11 +1252,7 @@
                     onclick={() => (onOpenYTCard ? onOpenYTCard(card) : onPlayYTCollection?.(card))}
                     class="w-full h-full block cursor-pointer"
                   >
-                    {#if cardCover}
-                      <img src={cardCover} alt={card.title} class="w-full h-full object-cover" />
-                    {:else}
-                      <div class="w-full h-full flex items-center justify-center"><Icon name="disc" size={28} /></div>
-                    {/if}
+                    <CoverImage src={cardCover} fallbackIcon="vinyl-record" iconSize={28} />
                   </button>
                   {#if onPlayYTCollection}
                     <button
@@ -1297,11 +1304,7 @@
                 class="group p-3 rounded-xl bg-[var(--md-sys-color-surface-container-low)] hover:bg-[var(--md-sys-color-surface-container-high)] transition-colors space-y-2.5 text-center cursor-pointer"
               >
                 <div class="aspect-square rounded-full overflow-hidden bg-[var(--md-sys-color-surface-container-highest)] mx-auto">
-                  {#if cardCover}
-                    <img src={cardCover} alt={card.title} class="w-full h-full object-cover" />
-                  {:else}
-                    <div class="w-full h-full flex items-center justify-center"><Icon name="user" size={28} /></div>
-                  {/if}
+                  <CoverImage src={cardCover} fallbackIcon="user" iconSize={28} />
                 </div>
                 <div class="text-sm font-semibold truncate" style="color: var(--md-sys-color-on-surface);">{card.title}</div>
                 <div class="text-xs truncate" style="color: var(--md-sys-color-on-surface-variant);">{card.subtitle || tr(lang, 'nav.artist')}</div>
@@ -1337,11 +1340,7 @@
                     onclick={() => (onOpenYTCard ? onOpenYTCard(card) : onPlayYTCollection?.(card))}
                     class="w-full h-full block cursor-pointer"
                   >
-                    {#if cardCover}
-                      <img src={cardCover} alt={card.title} class="w-full h-full object-cover" />
-                    {:else}
-                      <div class="w-full h-full flex items-center justify-center"><Icon name="playlist" size={28} /></div>
-                    {/if}
+                    <CoverImage src={cardCover} fallbackIcon="playlist" iconSize={28} />
                   </button>
                   {#if onPlayYTCollection}
                     <button
@@ -1547,10 +1546,14 @@
           {playlists}
           {downloadStates}
           {onPlayTrack}
+          {onPlayNext}
+          {onAddToQueue}
+          {onCopyLink}
           onToggleFavorite={onToggleFavoriteTrack}
           {onAddToPlaylist}
           {onDownloadTrack}
           {onRemoveDownload}
+          {onOpenArtist}
           {onOpenTrackAlbum}
           {lang}
         />

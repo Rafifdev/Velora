@@ -230,6 +230,9 @@ export const api = {
   async getYTMusicHome(): Promise<YTMusicHomeFeed> {
     return appBridge().GetYTMusicHome();
   },
+  async getYTMusicHomeContinuation(continuation: string): Promise<YTMusicHomeFeed> {
+    return appBridge().GetYTMusicHomeContinuation(continuation);
+  },
   async getYTMusicTop100(): Promise<YTMusicTrack[]> {
     return appBridge().GetYTMusicTop100();
   },
@@ -534,6 +537,7 @@ export const api = {
     accentColor: string;
     streakDays: number;
     lyricsLoading: boolean;
+    trackLoading?: boolean;
     queueTitle: string;
     queueIndex: number;
     queue: Array<{

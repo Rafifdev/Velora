@@ -1234,8 +1234,8 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     category: 'content',
     group: 'grp.regionLanguage',
     title: 'Content region',
-    description: 'Catalog regions for Home and Search recommendations.',
-    widget: 'multi-select',
+    description: 'Catalog region for Home, Charts, and Search recommendations.',
+    widget: 'select',
     defaultValue: 'ID',
     options: [
       { value: 'ID', label: 'Indonesia' },

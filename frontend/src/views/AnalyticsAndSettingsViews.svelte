@@ -128,16 +128,9 @@
     }
     const seq = ++statsReqSeq;
     selectedStatsDate = dateStr;
-    statsLoading = true;
-    try {
-      const res = await api.getListeningStatsByDate(dateStr);
-      if (seq === statsReqSeq) {
-        dateFilteredStats = res;
-      }
-    } finally {
-      if (seq === statsReqSeq) {
-        statsLoading = false;
-      }
+    const res = await api.getListeningStatsByDate(dateStr);
+    if (seq === statsReqSeq) {
+      dateFilteredStats = res;
     }
   }
 
@@ -147,8 +140,69 @@
   }
 
   const isCurrentCalMonth = $derived(calYear === currentYear && calMonth === currentMonth);
+  const currentMonthIdx = currentYear * 12 + (currentMonth - 1);
+  const minAllowedMonthIdx = $derived.by(() => {
+    const defaultMin = currentMonthIdx - 2;
+    let earliest = currentMonthIdx;
+    for (const r of fireStreak.last30Days ?? []) {
+      if (!r.streakMet) continue;
+      const ry = Number(r.date.slice(0, 4));
+      const rm = Number(r.date.slice(5, 7)) - 1;
+      const idx = ry * 12 + rm;
+      if (idx < earliest) earliest = idx;
+    }
+    return Math.min(defaultMin, earliest);
+  });
+  const canGoPrevCalMonth = $derived(calYear * 12 + (calMonth - 1) > minAllowedMonthIdx);
+  let chartPeriod = $state<'week' | 'month' | 'year'>('week');
+  const CHART_PERIOD_OPTIONS = [
+    { value: 'week' as const, label: 'Minggu ini' },
+    { value: 'month' as const, label: 'Bulan ini' },
+    { value: 'year' as const, label: 'Tahun ini' }
+  ];
+
+  const monthlyStreakStats = $derived.by(() => {
+    const key = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
+    const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+    const byDate = new Map<string, DailyStreakRow>();
+    for (const r of fireStreak.last30Days ?? []) {
+      byDate.set(r.date, r);
+    }
+    if (monthlyStreakKey === key) {
+      for (const r of monthlyStreakRows) {
+        byDate.set(r.date, r);
+      }
+    }
+    let metDays = 0;
+    let brokenDays = 0;
+    let hadStreak = false;
+    const firstOfMonth = `${key}-01`;
+    for (const r of byDate.values()) {
+      if (r.date < firstOfMonth && r.streakMet) {
+        hadStreak = true;
+        break;
+      }
+    }
+    for (let d = 1; d <= currentDay; d++) {
+      const dateStr = `${key}-${String(d).padStart(2, '0')}`;
+      const row = byDate.get(dateStr);
+      const sec = row?.secondsListened ?? 0;
+      const met = row?.streakMet ?? false;
+      if (met) {
+        metDays++;
+        hadStreak = true;
+      } else if (d < currentDay && sec === 0 && hadStreak) {
+        brokenDays++;
+        hadStreak = false;
+      }
+    }
+    const pct = Math.min(100, Math.round((metDays / Math.max(1, daysInMonth)) * 100));
+    const remainingRecoveries = Math.max(0, 3 - brokenDays);
+    return { metDays, daysInMonth, pct, remainingRecoveries };
+  });
 
   function prevCalMonth() {
+    if (!canGoPrevCalMonth) return;
     if (calMonth === 1) {
       calYear -= 1;
       calMonth = 12;
@@ -236,20 +290,38 @@
       }
     }
 
-    const days: Array<DailyStreakRow & { dayNum: number; isToday: boolean; isFuture: boolean }> = [];
+    const firstOfMonth = `${key}-01`;
+    let hadActiveStreakBefore = false;
+    for (const r of byDate.values()) {
+      if (r.date < firstOfMonth && r.streakMet) {
+        hadActiveStreakBefore = true;
+        break;
+      }
+    }
+
+    const days: Array<DailyStreakRow & { dayNum: number; isToday: boolean; isFuture: boolean; streakBroken: boolean }> = [];
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${key}-${String(d).padStart(2, '0')}`;
       const existing = byDate.get(dateStr);
       const isToday = y === currentYear && m === currentMonth && d === currentDay;
       const isFuture = y === currentYear && m === currentMonth && d > currentDay;
+      const secondsListened = existing?.secondsListened ?? 0;
+      const streakMet = existing?.streakMet ?? false;
+      const streakBroken = !isFuture && !isToday && !streakMet && secondsListened === 0 && hadActiveStreakBefore;
+      if (streakMet) {
+        hadActiveStreakBefore = true;
+      } else if (streakBroken) {
+        hadActiveStreakBefore = false;
+      }
       days.push({
         date: dateStr,
-        secondsListened: existing?.secondsListened ?? 0,
+        secondsListened,
         tracksCount: existing?.tracksCount ?? 0,
-        streakMet: existing?.streakMet ?? false,
+        streakMet,
         dayNum: d,
         isToday,
-        isFuture
+        isFuture,
+        streakBroken
       });
     }
 
@@ -417,6 +489,16 @@
     return cat ? tr(lang, cat.titleKey, cat.title) : activePrefTab;
   });
 
+  function formatListeningDuration(minutes: number): string {
+    const totalSeconds = Math.max(0, Math.round((minutes || 0) * 60));
+    if (totalSeconds < 60) {
+      return `${totalSeconds} ${lang === 'en' ? 's' : 'dtk'}`;
+    }
+    const mins = Math.round((minutes || 0) * 10) / 10;
+    const displayMin = Number.isInteger(mins) ? String(mins) : mins.toFixed(1);
+    return `${displayMin} ${tr(lang, 'nav.minutesShort')}`;
+  }
+
   const maxTopTrackPlays = $derived(
     Math.max(1, ...(displayedStats.topTracks ?? []).map((t) => t.plays))
   );
@@ -424,11 +506,11 @@
     Math.max(1, ...(displayedStats.topArtists ?? []).map((a) => a.plays))
   );
 
-  const last14DaysSeries = $derived.by(() => {
-    const slice = (fireStreak.last30Days ?? []).slice(-14);
-    const labels = slice.map((d) => `${d.date.slice(8, 10)}/${d.date.slice(5, 7)}`);
-    const values = slice.map((d) => Math.round((d.secondsListened / 60) * 10) / 10);
-    const tracks = slice.map((d) => d.tracksCount);
+  const todayHourlySeries = $derived.by(() => {
+    const hrs = displayedStats.todayHours ?? displayedStats.timeOfDay ?? [];
+    const labels = hrs.map((h) => h.label.slice(0, 2));
+    const values = hrs.map((h) => h.minutes);
+    const plays = hrs.map((h) => h.plays);
     let peakIdx = -1;
     let peakVal = 0;
     for (let i = 0; i < values.length; i++) {
@@ -437,19 +519,30 @@
         peakIdx = i;
       }
     }
-    const total14Min = Math.round(values.reduce((a, b) => a + b, 0) * 10) / 10;
-    return { labels, values, tracks, peakIdx, total14Min };
+    const totalMin = Math.round(values.reduce((a, b) => a + b, 0) * 10) / 10;
+    return { labels, values, plays, peakIdx, totalMin };
   });
 
-  const weeklySeries = $derived.by(() => {
-    const days = displayedStats.dayOfWeek ?? [];
-    const labels = days.map((d) => localizeShortDay(d.dayIndex, d.label));
-    const values = days.map((d) => d.minutes);
-    const plays = days.map((d) => d.plays);
-    const highlightIndex = days.findIndex(
-      (d) => d.fullName === displayedStats.mostActiveDay && d.minutes > 0
-    );
-    return { labels, values, plays, highlightIndex };
+  const periodRangeSeries = $derived.by(() => {
+    const src =
+      chartPeriod === 'year'
+        ? (displayedStats.yearSeries ?? [])
+        : chartPeriod === 'month'
+          ? (displayedStats.monthSeries ?? [])
+          : (displayedStats.weekSeries ?? []);
+    const labels = src.map((d) => d.label);
+    const values = src.map((d) => d.minutes);
+    const plays = src.map((d) => d.plays);
+    let highlightIndex = -1;
+    let maxVal = 0;
+    for (let i = 0; i < values.length; i++) {
+      if (values[i] > maxVal) {
+        maxVal = values[i];
+        highlightIndex = i;
+      }
+    }
+    const totalMin = Math.round(values.reduce((a, b) => a + b, 0) * 10) / 10;
+    return { labels, values, plays, highlightIndex, totalMin };
   });
 
   const SHORT_DAY_KEYS = ['nav.dayMon', 'nav.dayTue', 'nav.dayWed', 'nav.dayThu', 'nav.dayFri', 'nav.daySat', 'nav.daySun'] as const;
@@ -1180,7 +1273,7 @@
             </div>
             <h1 class="text-3xl font-bold tracking-tight text-[var(--md-sys-color-on-surface)]">{tr(lang, 'nav.history')}</h1>
             <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] tabular-nums">
-              {history.length} {tr(lang, 'nav.recentStreams')} • {listeningStats.totalMinutes} {tr(lang, 'nav.minutesShort')}
+              {history.length} {tr(lang, 'nav.recentStreams')} • {formatListeningDuration(listeningStats.totalMinutes)}
             </p>
           </div>
         </div>
@@ -1329,50 +1422,66 @@
       class="relative z-10 px-6 sm:px-8 pt-6 pb-6"
       style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-primary) 24%, var(--md-sys-color-primary-container)) 0%, color-mix(in srgb, var(--md-sys-color-primary-container) 56%, var(--md-sys-color-surface-container-low)) 100%);"
     >
+      <h1 class="text-3xl font-bold tracking-tight text-[var(--md-sys-color-on-surface)] mb-5">
+        {tr(lang, 'nav.stats')}
+      </h1>
       {#if statsLoading}
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {#each [0, 1, 2, 3] as skIdx (`stat-card-sk-${skIdx}`)}
             <div class="p-4 rounded-xl bg-[var(--md-sys-color-surface-container)]/90 space-y-2.5 shadow-xs animate-pulse">
               <div class="h-3 w-24 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
-              <div class="h-7 w-28 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+              <div class="h-7 w-20 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+              <div class="h-2.5 w-16 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
             </div>
           {/each}
         </div>
       {:else}
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <div class="p-4 rounded-xl bg-[var(--md-sys-color-surface-container)]/90 space-y-1 shadow-xs">
-            <div class="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style="color: var(--md-sys-color-on-surface-variant);">
-              <Icon name="clock" size={13} /> {tr(lang, 'nav.totalTime')}
+            <div class="text-[11px] font-semibold" style="color: var(--md-sys-color-on-surface-variant);">
+              Waktu dengar
             </div>
             <div class="text-2xl font-bold tabular-nums" style="color: var(--md-sys-color-on-surface);">
-              {displayedStats.totalMinutes} <span class="text-sm font-semibold opacity-75">{tr(lang, 'nav.minutesShort')}</span>
+              {formatListeningDuration(displayedStats.totalMinutes)}
+            </div>
+            <div class="text-[11px] opacity-75" style="color: var(--md-sys-color-on-surface-variant);">
+              total
             </div>
           </div>
 
           <div class="p-4 rounded-xl bg-[var(--md-sys-color-surface-container)]/90 space-y-1 shadow-xs">
-            <div class="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style="color: var(--md-sys-color-on-surface-variant);">
-              <Icon name="sparkle" size={13} /> {tr(lang, 'nav.peakHour')}
+            <div class="text-[11px] font-semibold" style="color: var(--md-sys-color-on-surface-variant);">
+              Putaran
             </div>
             <div class="text-2xl font-bold tabular-nums" style="color: var(--md-sys-color-on-surface);">
-              {displayedStats.peakHourLabel}
+              {displayedStats.totalPlays}
+            </div>
+            <div class="text-[11px] opacity-75" style="color: var(--md-sys-color-on-surface-variant);">
+              kali diputar
             </div>
           </div>
 
           <div class="p-4 rounded-xl bg-[var(--md-sys-color-surface-container)]/90 space-y-1 shadow-xs">
-            <div class="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style="color: var(--md-sys-color-on-surface-variant);">
-              <Icon name="calendar" size={13} /> {tr(lang, 'nav.mostActiveDay')}
+            <div class="text-[11px] font-semibold" style="color: var(--md-sys-color-on-surface-variant);">
+              Lagu berbeda
             </div>
-            <div class="text-2xl font-bold truncate" style="color: var(--md-sys-color-on-surface);">
-              {localizeFullDayName(displayedStats.mostActiveDay)}
+            <div class="text-2xl font-bold tabular-nums" style="color: var(--md-sys-color-on-surface);">
+              {displayedStats.uniqueTracks}
+            </div>
+            <div class="text-[11px] opacity-75" style="color: var(--md-sys-color-on-surface-variant);">
+              lagu
             </div>
           </div>
 
           <div class="p-4 rounded-xl bg-[var(--md-sys-color-surface-container)]/90 space-y-1 shadow-xs">
-            <div class="text-[11px] font-semibold uppercase tracking-wider flex items-center gap-1.5" style="color: var(--md-sys-color-on-surface-variant);">
-              <Icon name="flame" weight="fill" size={13} class="text-orange-400" /> {tr(lang, 'nav.streak')}
+            <div class="text-[11px] font-semibold" style="color: var(--md-sys-color-on-surface-variant);">
+              Hari aktif
             </div>
-            <div class="text-2xl font-bold text-orange-400 tabular-nums">
-              {fireStreak.currentStreak} <span class="text-sm font-semibold">{tr(lang, 'nav.days')}</span>
+            <div class="text-2xl font-bold tabular-nums" style="color: var(--md-sys-color-on-surface);">
+              {displayedStats.activeDays ?? 0}
+            </div>
+            <div class="text-[11px] opacity-75" style="color: var(--md-sys-color-on-surface-variant);">
+              hari ada yang diputar
             </div>
           </div>
         </div>
@@ -1384,6 +1493,21 @@
       style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-primary-container) 30%, var(--md-sys-color-surface-container-low)) 0%, var(--md-sys-color-surface-container-low) 180px);"
     >
       {#if statsLoading}
+        <section class="p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] animate-pulse flex flex-col md:flex-row md:items-center justify-between gap-5">
+          <div class="flex items-center gap-4">
+            <div class="w-14 h-14 rounded-2xl bg-[var(--md-sys-color-surface-container-highest)] shrink-0"></div>
+            <div class="space-y-2">
+              <div class="h-3 w-20 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+              <div class="h-6 w-36 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
+            </div>
+          </div>
+          <div class="flex-1 max-w-md grid grid-cols-3 gap-2.5">
+            {#each [0, 1, 2] as fSk (`fire-sk-${fSk}`)}
+              <div class="h-14 rounded-xl bg-[var(--md-sys-color-surface-container-highest)]"></div>
+            {/each}
+          </div>
+        </section>
+
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
           <section class="lg:col-span-7 p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-4 animate-pulse">
             <div class="flex items-center justify-between">
@@ -1405,7 +1529,7 @@
           {#each [0, 1] as colIdx (`top-sk-${colIdx}`)}
             <section class="p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3 animate-pulse">
               <div class="h-3.5 w-28 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
-              <div class="space-y-3">
+              <div class="h-[248px] space-y-3 overflow-hidden">
                 {#each [0, 1, 2, 3, 4] as rowIdx (`top-row-sk-${colIdx}-${rowIdx}`)}
                   <div class="flex items-center gap-3">
                     <div class="w-4 h-3 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
@@ -1423,21 +1547,6 @@
             </section>
           {/each}
         </div>
-
-        <section class="p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3 animate-pulse">
-          <div class="flex items-center justify-between">
-            <div class="h-3.5 w-36 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
-            <div class="h-6 w-28 rounded-full bg-[var(--md-sys-color-surface-container-highest)]"></div>
-          </div>
-          <div class="grid grid-cols-7 gap-1.5">
-            {#each [0, 1, 2, 3, 4, 5, 6] as wd (`cal-wd-sk-${wd}`)}
-              <div class="h-3 mx-auto w-6 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
-            {/each}
-            {#each Array.from({ length: 42 }, (_, idx) => idx) as cellIdx (`cal-cell-sk-${cellIdx}`)}
-              <div class="h-8 rounded-md bg-[var(--md-sys-color-surface-container-highest)]"></div>
-            {/each}
-          </div>
-        </section>
       {:else if !selectedStatsDate && displayedStats.totalPlays === 0}
         <EmptyState
           icon="chart-bar"
@@ -1456,226 +1565,301 @@
           </button>
         </EmptyState>
       {:else}
-        {#if selectedStatsDate && displayedStats.totalPlays === 0}
-          <section class="p-6 rounded-xl bg-[var(--md-sys-color-surface-container)] flex flex-col items-center justify-center text-center gap-2">
-            <Icon name="chart-bar" size={28} class="opacity-50" />
-            <div class="text-sm font-semibold" style="color: var(--md-sys-color-on-surface);">
-              {tr(lang, 'nav.noStatsTitle')}
+        <section
+          class="relative overflow-hidden p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] flex flex-col lg:flex-row lg:items-center justify-between gap-6"
+        >
+          <div class="flex items-center gap-4 min-w-0 flex-1">
+            <div class="relative w-16 h-16 flex items-center justify-center shrink-0">
+              <div
+                class="velora-flame-glow absolute inset-0 rounded-full blur-md pointer-events-none"
+                style="background: radial-gradient(circle, rgba(255,145,50,0.45) 0%, rgba(255,95,30,0) 72%);"
+              ></div>
+              <div
+                class="velora-flame-glow absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-11 h-2.5 rounded-full blur-xs pointer-events-none"
+                style="background: radial-gradient(ellipse, rgba(255,160,60,0.8) 0%, rgba(255,90,20,0) 75%);"
+              ></div>
+              <svg viewBox="0 0 64 64" class="relative z-10 w-14 h-14 drop-shadow-[0_6px_12px_rgba(255,120,35,0.42)] overflow-visible" aria-hidden="true">
+                <defs>
+                  <linearGradient id="veloraFlameOuter" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#FFD166" />
+                    <stop offset="45%" stop-color="#FF7A2F" />
+                    <stop offset="100%" stop-color="#D9381E" />
+                  </linearGradient>
+                  <linearGradient id="veloraFlameMid" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#FFE89E" />
+                    <stop offset="100%" stop-color="#FF9638" />
+                  </linearGradient>
+                  <linearGradient id="veloraFlameCore" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#FFFBE0" />
+                    <stop offset="100%" stop-color="#FFD166" />
+                  </linearGradient>
+                </defs>
+                <g class="velora-flame-anim">
+                  <path
+                    fill="url(#veloraFlameOuter)"
+                    d="M34.5 5C34.5 5 49 17.5 49 34.5C49 46 41.2 55 31.8 55C21.8 55 14.5 46.5 14.5 35.8C14.5 26.8 19.4 20.2 23.4 16.5C23.1 21.8 25.5 25.2 27.8 26.3C26.9 19 30 11 34.5 5Z"
+                  />
+                  <path
+                    fill="url(#veloraFlameMid)"
+                    d="M33 17C33 17 43 26.2 43 37.5C43 45.8 38 52 31.6 52C24.8 52 20 46 20 38.2C20 31.5 23.8 26.8 26.6 24.4C26.4 28.2 28.1 30.6 29.8 31.4C29.1 26.2 30.8 21 33 17Z"
+                  />
+                  <path
+                    fill="url(#veloraFlameCore)"
+                    d="M32 30C32 30 37.5 35.5 37.5 41.8C37.5 46.8 34.8 50 31.4 50C27.8 50 25 46.8 25 42C25 38 27.2 34.8 29 33.4C28.9 35.5 29.9 36.8 30.8 37.3C30.4 34.5 31.1 32 32 30Z"
+                  />
+                </g>
+                <circle class="velora-ember-1" cx="22" cy="24" r="1.8" fill="#FFD166" />
+                <circle class="velora-ember-2" cx="42" cy="21" r="1.5" fill="#FF9F43" />
+                <circle class="velora-ember-3" cx="32" cy="14" r="1.4" fill="#FFE89E" />
+              </svg>
             </div>
-            <div class="text-xs opacity-70" style="color: var(--md-sys-color-on-surface-variant);">
-              {selectedStatsDate}
-            </div>
-          </section>
-        {:else}
-          <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-            <section class="lg:col-span-7 p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
-              <div class="flex items-center justify-between">
-                <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
-                  {tr(lang, 'nav.dailyTrend')}
-                </h2>
-                <span class="text-xs font-semibold tabular-nums" style="color: var(--md-sys-color-primary);">
-                  {last14DaysSeries.total14Min} {tr(lang, 'nav.minutesShort')}
+
+            <div class="min-w-0 flex-1 space-y-2">
+              <div class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
+                Percikan Api
+              </div>
+              <div class="flex items-baseline gap-2">
+                <span class="text-3xl font-extrabold tabular-nums text-orange-400">{fireStreak.currentStreak}</span>
+                <span class="text-xs font-medium" style="color: var(--md-sys-color-on-surface-variant);">
+                  hari berturut-turut
                 </span>
               </div>
-              <StatsChart
-                type="line"
-                labels={last14DaysSeries.labels}
-                values={last14DaysSeries.values}
-                secondaryValues={last14DaysSeries.tracks}
-                unitLabel={tr(lang, 'nav.minutesShort')}
-                secondaryUnitLabel={tr(lang, 'nav.songs').toLowerCase()}
-                highlightIndex={last14DaysSeries.peakIdx}
-              />
-            </section>
-
-            <section class="lg:col-span-5 p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
-              <div class="flex items-center justify-between">
-                <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
-                  {tr(lang, 'nav.weeklyActivity')}
-                </h2>
-                <span class="text-xs font-semibold" style="color: var(--md-sys-color-primary);">
-                  {localizeFullDayName(displayedStats.mostActiveDay)}
-                </span>
+              <div class="space-y-1 w-full">
+                <div class="w-full h-2 rounded-full overflow-hidden bg-[var(--md-sys-color-surface-container-highest)]">
+                  <div
+                    class="h-full rounded-full transition-all duration-300"
+                    style="width: {monthlyStreakStats.pct}%; background: linear-gradient(90deg, #ff7a2f, #ffb347);"
+                  ></div>
+                </div>
+                <div class="flex items-center justify-between text-[10px] tabular-nums" style="color: var(--md-sys-color-on-surface-variant); opacity: 0.78;">
+                  <span>Progres bulan ini</span>
+                  <span>{monthlyStreakStats.metDays}/{monthlyStreakStats.daysInMonth} hari</span>
+                </div>
               </div>
-              <StatsChart
-                type="bar"
-                labels={weeklySeries.labels}
-                values={weeklySeries.values}
-                secondaryValues={weeklySeries.plays}
-                unitLabel={tr(lang, 'nav.minutesShort')}
-                secondaryUnitLabel={tr(lang, 'nav.playsLower')}
-                highlightIndex={weeklySeries.highlightIndex}
-              />
-            </section>
-          </div>
-
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <section class="p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
-              <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
-                {tr(lang, 'nav.topTracks')}
-              </h2>
-              <div class="space-y-3">
-                {#each (displayedStats.topTracks ?? []).slice(0, 5) as item, idx (item.name + idx)}
-                  {@const pct = Math.max(8, Math.round((item.plays / maxTopTrackPlays) * 100))}
-                  {@const imgSrc = resolveCoverUrl(item.imageUrl ?? '', mediaBaseUrl)}
-                  <div class="flex items-center gap-3">
-                    <span class="w-4 text-xs font-bold tabular-nums opacity-55 shrink-0 text-center">{idx + 1}</span>
-                    <div class="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-[var(--md-sys-color-surface-container-highest)] flex items-center justify-center">
-                      {#if imgSrc}
-                        <img src={imgSrc} alt={item.name} class="w-full h-full object-cover" />
-                      {:else}
-                        <Icon name="music-note" size={16} class="opacity-50" />
-                      {/if}
-                    </div>
-                    <div class="min-w-0 flex-1 space-y-1.5">
-                      <div class="flex items-center justify-between gap-3 text-xs">
-                        <div class="min-w-0 flex items-center gap-1.5">
-                          <span class="font-bold truncate" style="color: var(--md-sys-color-on-surface);">{item.name}</span>
-                          {#if item.subText}
-                            <span class="text-[11px] truncate opacity-65">• {item.subText}</span>
-                          {/if}
-                        </div>
-                        <span class="text-[11px] font-semibold tabular-nums shrink-0" style="color: var(--md-sys-color-on-surface-variant);">
-                          {item.plays}× • {item.minutes} {tr(lang, 'nav.minutesShort')}
-                        </span>
-                      </div>
-                      <div class="h-1.5 w-full rounded-full overflow-hidden bg-[var(--md-sys-color-surface-container-highest)]">
-                        <div
-                          class="h-full rounded-full transition-all duration-300"
-                          style="width: {pct}%; background-color: {idx === 0 ? 'var(--md-sys-color-tertiary)' : 'var(--md-sys-color-primary)'};"
-                        ></div>
-                      </div>
-                    </div>
-                  </div>
-                {/each}
-              </div>
-            </section>
-
-            <section class="p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
-              <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
-                {tr(lang, 'nav.topArtists')}
-              </h2>
-              <div class="space-y-3">
-                {#each (displayedStats.topArtists ?? []).slice(0, 5) as item, idx (item.name + idx)}
-                  {@const pct = Math.max(8, Math.round((item.plays / maxTopArtistPlays) * 100))}
-                  {@const imgSrc = resolveCoverUrl(item.imageUrl ?? '', mediaBaseUrl)}
-                  <div class="flex items-center gap-3">
-                    <span class="w-4 text-xs font-bold tabular-nums opacity-55 shrink-0 text-center">{idx + 1}</span>
-                    <div class="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-[var(--md-sys-color-surface-container-highest)] flex items-center justify-center">
-                      {#if imgSrc}
-                        <img src={imgSrc} alt={item.name} class="w-full h-full object-cover" />
-                      {:else}
-                        <Icon name="user" size={16} class="opacity-50" />
-                      {/if}
-                    </div>
-                    <div class="min-w-0 flex-1 space-y-1.5">
-                      <div class="flex items-center justify-between gap-3 text-xs">
-                        <span class="font-bold truncate" style="color: var(--md-sys-color-on-surface);">{item.name}</span>
-                        <span class="text-[11px] font-semibold tabular-nums shrink-0" style="color: var(--md-sys-color-on-surface-variant);">
-                          {item.plays}× • {item.minutes} {tr(lang, 'nav.minutesShort')}
-                        </span>
-                      </div>
-                      <div class="h-1.5 w-full rounded-full overflow-hidden bg-[var(--md-sys-color-surface-container-highest)]">
-                        <div
-                          class="h-full rounded-full transition-all duration-300"
-                          style="width: {pct}%; background-color: {idx === 0 ? 'var(--md-sys-color-tertiary)' : 'var(--md-sys-color-primary)'};"
-                        ></div>
-                      </div>
-                    </div>
-                  </div>
-                {/each}
-              </div>
-            </section>
-          </div>
-        {/if}
-
-        <section class="p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
-          <div class="flex flex-wrap items-center justify-between gap-2">
-            <div class="flex items-center gap-2.5">
-              <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
-                Last 30 Days Streak
-              </h2>
-              {#if selectedStatsDate}
-                <button
-                  type="button"
-                  onclick={clearSelectedStatsDate}
-                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold cursor-pointer transition-opacity hover:opacity-80"
-                  style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
-                >
-                  <span>{selectedStatsDate}</span>
-                  <Icon name="x" size={11} weight="bold" />
-                </button>
-              {/if}
-            </div>
-            <div class="flex items-center gap-1">
-              <button
-                type="button"
-                onclick={prevCalMonth}
-                aria-label="Previous month"
-                class="w-7 h-7 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
-                style="color: var(--md-sys-color-on-surface-variant);"
-              >
-                <Icon name="caret-left" size={14} weight="bold" />
-              </button>
-              <span class="min-w-[60px] text-center text-xs font-bold tabular-nums" style="color: var(--md-sys-color-on-surface);">
-                {calendarView.numericLabel}
-              </span>
-              <button
-                type="button"
-                onclick={nextCalMonth}
-                disabled={isCurrentCalMonth}
-                aria-label="Next month"
-                class="w-7 h-7 rounded-full flex items-center justify-center transition-colors {isCurrentCalMonth ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer hover:bg-[var(--md-sys-color-state-hover)]'}"
-                style="color: var(--md-sys-color-on-surface-variant);"
-              >
-                <Icon name="caret-right" size={14} weight="bold" />
-              </button>
             </div>
           </div>
 
-          <div class="grid grid-cols-7 gap-1.5 text-center">
-            {#each [0, 1, 2, 3, 4, 5, 6] as wd (wd)}
-              <div class="text-[10px] font-semibold uppercase tracking-wider pb-1 opacity-60" style="color: var(--md-sys-color-on-surface-variant);">
-                {localizeShortDay(wd, '')}
+          <div class="grid grid-cols-3 gap-2.5 lg:w-[370px] shrink-0">
+            <div class="p-3 rounded-xl bg-[var(--md-sys-color-surface-container-high)] text-center space-y-0.5">
+              <div class="text-base font-bold tabular-nums" style="color: var(--md-sys-color-on-surface);">
+                {fireStreak.longestStreak}
               </div>
-            {/each}
-
-            {#each calendarView.prevDays as prevDay, padIdx (`prev-${padIdx}`)}
-              <div
-                class="h-8 rounded-md flex items-center justify-center text-[11px] font-medium tabular-nums opacity-35 blur-[0.6px] select-none pointer-events-none"
-                style="background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant);"
-              >
-                {prevDay}
+              <div class="text-[11px]" style="color: var(--md-sys-color-on-surface-variant);">
+                Terpanjang
               </div>
-            {/each}
-
-            {#each calendarView.days as day (day.date)}
-              <button
-                type="button"
-                disabled={day.isFuture}
-                onclick={() => selectStatsDate(day.date)}
-                title="{day.date} • {Math.round(day.secondsListened / 60)} {tr(lang, 'nav.minutesShort')} • {day.tracksCount} {tr(lang, 'nav.songs').toLowerCase()}"
-                class="h-8 rounded-md flex items-center justify-center text-[11px] font-semibold tabular-nums transition-all {day.isFuture ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer hover:brightness-110'} {selectedStatsDate === day.date ? 'ring-2 ring-[var(--md-sys-color-on-surface)]' : day.isToday ? 'ring-1 ring-[var(--md-sys-color-primary)]' : ''}"
-                style={day.streakMet
-                  ? 'background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);'
-                  : day.secondsListened > 0
-                    ? 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'
-                    : 'background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface);'}
-              >
-                {day.dayNum}
-              </button>
-            {/each}
-
-            {#each calendarView.nextDays as nextDay, padIdx (`next-${padIdx}`)}
-              <div
-                class="h-8 rounded-md flex items-center justify-center text-[11px] font-medium tabular-nums opacity-35 blur-[0.6px] select-none pointer-events-none"
-                style="background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant);"
-              >
-                {nextDay}
+            </div>
+            <div class="p-3 rounded-xl bg-[var(--md-sys-color-surface-container-high)] text-center space-y-0.5">
+              <div class="text-base font-bold tabular-nums" style="color: var(--md-sys-color-on-surface);">
+                {listeningStats.activeDays ?? 0}
               </div>
-            {/each}
+              <div class="text-[11px]" style="color: var(--md-sys-color-on-surface-variant);">
+                Total hari
+              </div>
+            </div>
+            <div class="p-3 rounded-xl bg-[var(--md-sys-color-surface-container-high)] text-center space-y-0.5">
+              <div class="text-base font-bold tabular-nums" style="color: var(--md-sys-color-on-surface);">
+                {monthlyStreakStats.remainingRecoveries}/3
+              </div>
+              <div class="text-[11px]" style="color: var(--md-sys-color-on-surface-variant);">
+                Pemulihan
+              </div>
+            </div>
           </div>
         </section>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+          <section class="lg:col-span-7 p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
+            <div class="flex items-center justify-between">
+              <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
+                {selectedStatsDate ? selectedStatsDate : 'Hari ini'}
+              </h2>
+              <span class="text-xs font-semibold tabular-nums" style="color: var(--md-sys-color-primary);">
+                {formatListeningDuration(todayHourlySeries.totalMin)}
+              </span>
+            </div>
+            <StatsChart
+              type="line"
+              labels={todayHourlySeries.labels}
+              values={todayHourlySeries.values}
+              secondaryValues={todayHourlySeries.plays}
+              unitLabel={tr(lang, 'nav.minutesShort')}
+              secondaryUnitLabel={tr(lang, 'nav.playsLower')}
+              highlightIndex={todayHourlySeries.peakIdx}
+            />
+          </section>
+
+          <section class="lg:col-span-5 p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
+            <div class="flex items-center justify-between gap-2">
+              <div class="relative">
+                <button
+                  type="button"
+                  aria-haspopup="listbox"
+                  aria-expanded={openSelectId === 'stats-chart-period'}
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    openSelectFlipUp = false;
+                    openSelectId = openSelectId === 'stats-chart-period' ? null : 'stats-chart-period';
+                  }}
+                  class="h-8 min-w-[132px] px-3 rounded-lg text-xs font-semibold flex items-center justify-between gap-2 cursor-pointer transition-colors duration-150 hover:bg-[var(--md-sys-color-state-hover)]"
+                  style="background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface); border: 1px solid {openSelectId === 'stats-chart-period' ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-outline-variant)'};"
+                >
+                  <span class="truncate">{(CHART_PERIOD_OPTIONS.find((o) => o.value === chartPeriod) ?? CHART_PERIOD_OPTIONS[0]).label}</span>
+                  <span class="transition-transform duration-200 {openSelectId === 'stats-chart-period' ? 'rotate-180' : ''}" style="color: var(--md-sys-color-on-surface-variant);">
+                    <Icon name="caret-down" size={13} weight="bold" />
+                  </span>
+                </button>
+                {#if openSelectId === 'stats-chart-period'}
+                  <div
+                    role="listbox"
+                    class="absolute left-0 top-full mt-1.5 min-w-[148px] p-1 rounded-lg shadow-xl border z-40"
+                    style="background-color: var(--md-sys-color-surface-container-high); border-color: var(--md-sys-color-outline-variant);"
+                  >
+                    {#each CHART_PERIOD_OPTIONS as opt (opt.value)}
+                      {@const selected = chartPeriod === opt.value}
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        onclick={() => {
+                          chartPeriod = opt.value;
+                          openSelectId = null;
+                        }}
+                        class="w-full px-3 py-2 rounded-md text-xs text-left flex items-center justify-between cursor-pointer transition-colors {selected ? 'font-semibold' : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
+                        style={selected
+                          ? 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'
+                          : 'color: var(--md-sys-color-on-surface);'}
+                      >
+                        <span>{opt.label}</span>
+                        {#if selected}
+                          <Icon name="check" size={13} weight="bold" />
+                        {/if}
+                      </button>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
+              <span class="text-xs font-semibold tabular-nums" style="color: var(--md-sys-color-primary);">
+                {formatListeningDuration(periodRangeSeries.totalMin)}
+              </span>
+            </div>
+            <StatsChart
+              type="bar"
+              labels={periodRangeSeries.labels}
+              values={periodRangeSeries.values}
+              secondaryValues={periodRangeSeries.plays}
+              unitLabel={tr(lang, 'nav.minutesShort')}
+              secondaryUnitLabel={tr(lang, 'nav.playsLower')}
+              highlightIndex={periodRangeSeries.highlightIndex}
+            />
+          </section>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <section class="p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
+            <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
+              {tr(lang, 'nav.topTracks')}
+            </h2>
+            <div class="h-[248px] overflow-y-auto pr-1">
+              {#if (displayedStats.topTracks ?? []).length === 0}
+                <EmptyState
+                  icon="music-note"
+                  iconSize={28}
+                  title={tr(lang, 'nav.noStatsTitle')}
+                  description={selectedStatsDate || tr(lang, 'nav.noStatsDesc')}
+                  titleClass="text-sm font-semibold"
+                  descClass="mt-1 text-xs max-w-xs mx-auto opacity-75"
+                  class="h-full flex flex-col items-center justify-center text-center px-4"
+                />
+              {:else}
+                <div class="space-y-3">
+                  {#each displayedStats.topTracks ?? [] as item, idx (item.name + idx)}
+                    {@const pct = Math.max(8, Math.round((item.plays / maxTopTrackPlays) * 100))}
+                    {@const imgSrc = resolveCoverUrl(item.imageUrl ?? '', mediaBaseUrl)}
+                    <div class="flex items-center gap-3">
+                      <span class="w-4 text-xs font-bold tabular-nums opacity-55 shrink-0 text-center">{idx + 1}</span>
+                      <div class="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-[var(--md-sys-color-surface-container-highest)] flex items-center justify-center">
+                        {#if imgSrc}
+                          <img src={imgSrc} alt={item.name} class="w-full h-full object-cover" />
+                        {:else}
+                          <Icon name="music-note" size={16} class="opacity-50" />
+                        {/if}
+                      </div>
+                      <div class="min-w-0 flex-1 space-y-1.5">
+                        <div class="flex items-center justify-between gap-3 text-xs">
+                          <div class="min-w-0 flex items-center gap-1.5">
+                            <span class="font-bold truncate" style="color: var(--md-sys-color-on-surface);">{item.name}</span>
+                            {#if item.subText}
+                              <span class="text-[11px] truncate opacity-65">• {item.subText}</span>
+                            {/if}
+                          </div>
+                          <span class="text-[11px] font-semibold tabular-nums shrink-0" style="color: var(--md-sys-color-on-surface-variant);">
+                            {item.plays}×
+                          </span>
+                        </div>
+                        <div class="h-1.5 w-full rounded-full overflow-hidden bg-[var(--md-sys-color-surface-container-highest)]">
+                          <div
+                            class="h-full rounded-full transition-all duration-300"
+                            style="width: {pct}%; background-color: {idx === 0 ? 'var(--md-sys-color-tertiary)' : 'var(--md-sys-color-primary)'};"
+                          ></div>
+                        </div>
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          </section>
+
+          <section class="p-5 rounded-xl bg-[var(--md-sys-color-surface-container)] space-y-3">
+            <h2 class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
+              {tr(lang, 'nav.topArtists')}
+            </h2>
+            <div class="h-[248px] overflow-y-auto pr-1">
+              {#if (displayedStats.topArtists ?? []).length === 0}
+                <EmptyState
+                  icon="user"
+                  iconSize={28}
+                  title={tr(lang, 'nav.noStatsTitle')}
+                  description={selectedStatsDate || tr(lang, 'nav.noStatsDesc')}
+                  titleClass="text-sm font-semibold"
+                  descClass="mt-1 text-xs max-w-xs mx-auto opacity-75"
+                  class="h-full flex flex-col items-center justify-center text-center px-4"
+                />
+              {:else}
+                <div class="space-y-3">
+                  {#each displayedStats.topArtists ?? [] as item, idx (item.name + idx)}
+                    {@const pct = Math.max(8, Math.round((item.plays / maxTopArtistPlays) * 100))}
+                    {@const imgSrc = resolveCoverUrl(item.imageUrl ?? '', mediaBaseUrl)}
+                    <div class="flex items-center gap-3">
+                      <span class="w-4 text-xs font-bold tabular-nums opacity-55 shrink-0 text-center">{idx + 1}</span>
+                      <div class="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-[var(--md-sys-color-surface-container-highest)] flex items-center justify-center">
+                        {#if imgSrc}
+                          <img src={imgSrc} alt={item.name} class="w-full h-full object-cover" />
+                        {:else}
+                          <Icon name="user" size={16} class="opacity-50" />
+                        {/if}
+                      </div>
+                      <div class="min-w-0 flex-1 space-y-1.5">
+                        <div class="flex items-center justify-between gap-3 text-xs">
+                          <span class="font-bold truncate" style="color: var(--md-sys-color-on-surface);">{item.name}</span>
+                          <span class="text-[11px] font-semibold tabular-nums shrink-0" style="color: var(--md-sys-color-on-surface-variant);">
+                            {item.plays}×
+                          </span>
+                        </div>
+                        <div class="h-1.5 w-full rounded-full overflow-hidden bg-[var(--md-sys-color-surface-container-highest)]">
+                          <div
+                            class="h-full rounded-full transition-all duration-300"
+                            style="width: {pct}%; background-color: {idx === 0 ? 'var(--md-sys-color-tertiary)' : 'var(--md-sys-color-primary)'};"
+                          ></div>
+                        </div>
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          </section>
+        </div>
       {/if}
     </div>
   </div>

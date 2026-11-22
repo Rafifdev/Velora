@@ -76,6 +76,7 @@ type DynamicIslandSyncPayload struct {
 	AccentColor   string                   `json:"accentColor"`
 	StreakDays    int                      `json:"streakDays"`
 	LyricsLoading bool                     `json:"lyricsLoading"`
+	TrackLoading  bool                     `json:"trackLoading"`
 	QueueTitle    string                   `json:"queueTitle"`
 	QueueIndex    int                      `json:"queueIndex"`
 	Queue         []DynamicIslandQueueItem `json:"queue"`
@@ -562,6 +563,7 @@ type dynamicIslandController struct {
 	accentHex     string
 	streakDays    int
 	lyricsLoading bool
+	trackLoading  bool
 
 	audioDeviceName string
 	audioConnType   string // "bluetooth", "wired", "speaker"
@@ -1378,6 +1380,7 @@ func (a *App) SyncDynamicIsland(p DynamicIslandSyncPayload) {
 		ctrl.streakDays = p.StreakDays
 	}
 	ctrl.lyricsLoading = p.LyricsLoading
+	ctrl.trackLoading = p.TrackLoading
 	ctrl.queueTitle = strings.TrimSpace(p.QueueTitle)
 	prevQueueIdx := ctrl.queueIndex
 	ctrl.queueIndex = p.QueueIndex
@@ -3897,6 +3900,7 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	artist := c.artist
 	album := c.album
 	playing := c.isPlaying
+	trackLoading := c.trackLoading
 	isFav := c.isFavorite
 	pos := c.posSec
 	dur := c.durSec
@@ -4369,12 +4373,16 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 				playBg = lerpColor(pal.Accent, color.RGBA{R: 255, G: 255, B: 255, A: 255}, 0.14)
 			}
 			drawFilledPillGdip(g, mapX(210)-20.0*u, mapY(134)-20.0*u, 40.0*u, 40.0*u, 20.0*u, rgbaToARGB(playBg, contentOp))
-			playGlyph := rune(0xE3D0) // play
-			if playing {
-				playGlyph = 0xE39E // pause
-			}
 			onTertiary := color.RGBA{R: 0x34, G: 0x11, B: 0x00, A: 255}
-			c.drawPhosphorGlyphGdip(g, true, playGlyph, mapX(210), mapY(134), 18.5*u, rgbaToARGB(onTertiary, contentOp))
+			if trackLoading {
+				drawLoadingSpinnerGdip(g, mapX(210), mapY(134), 16.0*u, rgbaToARGB(onTertiary, contentOp), now)
+			} else {
+				playGlyph := rune(0xE3D0) // play
+				if playing {
+					playGlyph = 0xE39E // pause
+				}
+				c.drawPhosphorGlyphGdip(g, true, playGlyph, mapX(210), mapY(134), 18.5*u, rgbaToARGB(onTertiary, contentOp))
+			}
 
 			drawCircleButtonBgGdip(g, mapX(258), mapY(134), 17.5*u, hoverZone == diHitNext, false, contentOp, pal)
 			nextCol := pal.TextMain
@@ -4448,12 +4456,16 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 				playBgL = lerpColor(pal.Accent, color.RGBA{R: 255, G: 255, B: 255, A: 255}, 0.14)
 			}
 			drawFilledPillGdip(g, mapX(138)-17.5*u, mapY(134)-17.5*u, 35.0*u, 35.0*u, 17.5*u, rgbaToARGB(playBgL, contentOp))
-			playGlyph := rune(0xE3D0)
-			if playing {
-				playGlyph = 0xE39E
-			}
 			onTertiaryL := color.RGBA{R: 0x34, G: 0x11, B: 0x00, A: 255}
-			c.drawPhosphorGlyphGdip(g, true, playGlyph, mapX(138), mapY(134), 16.5*u, rgbaToARGB(onTertiaryL, contentOp))
+			if trackLoading {
+				drawLoadingSpinnerGdip(g, mapX(138), mapY(134), 14.5*u, rgbaToARGB(onTertiaryL, contentOp), now)
+			} else {
+				playGlyph := rune(0xE3D0)
+				if playing {
+					playGlyph = 0xE39E
+				}
+				c.drawPhosphorGlyphGdip(g, true, playGlyph, mapX(138), mapY(134), 16.5*u, rgbaToARGB(onTertiaryL, contentOp))
+			}
 
 			drawCircleButtonBgGdip(g, mapX(180), mapY(134), 16.0*u, hoverZone == diHitNext, false, contentOp, pal)
 			c.drawPhosphorGlyphGdip(g, true, 0xE5A6, mapX(180), mapY(134), 16.0*u, rgbaToARGB(pal.TextMain, contentOp))
@@ -4494,12 +4506,16 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 				playBgQ = lerpColor(pal.Accent, color.RGBA{R: 255, G: 255, B: 255, A: 255}, 0.14)
 			}
 			drawFilledPillGdip(g, mapX(385.5)-16.5*u, mapY(54)-16.5*u, 33.0*u, 33.0*u, 16.5*u, rgbaToARGB(playBgQ, contentOp))
-			qPlayGlyph := rune(0xE3D0)
-			if playing {
-				qPlayGlyph = 0xE39E
-			}
 			onTertiaryQ := color.RGBA{R: 0x34, G: 0x11, B: 0x00, A: 255}
-			c.drawPhosphorGlyphGdip(g, true, qPlayGlyph, mapX(385.5), mapY(54), 15.5*u, rgbaToARGB(onTertiaryQ, contentOp))
+			if trackLoading {
+				drawLoadingSpinnerGdip(g, mapX(385.5), mapY(54), 13.5*u, rgbaToARGB(onTertiaryQ, contentOp), now)
+			} else {
+				qPlayGlyph := rune(0xE3D0)
+				if playing {
+					qPlayGlyph = 0xE39E
+				}
+				c.drawPhosphorGlyphGdip(g, true, qPlayGlyph, mapX(385.5), mapY(54), 15.5*u, rgbaToARGB(onTertiaryQ, contentOp))
+			}
 
 			const qViewTop = 78.0
 			const qViewBot = 242.0
@@ -5446,6 +5462,32 @@ func drawPhosphorSkipForwardGdip(g uintptr, cx, cy, size float64, hovered bool, 
 		_, _, _ = diProcGdipFillPath.Call(g, brush, barPath)
 		_, _, _ = diProcGdipDeletePath.Call(barPath)
 	}
+}
+
+func drawLoadingSpinnerGdip(g uintptr, cx, cy, size float64, argb uint32, now time.Time) {
+	if g == 0 || size <= 2 {
+		return
+	}
+	stroke := math.Max(1.8, size*0.16)
+	var pen uintptr
+	_, _, _ = diProcGdipCreatePen1.Call(uintptr(argb), uintptr(math.Float32bits(float32(stroke))), 2, uintptr(unsafe.Pointer(&pen)))
+	if pen == 0 {
+		return
+	}
+	defer diProcGdipDeletePen.Call(pen)
+	_, _, _ = diProcGdipSetPenStartCap.Call(pen, 2)
+	_, _, _ = diProcGdipSetPenEndCap.Call(pen, 2)
+	angle := math.Mod(float64(now.UnixNano())/1e9*360.0*1.35, 360.0)
+	r := size / 2.0
+	_, _, _ = diProcGdipDrawArc.Call(
+		g, pen,
+		uintptr(math.Float32bits(float32(cx-r))),
+		uintptr(math.Float32bits(float32(cy-r))),
+		uintptr(math.Float32bits(float32(size))),
+		uintptr(math.Float32bits(float32(size))),
+		uintptr(math.Float32bits(float32(angle))),
+		uintptr(math.Float32bits(260.0)),
+	)
 }
 
 func drawVeloraPlayGlyphGdip(g uintptr, cx, cy, size float64, playing, hovered bool, op float64, pal veloraBrandPalette) {
