@@ -59,6 +59,7 @@ type YTMusicHomeFeed struct {
 
 type YTMusicAlbumDetail struct {
 	BrowseID       string         `json:"browseId"`
+	Kind           string         `json:"kind"` // "album" | "playlist"
 	Title          string         `json:"title"`
 	Artist         string         `json:"artist"`
 	ArtistBrowseID string         `json:"artistBrowseId"`
@@ -1036,7 +1037,7 @@ func homeShelfPriority(title string) int {
 	switch {
 	case strings.Contains(low, "new release") || strings.Contains(low, "rilis baru"):
 		return 0
-	case strings.Contains(low, "today's indonesian hits") || strings.Contains(low, "today indonesian hits") || strings.Contains(low, "today indonesia hits") || strings.Contains(low, "hits indonesia hari ini"):
+	case strings.Contains(low, "today's indonesian hits") || strings.Contains(low, "today indonesian hits") || strings.Contains(low, "today indonesia hits") || strings.Contains(low, "hits indonesia hari ini") || strings.Contains(low, "hits indonesia"):
 		return 1
 	case strings.Contains(low, "all-time hits") || strings.Contains(low, "all time hits") || strings.Contains(low, "hits sepanjang masa"):
 		return 2
@@ -1235,8 +1236,8 @@ func (c *YTMusicClient) GetHomeFeed(ctx context.Context) (YTMusicHomeFeed, error
 	appendShelvesToFeed(&feed, filterHomeShelves(shelves1), shelfIdxByKey, seenShelfItem, seenTrack)
 
 	// Automatically fetch continuation pages of FEmusic_home until we have the prioritized home shelves
-	// (or up to 3 continuation pages) so initial Home displays them right away.
-	for page := 0; page < 3 && cont != ""; page++ {
+	// (or up to 5 continuation pages) so initial Home displays them right away.
+	for page := 0; page < 5 && cont != ""; page++ {
 		if page > 0 && hasAllPriorityHomeShelves(feed.Shelves) {
 			break
 		}
@@ -1247,6 +1248,72 @@ func (c *YTMusicClient) GetHomeFeed(ctx context.Context) (YTMusicHomeFeed, error
 		appendShelvesToFeed(&feed, pageNext.Shelves, shelfIdxByKey, seenShelfItem, seenTrack)
 		cont = pageNext.Continuation
 	}
+
+	hasPriority := func(target int) bool {
+		for _, sh := range feed.Shelves {
+			if homeShelfPriority(sh.Title) == target && len(sh.Items) > 0 {
+				return true
+			}
+		}
+		return false
+	}
+
+	type fallbackShelfSpec struct {
+		title string
+		query string
+	}
+	var missingSpecs []fallbackShelfSpec
+	if !hasPriority(1) {
+		missingSpecs = append(missingSpecs, fallbackShelfSpec{
+			title: "Today's Indonesian Hits",
+			query: "Today's Indonesian Hits",
+		})
+	}
+	if !hasPriority(2) {
+		missingSpecs = append(missingSpecs, fallbackShelfSpec{
+			title: "All-Time Hits",
+			query: "All-Time Hits",
+		})
+	}
+	if len(missingSpecs) > 0 {
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		for _, spec := range missingSpecs {
+			spec := spec
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				cards, searchErr := c.SearchPlaylists(ctx, spec.query)
+				if searchErr != nil || len(cards) == 0 {
+					return
+				}
+				items := make([]YTMusicCard, 0, 14)
+				for _, card := range cards {
+					if card.BrowseID == "" && card.PlaylistID == "" {
+						continue
+					}
+					if card.Kind != "playlist" {
+						continue
+					}
+					items = append(items, card)
+					if len(items) >= 14 {
+						break
+					}
+				}
+				if len(items) == 0 {
+					return
+				}
+				mu.Lock()
+				appendShelvesToFeed(&feed, []YTMusicShelf{{
+					Title: spec.title,
+					Items: items,
+				}}, shelfIdxByKey, seenShelfItem, seenTrack)
+				mu.Unlock()
+			}()
+		}
+		wg.Wait()
+	}
+
 	feed.Shelves = sortHomeShelves(feed.Shelves)
 	feed.Continuation = cont
 
@@ -1693,6 +1760,7 @@ func (c *YTMusicClient) GetCollectionTracks(ctx context.Context, browseID, playl
 
 	var results []YTMusicTrack
 	seen := map[string]struct{}{}
+	cont := ""
 
 	if targetID != "" {
 		if tree, err := c.postInnerTube(ctx, "browse", map[string]any{
@@ -1700,6 +1768,7 @@ func (c *YTMusicClient) GetCollectionTracks(ctx context.Context, browseID, playl
 			"browseId": targetID,
 		}); err == nil {
 			extractResponsiveItems(tree, &results, seen)
+			cont = extractContinuationToken(tree)
 		}
 	}
 
@@ -1711,7 +1780,25 @@ func (c *YTMusicClient) GetCollectionTracks(ctx context.Context, browseID, playl
 				"browseId": vlID,
 			}); err == nil {
 				extractResponsiveItems(tree, &results, seen)
+				cont = extractContinuationToken(tree)
 			}
+		}
+	}
+
+	for page := 0; page < 3 && cont != "" && len(results) < 200; page++ {
+		if tree, err := c.postInnerTube(ctx, "browse", map[string]any{
+			"context":      c.ytContext(),
+			"continuation": cont,
+		}); err == nil {
+			prevLen := len(results)
+			extractResponsiveItems(tree, &results, seen)
+			nextCont := extractContinuationToken(tree)
+			if len(results) == prevLen || nextCont == cont {
+				break
+			}
+			cont = nextCont
+		} else {
+			break
 		}
 	}
 
@@ -1745,8 +1832,8 @@ func (c *YTMusicClient) GetCollectionTracks(ctx context.Context, browseID, playl
 			results[i].Album = fallbackAlbum
 		}
 	}
-	if len(results) > 40 {
-		results = results[:40]
+	if len(results) > 200 {
+		results = results[:200]
 	}
 	return results, nil
 }
@@ -1760,7 +1847,11 @@ func (c *YTMusicClient) GetTrackAlbumDetail(ctx context.Context, videoID, browse
 	albumTitle := strings.TrimSpace(fallbackAlbum)
 	cover := strings.TrimSpace(fallbackCover)
 
-	isPlaylistBrowse := albumBrowseID != "" && !strings.HasPrefix(albumBrowseID, "MPREb_")
+	isPlaylistBrowse := albumBrowseID != "" &&
+		!strings.HasPrefix(albumBrowseID, "MPREb_") &&
+		!strings.HasPrefix(albumBrowseID, "OLAK") &&
+		!strings.HasPrefix(albumBrowseID, "dz:album:") &&
+		!strings.HasPrefix(albumBrowseID, "sp:album:")
 
 	if !strings.HasPrefix(albumBrowseID, "MPREb_") && !isPlaylistBrowse && strings.TrimSpace(videoID) != "" {
 		if tree, err := c.postInnerTube(ctx, "next", map[string]any{
@@ -1834,8 +1925,13 @@ func (c *YTMusicClient) GetTrackAlbumDetail(ctx context.Context, videoID, browse
 		}
 	}
 
+	collectionKind := "album"
+	if isPlaylistBrowse {
+		collectionKind = "playlist"
+	}
 	detail := YTMusicAlbumDetail{
 		BrowseID:       albumBrowseID,
+		Kind:           collectionKind,
 		Title:          albumTitle,
 		Artist:         artistName,
 		ArtistBrowseID: artistBrowseID,
@@ -1881,27 +1977,85 @@ func (c *YTMusicClient) GetTrackAlbumDetail(ctx context.Context, videoID, browse
 	if detail.BrowseID != "" {
 		seenAlbums[detail.BrowseID] = struct{}{}
 	}
-	if detail.ArtistBrowseID != "" {
-		if tree, err := c.postInnerTube(ctx, "browse", map[string]any{
-			"context":  c.ytContext(),
-			"browseId": detail.ArtistBrowseID,
-		}); err == nil {
-			extractArtistAlbumCards(tree, &otherAlbums, seenAlbums)
+	if isPlaylistBrowse {
+		currentTitleLow := strings.ToLower(strings.TrimSpace(detail.Title))
+		seenTitles := map[string]struct{}{}
+		if currentTitleLow != "" {
+			seenTitles[currentTitleLow] = struct{}{}
 		}
-	}
-	if len(otherAlbums) == 0 && detail.Artist != "" && detail.Artist != "YouTube Music" {
-		if cards, err := c.SearchPlaylists(ctx, detail.Artist); err == nil {
+		appendPlaylistRecs := func(cards []YTMusicCard) {
 			for _, card := range cards {
-				if card.Kind != "album" || card.BrowseID == "" {
+				if card.Kind != "playlist" {
 					continue
 				}
-				if _, dup := seenAlbums[card.BrowseID]; dup {
+				key := strings.TrimSpace(card.BrowseID)
+				if key == "" {
+					key = strings.TrimSpace(card.PlaylistID)
+				}
+				if key == "" {
 					continue
 				}
-				seenAlbums[card.BrowseID] = struct{}{}
+				tLow := strings.ToLower(strings.TrimSpace(card.Title))
+				if tLow == "" {
+					continue
+				}
+				if _, dup := seenAlbums[key]; dup {
+					continue
+				}
+				if _, dupTitle := seenTitles[tLow]; dupTitle {
+					continue
+				}
+				seenAlbums[key] = struct{}{}
+				seenTitles[tLow] = struct{}{}
+				if card.Subtitle == "" || strings.EqualFold(card.Subtitle, "Album") {
+					card.Subtitle = "Playlist"
+				}
 				otherAlbums = append(otherAlbums, card)
 				if len(otherAlbums) >= 12 {
-					break
+					return
+				}
+			}
+		}
+
+		query := strings.TrimSpace(detail.Title)
+		if query != "" && !strings.EqualFold(query, "YouTube Music") {
+			if cards, err := c.SearchPlaylists(ctx, query); err == nil {
+				appendPlaylistRecs(cards)
+			}
+		}
+		if len(otherAlbums) < 8 && len(detail.Tracks) > 0 && strings.TrimSpace(detail.Tracks[0].Artist) != "" {
+			if cards, err := c.SearchPlaylists(ctx, detail.Tracks[0].Artist+" playlist"); err == nil {
+				appendPlaylistRecs(cards)
+			}
+		}
+		if len(otherAlbums) < 8 {
+			if cards, err := c.SearchPlaylists(ctx, ""); err == nil {
+				appendPlaylistRecs(cards)
+			}
+		}
+	} else {
+		if detail.ArtistBrowseID != "" {
+			if tree, err := c.postInnerTube(ctx, "browse", map[string]any{
+				"context":  c.ytContext(),
+				"browseId": detail.ArtistBrowseID,
+			}); err == nil {
+				extractArtistAlbumCards(tree, &otherAlbums, seenAlbums)
+			}
+		}
+		if len(otherAlbums) == 0 && detail.Artist != "" && detail.Artist != "YouTube Music" {
+			if cards, err := c.SearchPlaylists(ctx, detail.Artist); err == nil {
+				for _, card := range cards {
+					if card.Kind != "album" || card.BrowseID == "" {
+						continue
+					}
+					if _, dup := seenAlbums[card.BrowseID]; dup {
+						continue
+					}
+					seenAlbums[card.BrowseID] = struct{}{}
+					otherAlbums = append(otherAlbums, card)
+					if len(otherAlbums) >= 12 {
+						break
+					}
 				}
 			}
 		}
