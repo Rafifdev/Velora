@@ -48,6 +48,17 @@
   import AnalyticsAndSettingsViews from './views/AnalyticsAndSettingsViews.svelte';
 
   let tracks = $state<Track[]>([]);
+  let trackLoading = $state(false);
+  let networkToast = $state('');
+  let networkToastTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function showNetworkToast(msg: string) {
+    if (networkToastTimer) clearTimeout(networkToastTimer);
+    networkToast = msg;
+    networkToastTimer = setTimeout(() => {
+      networkToast = '';
+    }, 3200);
+  }
   let downloadStates = $state<Record<number, DownloadProgress>>({});
   let jamStatus = $state<JamStatus>({
     enabled: false,
@@ -129,6 +140,7 @@
   let ytArtistResults = $state<YTMusicCard[]>([]);
   let ytLoading = $state(false);
   let ytHomeLoading = $state(true);
+  let ytHomeContinuation = $state('');
   let ytLoadingMore = $state(false);
   let ytMorePage = $state(0);
   let ytMoreAllBuffer: YTMusicCard[] = [];
@@ -602,6 +614,7 @@
       accentColor,
       streakDays: fireStreak?.currentStreak ?? 0,
       lyricsLoading,
+      trackLoading: false,
       queueTitle: queueSourceTitle || 'Queue',
       queueIndex: qIdx,
       queue: queue.slice(0, 250).map((q) => ({
@@ -699,22 +712,58 @@
     return items.filter((item) => !isExplicitItem(item));
   }
 
+  function isExcludedHomeShelfTitle(title: string): boolean {
+    const low = (title || '').trim().toLowerCase();
+    return (
+      low.includes('covers & remixes') ||
+      low.includes('covers and remixes') ||
+      low.includes('cover & remix')
+    );
+  }
+
+  function homeShelfPriority(title: string): number {
+    const low = (title || '').trim().toLowerCase();
+    if (low.includes('new release') || low.includes('rilis baru')) return 0;
+    if (
+      low.includes("today's indonesian hits") ||
+      low.includes('today indonesian hits') ||
+      low.includes('today indonesia hits') ||
+      low.includes('hits indonesia hari ini')
+    ) {
+      return 1;
+    }
+    if (low.includes('all-time hits') || low.includes('all time hits') || low.includes('hits sepanjang masa')) {
+      return 2;
+    }
+    if (low.includes('trending songs for you') || low.includes('lagu trending untuk anda')) return 3;
+    if (low.includes('trending community playlist') || low.includes('playlist komunitas trending')) return 4;
+    if (low.includes('song mixes') || low.includes('songs mixes') || low.includes('mix lagu')) return 5;
+    if (low.includes('rain + feels')) return 6;
+    if (low.includes('monsoon melancholy')) return 7;
+    return 1000;
+  }
+
+  function normalizeHomeShelves(shelves: YTMusicShelf[]): YTMusicShelf[] {
+    return shelves
+      .filter((shelf) => !isExcludedHomeShelfTitle(shelf.title))
+      .map((shelf) => ({
+        ...shelf,
+        items: filterExplicit(shelf.items || [])
+      }))
+      .filter((shelf) => shelf.items.length > 0)
+      .sort((a, b) => homeShelfPriority(a.title) - homeShelfPriority(b.title));
+  }
+
   async function loadYTMusicHome() {
     ytHomeLoading = true;
     try {
       const feed = await api.getYTMusicHome();
-      ytShelves = (feed?.shelves || []).map((shelf) => {
-        const filteredItems = filterExplicit(shelf.items || []);
-        return shelf.title === 'Lagu Lainnya untuk Anda'
-          ? {
-              ...shelf,
-              items: shuffleAndSpreadByArtist(filteredItems, (c) => c.artist || c.subtitle || '')
-            }
-          : { ...shelf, items: filteredItems };
-      });
-      ytResults = shuffleAndSpreadByArtist(filterExplicit(feed?.tracks || []), (t) => t.artist || '');
+      ytHomeContinuation = (feed?.continuation || '').trim();
+      ytShelves = normalizeHomeShelves(feed?.shelves || []);
+      ytResults = filterExplicit(feed?.tracks || []);
     } catch {
       ytShelves = [];
+      ytHomeContinuation = '';
     } finally {
       ytHomeLoading = false;
     }
@@ -772,7 +821,11 @@
     playlistsLoading = false;
     sources = boot.sources;
     history = boot.history;
-    preferences = boot.preferences;
+    const normalizedPrefs = { ...boot.preferences };
+    if (normalizedPrefs['content.country'] && normalizedPrefs['content.country'].includes(',')) {
+      normalizedPrefs['content.country'] = normalizedPrefs['content.country'].split(',')[0].trim() || 'ID';
+    }
+    preferences = normalizedPrefs;
     fireStreak = boot.fireStreak;
     listeningStats = boot.listeningStats;
     mediaBaseUrl = boot.mediaBaseUrl;
@@ -901,6 +954,18 @@
       patch['content.hideExplicit'] !== undefined ||
       patch['content.language'] !== undefined
     ) {
+      if (patch['content.country'] !== undefined || patch['content.language'] !== undefined) {
+        // Mirror Auralys PageMemory.clear() + HomeMemory.clear() on locale change
+        ytShelves = [];
+        ytResults = [];
+        ytPlaylistResults = [];
+        ytAlbumResults = [];
+        ytArtistResults = [];
+        ytTop100Tracks = [];
+        ytMoreAllBuffer = [];
+        ytHomeContinuation = '';
+        ytMorePage = 0;
+      }
       void loadYTMusicHome();
     }
     if (patch['layout.leftCollapsed'] !== undefined) {
@@ -1334,14 +1399,77 @@
   }
 
   async function openYTAlbumCard(card: YTMusicCard) {
+    let bID = card.browseId || '';
+    if (card.kind !== 'song' && !bID && card.playlistId) {
+      bID = card.playlistId.startsWith('VL') ? card.playlistId : `VL${card.playlistId}`;
+    }
     await navigate({
       name: 'yt-album-detail',
-      videoId: card.videoId || '',
-      browseId: card.browseId || '',
+      videoId: card.kind === 'playlist' ? '' : (card.videoId || ''),
+      browseId: bID,
       title: card.title,
-      artist: card.artist,
-      albumTitle: card.title,
+      artist: card.artist || card.subtitle || '',
+      albumTitle: card.kind === 'song' ? (card.album || card.title) : card.title,
       coverUrl: card.coverUrl
+    });
+  }
+
+  async function openYTSongCard(yt: YTMusicTrack) {
+    await navigate({
+      name: 'yt-album-detail',
+      videoId: yt.videoId,
+      browseId: '',
+      title: yt.title,
+      artist: yt.artist,
+      albumTitle: yt.album,
+      coverUrl: yt.coverUrl
+    });
+  }
+
+  async function openQueueSource() {
+    const key = queueSourceKey.trim();
+    if (!key) return;
+    if (key.startsWith('local-playlist:')) {
+      const id = Number(key.slice('local-playlist:'.length));
+      if (Number.isFinite(id) && id > 0) {
+        await navigate({ name: 'playlist-detail', playlistId: id });
+      }
+      return;
+    }
+    if (key.startsWith('local-album:')) {
+      const id = Number(key.slice('local-album:'.length));
+      if (Number.isFinite(id) && id > 0) {
+        await handleOpenAlbum(id);
+      }
+      return;
+    }
+    if (key.startsWith('local-artist:')) {
+      const id = Number(key.slice('local-artist:'.length));
+      if (Number.isFinite(id) && id > 0) {
+        await navigate({ name: 'artist-detail', artistId: id });
+      }
+      return;
+    }
+    if (key === 'liked-songs') {
+      await navigate({ name: 'liked-songs' });
+      return;
+    }
+    if (key.startsWith('UC')) {
+      await navigate({
+        name: 'artist-detail',
+        browseId: key,
+        artistName: queueSourceTitle
+      });
+      return;
+    }
+    await navigate({
+      name: 'yt-album-detail',
+      videoId: currentTrack?.externalId || '',
+      browseId: key,
+      title: queueSourceTitle || currentTrack?.albumTitle || '',
+      artist: currentTrack?.artistName || '',
+      albumTitle: queueSourceTitle || currentTrack?.albumTitle || '',
+      coverUrl: currentTrack?.coverUrl || ''
     });
   }
 
@@ -1612,7 +1740,30 @@
       }
 
       if (activeCategory === 'semua') {
-        const targetBatch = 35; // 5 rows x 7 items
+        // First try real YouTube Music home continuation shelves (matching Auralys YouTube.homeContinuation)
+        if (ytHomeContinuation) {
+          try {
+            const nextPage = await api.getYTMusicHomeContinuation(ytHomeContinuation);
+            ytHomeContinuation = (nextPage?.continuation || '').trim();
+            const existingTitles = new Set(ytShelves.map((s) => s.title.trim().toLowerCase()));
+            const newShelves = normalizeHomeShelves(nextPage?.shelves || []).filter(
+              (sh) => !existingTitles.has(sh.title.trim().toLowerCase())
+            );
+            if (newShelves.length > 0) {
+              ytShelves = normalizeHomeShelves([...ytShelves, ...newShelves]);
+              const existingVids = new Set(ytResults.map((t) => t.videoId));
+              const extraTracks = filterExplicit(nextPage?.tracks || []).filter((t) => t.videoId && !existingVids.has(t.videoId));
+              if (extraTracks.length > 0) {
+                ytResults = [...ytResults, ...extraTracks];
+              }
+              return;
+            }
+          } catch {
+            ytHomeContinuation = '';
+          }
+        }
+
+        const targetBatch = 12; // 2 rows x 6 items
         const targetTitle = 'Lagu Lainnya untuk Anda';
         const existingShelf = ytShelves.find((s) => s.title === targetTitle);
         const tailArtists = (existingShelf?.items || []).slice(-3).map((c) => c.artist || c.subtitle || '');
@@ -1639,15 +1790,18 @@
           if (ar) batchArtistCount.set(ar, (batchArtistCount.get(ar) || 0) + 1);
         }
 
-        const pushUniqueTopSongs = (tracksList: YTMusicTrack[] | null | undefined, sourceLabel: string) => {
+        const pushUniqueTopSongs = (tracksList: YTMusicTrack[] | null | undefined, sourceLabel: string, strict = true) => {
           for (const t of tracksList || []) {
+            if (pool.length >= targetBatch) break;
             if (!t.videoId || existingVideoIds.has(t.videoId)) continue;
             const cov = (t.coverUrl || '').trim();
             const alb = (t.album || '').trim().toLowerCase();
             const ar = (t.artist || '').trim().toLowerCase();
-            if (cov && existingCovers.has(cov)) continue;
-            if (alb && alb !== 'single' && existingAlbums.has(alb)) continue;
-            if (ar && (batchArtistCount.get(ar) || 0) >= 2) continue;
+            if (strict) {
+              if (cov && existingCovers.has(cov)) continue;
+              if (alb && alb !== 'single' && existingAlbums.has(alb)) continue;
+              if (ar && (batchArtistCount.get(ar) || 0) >= 2) continue;
+            }
 
             existingVideoIds.add(t.videoId);
             if (cov) existingCovers.add(cov);
@@ -1678,23 +1832,22 @@
         pushUniqueTopSongs(filterExplicit(topSongs || []), 'Top Songs');
 
         let attempts = 0;
-        while (pool.length < targetBatch && attempts < 3) {
+        while (pool.length < targetBatch && attempts < 6) {
           attempts++;
           const page = ytMorePage++;
           const q = MORESONGS_QUERIES[page % MORESONGS_QUERIES.length];
           const moreTracks = await api.searchYouTubeMusic(q).catch(() => []);
-          pushUniqueTopSongs(filterExplicit(moreTracks || []), 'Top Songs');
+          const filteredMore = filterExplicit(moreTracks || []);
+          pushUniqueTopSongs(filteredMore, 'Top Songs', true);
+          if (pool.length < targetBatch && attempts >= 3) {
+            pushUniqueTopSongs(filteredMore, 'Top Songs', false);
+          }
         }
 
         if (pool.length === 0) return;
 
         const spreadPool = shuffleAndSpreadByArtist(pool, (c) => c.artist || c.subtitle || '', tailArtists);
-        const takeCount =
-          spreadPool.length >= targetBatch
-            ? targetBatch
-            : spreadPool.length >= 7
-              ? Math.floor(spreadPool.length / 7) * 7
-              : spreadPool.length;
+        const takeCount = Math.min(targetBatch, spreadPool.length);
         const toAppend = spreadPool.slice(0, takeCount);
         ytMoreAllBuffer = spreadPool.slice(takeCount);
 
@@ -2005,7 +2158,15 @@
   async function playYTMusicSingle(yt: YTMusicTrack) {
     queueSourceTitle = '';
     algoBatchRound = 0;
-    const tr = await api.playYTMusicTrack(yt);
+    trackLoading = true;
+    let tr: Track;
+    try {
+      tr = await api.playYTMusicTrack(yt);
+    } catch {
+      trackLoading = false;
+      showNetworkToast(appLang === 'id' ? 'Koneksi lambat atau terputus, coba lagi' : 'Slow or lost connection, please try again');
+      return;
+    }
     playedAlgoKeys = new Set<string>([trackQueueKey(tr)]);
     if (!getPrefBool(preferences, 'playback.radioOnPick')) {
       await playTrack(tr, [tr], '');
@@ -2192,6 +2353,7 @@
     const resumeSeek = pendingResumeSeek > 0 && currentTrack && trackQueueKey(currentTrack) === trackQueueKey(tr) ? pendingResumeSeek : 0;
     pendingResumeSeek = 0;
     silentTailTicks = 0;
+    trackLoading = true;
     currentTrack = tr;
     listenedAccumulator = 0;
     recordedForCurrentTrack = false;
@@ -2206,7 +2368,16 @@
         void api.getStreamUrl(tr.id).catch(() => {});
       }
     } else {
-      streamUrl = await api.getStreamUrl(tr.id);
+      try {
+        streamUrl = await api.getStreamUrl(tr.id);
+      } catch {
+        if (seq === playRequestSeq) {
+          trackLoading = false;
+          isPlaying = false;
+          showNetworkToast(appLang === 'id' ? 'Gagal memuat audio, periksa koneksi internet' : 'Failed to load audio, check your connection');
+        }
+        return;
+      }
     }
 
     if (seq !== playRequestSeq) return;
@@ -2227,21 +2398,25 @@
         await audioEl.play();
         if (seq === playRequestSeq) {
           isPlaying = true;
+          trackLoading = false;
         }
       } catch (err: any) {
         if (err?.name !== 'AbortError' && seq === playRequestSeq) {
           isPlaying = false;
+          trackLoading = false;
         }
       } finally {
         if (seq === playRequestSeq) {
           switchingTrack = false;
         }
       }
+    } else if (seq === playRequestSeq) {
+      trackLoading = false;
     }
   }
 
   async function flushListenProgress(trackId: number, sec: number, completed: boolean) {
-    if (sec <= 0) return;
+    if (sec < 20) return;
     if (!getPrefBool(preferences, 'history.enabled') && getPrefValue(preferences, 'history.enabled') === 'false') {
       return;
     }
@@ -2264,9 +2439,9 @@
     api.updateDynamicIslandProgress(positionSec, durationSec);
     if (isPlaying) {
       listenedAccumulator += 0.25;
-      if (listenedAccumulator >= 10 && !recordedForCurrentTrack) {
+      if (listenedAccumulator >= 20 && !recordedForCurrentTrack) {
         recordedForCurrentTrack = true;
-        flushListenProgress(currentTrack.id, 10, false);
+        flushListenProgress(currentTrack.id, 20, false);
       }
       saveLastQueue();
 
@@ -2299,8 +2474,8 @@
 
   async function handleAudioEnded() {
     if (currentTrack) {
-      const rem = Math.max(5, Math.round(listenedAccumulator));
-      if (!recordedForCurrentTrack) {
+      const rem = Math.round(listenedAccumulator);
+      if (!recordedForCurrentTrack && rem >= 20) {
         recordedForCurrentTrack = true;
         await flushListenProgress(currentTrack.id, rem, true);
       }
@@ -2337,6 +2512,28 @@
       audioEl.pause();
       isPlaying = false;
       await api.playerControl('pause');
+    }
+  }
+
+  function handleQueuePlayNext(tr: Track) {
+    if (!currentTrack) {
+      queue = [tr];
+      void playTrack(tr, [tr]);
+      return;
+    }
+    const curKey = trackQueueKey(currentTrack);
+    const targetKey = trackQueueKey(tr);
+    if (curKey === targetKey) return;
+    const filtered = queue.filter((q) => trackQueueKey(q) !== targetKey);
+    const curIdx = filtered.findIndex((q) => trackQueueKey(q) === curKey);
+    const insertAt = curIdx >= 0 ? curIdx + 1 : 0;
+    queue = [...filtered.slice(0, insertAt), tr, ...filtered.slice(insertAt)];
+  }
+
+  function handleAddToQueue(tr: Track) {
+    const targetKey = trackQueueKey(tr);
+    if (!queue.some((q) => trackQueueKey(q) === targetKey)) {
+      queue = [...queue, tr];
     }
   }
 
@@ -2463,6 +2660,11 @@
 
   function handleGlobalKeydown(e: KeyboardEvent) {
     if (e.ctrlKey || e.metaKey) {
+      if (e.key.toLowerCase() === 'r' || e.code === 'KeyR') {
+        e.preventDefault();
+        window.location.reload();
+        return;
+      }
       if (e.key === '+' || e.key === '=' || e.code === 'NumpadAdd') {
         e.preventDefault();
         applyZoom(zoomLevel + 0.1);
@@ -2629,9 +2831,16 @@
       sourcesStatus = `Folder berhasil di-scan (${scanned.length} lagu ditemukan).`;
     }
   }
+  function handleGlobalDragStart(e: DragEvent) {
+    const target = e.target as HTMLElement | null;
+    if (!target) return;
+    if (target.tagName === 'IMG' || !target.closest('[draggable="true"]')) {
+      e.preventDefault();
+    }
+  }
 </script>
 
-<svelte:window onkeydown={handleGlobalKeydown} />
+<svelte:window onkeydown={handleGlobalKeydown} ondragstart={handleGlobalDragStart} />
 
 <audio
   bind:this={audioEl}
@@ -2639,8 +2848,30 @@
   preload="auto"
   ontimeupdate={handleAudioTimeUpdate}
   onended={handleAudioEnded}
+  onwaiting={() => {
+    if (currentTrack) trackLoading = true;
+  }}
+  onstalled={() => {
+    if (currentTrack) {
+      trackLoading = true;
+      showNetworkToast(appLang === 'id' ? 'Koneksi lambat, sedang buffering...' : 'Slow connection, buffering...');
+    }
+  }}
+  onerror={() => {
+    trackLoading = false;
+    isPlaying = false;
+    if (currentTrack) {
+      showNetworkToast(appLang === 'id' ? 'Gagal memutar audio, periksa koneksi internet' : 'Playback failed, check your connection');
+    }
+  }}
+  oncanplay={() => {
+    if (!switchingTrack) trackLoading = false;
+  }}
   onplay={() => (isPlaying = true)}
-  onplaying={() => (isPlaying = true)}
+  onplaying={() => {
+    isPlaying = true;
+    trackLoading = false;
+  }}
   onpause={() => {
     if (!switchingTrack && !audioEl?.ended) isPlaying = false;
   }}
@@ -2793,9 +3024,11 @@
           {queueSourceTitle}
           {queueSourceKey}
           {isPlaying}
+          {trackLoading}
           onTogglePlay={togglePlay}
           {mediaBaseUrl}
           onPlayYTMusic={playYTMusicSingle}
+          onOpenYTSong={openYTSongCard}
           onPlayYTCollection={handlePlayYTCollection}
           onOpenYTAlbum={openYTAlbumCard}
           onPlayPlaylist={handlePlayPlaylist}
@@ -2813,6 +3046,7 @@
           onNavigate={navigate}
         />
       {:else if currentRoute.name === 'search' || currentRoute.name === 'liked-songs' || currentRoute.name === 'downloaded' || currentRoute.name === 'favorite-albums' || currentRoute.name === 'favorite-artists' || currentRoute.name === 'artist-detail'}
+        {#key `${currentRoute.name}:${currentRoute.name === 'artist-detail' ? currentRoute.artistId ?? currentRoute.browseId ?? currentRoute.artistName ?? '' : ''}`}
         <LibraryViews
           lang={appLang}
           mode={currentRoute.name}
@@ -2850,6 +3084,8 @@
           {mediaBaseUrl}
           {accentColor}
           onPlayTrack={playTrack}
+          onPlayNext={handleQueuePlayNext}
+          onAddToQueue={handleAddToQueue}
           onPlayAlbum={handlePlayAlbum}
           onPlayArtist={handlePlayArtist}
           onPlayYTMusic={playYTMusicSingle}
@@ -2889,7 +3125,9 @@
             })}
           onNavigate={navigate}
         />
+        {/key}
       {:else if currentRoute.name === 'playlists' || currentRoute.name === 'local-playlists' || currentRoute.name === 'playlist-detail'}
+        {#key `${currentRoute.name}:${currentRoute.name === 'playlist-detail' ? currentRoute.playlistId : ''}`}
         <PlaylistViews
           lang={appLang}
           mode={currentRoute.name}
@@ -2952,11 +3190,8 @@
             selectedPlaylistDetail = await api.getPlaylistDetail(pid);
           }}
           onToggleFavorite={handleToggleFavoriteTrack}
-          onAddToQueue={(tr) => {
-            if (!queue.some((q) => q.id === tr.id)) {
-              queue = [...queue, tr];
-            }
-          }}
+          onPlayNext={handleQueuePlayNext}
+          onAddToQueue={handleAddToQueue}
           onDownloadTrack={handleDownloadTrack}
           onRemoveDownload={handleRemoveDownload}
           onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
@@ -2979,6 +3214,7 @@
             }
           }}
         />
+        {/key}
       {:else if currentRoute.name === 'sources'}
         <SourcesView
           {sources}
@@ -3067,11 +3303,8 @@
           onOpenYTAlbum={(card) => void openYTAlbumCard(card)}
           onDownloadTrack={handleDownloadTrack}
           onRemoveDownload={handleRemoveDownload}
-          onAddToQueue={(tr) => {
-            if (!queue.some((q) => q.id === tr.id)) {
-              queue = [...queue, tr];
-            }
-          }}
+          onPlayNext={handleQueuePlayNext}
+          onAddToQueue={handleAddToQueue}
         />
       {:else if currentRoute.name === 'lyrics'}
         <LyricsView
@@ -3090,6 +3323,7 @@
           }}
         />
       {:else}
+        {#key currentRoute.name}
         <AnalyticsAndSettingsViews
           mode={currentRoute.name}
           {history}
@@ -3121,6 +3355,7 @@
           }}
           onNavigate={navigate}
         />
+        {/key}
       {/if}
     </main>
 
@@ -3159,6 +3394,7 @@
         onOpenTrackDetail={(tr) => void openTrackAlbumDetail(tr)}
         onOpenArtistDetail={(tr) => void openTrackArtistDetail(tr)}
         onOpenLyrics={() => navigate({ name: 'lyrics' })}
+        onOpenQueueSource={queueSourceKey ? openQueueSource : undefined}
       />
     {/if}
   </div>
@@ -3168,6 +3404,7 @@
       lang={appLang}
       {currentTrack}
       {isPlaying}
+      {trackLoading}
       {positionSec}
       {durationSec}
       {volume}
@@ -3258,6 +3495,18 @@
       }}
     />
   </div>
+
+  {#if networkToast}
+    <div
+      in:fly={{ y: 12, duration: 180 }}
+      out:fly={{ y: 12, duration: 150 }}
+      class="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full text-xs font-semibold shadow-lg pointer-events-none flex items-center gap-2"
+      style="background-color: var(--md-sys-color-inverse-surface); color: var(--md-sys-color-inverse-on-surface);"
+    >
+      <Icon name="wifi-slash" size={14} />
+      <span>{networkToast}</span>
+    </div>
+  {/if}
 
   {#if isMobile}
     {#if mobileMenuOpen}
