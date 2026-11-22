@@ -4,6 +4,7 @@
   import { svelteMotionEnter } from '../lib/motion';
   import type { Album, Artist, HomeFilter, Playlist, Track, ViewRoute, YTMusicCard, YTMusicShelf, YTMusicTrack } from '../lib/types';
   import { tr, type LangCode } from '../lib/i18n';
+  import CoverImage from '../components/CoverImage.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import EqIndicator from '../components/EqIndicator.svelte';
   import Icon from '../components/Icon.svelte';
@@ -32,9 +33,11 @@
     queueSourceTitle?: string | null;
     queueSourceKey?: string | null;
     isPlaying?: boolean;
+    trackLoading?: boolean;
     onTogglePlay?: () => void;
     mediaBaseUrl: string;
     onPlayYTMusic: (yt: YTMusicTrack) => void;
+    onOpenYTSong?: (yt: YTMusicTrack) => void;
     onPlayYTCollection: (card: YTMusicCard) => void;
     onOpenYTAlbum?: (card: YTMusicCard) => void;
     onPlayPlaylist?: (playlistId: number) => void;
@@ -84,9 +87,11 @@
     queueSourceTitle = null,
     queueSourceKey = null,
     isPlaying = false,
+    trackLoading = false,
     onTogglePlay,
     mediaBaseUrl,
     onPlayYTMusic,
+    onOpenYTSong,
     onPlayYTCollection,
     onOpenYTAlbum,
     onPlayPlaylist,
@@ -106,6 +111,8 @@
     showRecentHome: _showRecentHome = true,
     meltCards: _meltCards = true
   }: Props = $props();
+
+  const isActuallyPlaying = $derived(isPlaying && !trackLoading);
 
   let activeFilterPill = $state<HomeFilter>('semua');
   let filteredMoreLoaded = $state(false);
@@ -188,7 +195,8 @@
     { id: 'semua', label: tr(lang, 'nav.all') },
     { id: 'musik', label: tr(lang, 'nav.music') },
     { id: 'artis', label: tr(lang, 'nav.artists') },
-    { id: 'album', label: tr(lang, 'nav.albums') }
+    { id: 'album', label: tr(lang, 'nav.albums') },
+    { id: 'playlist', label: tr(lang, 'nav.playlists') }
   ] as const);
 
   const pillHeading = $derived(
@@ -216,20 +224,50 @@
     trackCount: number;
   }
 
-  const ID_EN_HINT_RE = /\b(dan|yang|di|ke|dari|untuk|dengan|aku|kamu|kita|cinta|hati|lagu|indonesia|pop|hits|love|you|me|my|the|and|for|with|best|top|night|song|music|feat|ft)\b/i;
-  const NON_LATIN_RE = /[^\u0000-\u024F\u1E00-\u1EFF]/;
+  const shelfArtists = $derived.by(() => {
+    const out: YTMusicCard[] = [];
+    const seen = new Set<string>();
+    for (const sh of ytShelves) {
+      for (const it of sh.items) {
+        if (it.kind !== 'artist') continue;
+        const k = (it.browseId || it.title).trim().toLowerCase();
+        if (!k || seen.has(k)) continue;
+        seen.add(k);
+        out.push(it);
+      }
+    }
+    return out;
+  });
 
-  function langPriorityScore(text: string): number {
-    const t = (text || '').trim();
-    if (!t) return 2;
-    if (NON_LATIN_RE.test(t)) return 2;
-    if (ID_EN_HINT_RE.test(t)) return 0;
-    return 1;
-  }
+  const shelfAlbums = $derived.by(() => {
+    const out: YTMusicCard[] = [];
+    const seen = new Set<string>();
+    for (const sh of ytShelves) {
+      for (const it of sh.items) {
+        if (it.kind !== 'album') continue;
+        const k = (it.browseId || it.id).trim().toLowerCase();
+        if (!k || seen.has(k)) continue;
+        seen.add(k);
+        out.push(it);
+      }
+    }
+    return out;
+  });
 
-  function prioritizeIdEn<T>(items: T[], getText: (item: T) => string): T[] {
-    return [...items].sort((a, b) => langPriorityScore(getText(a)) - langPriorityScore(getText(b)));
-  }
+  const shelfPlaylists = $derived.by(() => {
+    const out: YTMusicCard[] = [];
+    const seen = new Set<string>();
+    for (const sh of ytShelves) {
+      for (const it of sh.items) {
+        if (it.kind !== 'playlist') continue;
+        const k = (it.browseId || it.playlistId || it.id).trim().toLowerCase();
+        if (!k || seen.has(k)) continue;
+        seen.add(k);
+        out.push(it);
+      }
+    }
+    return out;
+  });
 
   const displayedHomeArtists = $derived.by<HomeArtistCard[]>(() => {
     const dbByName = new Map<string, Artist>();
@@ -240,8 +278,9 @@
     }
 
     const byName = new Map<string, HomeArtistCard>();
-    if (ytArtistResults.length > 0) {
-      for (const ytAr of ytArtistResults) {
+    const combinedYT = [...shelfArtists, ...ytArtistResults];
+    if (combinedYT.length > 0) {
+      for (const ytAr of combinedYT) {
         const rawName = ytAr.title.trim();
         const k = rawName.toLowerCase();
         if (!k || k === 'unknown artist' || k === 'youtube music artist') continue;
@@ -259,8 +298,8 @@
         });
       }
       const list = Array.from(byName.values());
-      if (!filteredMoreLoaded && list.length > 28) {
-        return list.slice(0, 28);
+      if (!filteredMoreLoaded && list.length > 24) {
+        return list.slice(0, 24);
       }
       return list;
     }
@@ -282,44 +321,49 @@
         });
       }
     }
-    const list = prioritizeIdEn(Array.from(byName.values()), (ar) => ar.name);
-    if (!filteredMoreLoaded && list.length > 28) {
-      return list.slice(0, 28);
+    const list = Array.from(byName.values());
+    if (!filteredMoreLoaded && list.length > 24) {
+      return list.slice(0, 24);
     }
     return list;
   });
 
   const displayedFilteredAlbums = $derived.by(() => {
-    const head = prioritizeIdEn(ytAlbumResults.slice(0, 28), (a) => `${a.title} ${a.subtitle}`);
-    if (!filteredMoreLoaded) return head;
-    return [...head, ...ytAlbumResults.slice(28)];
+    const merged: YTMusicCard[] = [];
+    const seen = new Set<string>();
+    for (const a of [...shelfAlbums, ...ytAlbumResults]) {
+      const k = (a.browseId || a.id).trim().toLowerCase();
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      merged.push(a);
+    }
+    if (!filteredMoreLoaded && merged.length > 24) return merged.slice(0, 24);
+    return merged;
   });
 
   const displayedFilteredPlaylists = $derived.by(() => {
-    const head = prioritizeIdEn(ytPlaylistResults.slice(0, 28), (p) => `${p.title} ${p.subtitle}`);
-    if (!filteredMoreLoaded) return head;
-    return [...head, ...ytPlaylistResults.slice(28)];
+    const merged: YTMusicCard[] = [];
+    const seen = new Set<string>();
+    for (const p of [...shelfPlaylists, ...ytPlaylistResults]) {
+      const k = (p.browseId || p.playlistId || p.id).trim().toLowerCase();
+      if (!k || seen.has(k)) continue;
+      seen.add(k);
+      merged.push(p);
+    }
+    if (!filteredMoreLoaded && merged.length > 24) return merged.slice(0, 24);
+    return merged;
   });
 
   const displayedFilteredResults = $derived.by(() => {
-    const seenCover = new Set<string>();
-    const seenAlbum = new Set<string>();
+    const seenVideo = new Set<string>();
     const deduped: YTMusicTrack[] = [];
-    const ordered = [
-      ...prioritizeIdEn(ytResults.slice(0, 28), (r) => `${r.title} ${r.artist}`),
-      ...ytResults.slice(28)
-    ];
-    for (const r of ordered) {
-      const cov = (r.coverUrl || '').trim();
-      const alb = (r.album || '').trim().toLowerCase();
-      if (cov && seenCover.has(cov)) continue;
-      if (alb && alb !== 'single' && seenAlbum.has(alb)) continue;
-      if (cov) seenCover.add(cov);
-      if (alb && alb !== 'single') seenAlbum.add(alb);
+    for (const r of ytResults) {
+      if (!r.videoId || seenVideo.has(r.videoId)) continue;
+      seenVideo.add(r.videoId);
       deduped.push(r);
     }
-    if (!filteredMoreLoaded && deduped.length > 28) {
-      return deduped.slice(0, 28);
+    if (!filteredMoreLoaded && deduped.length > 24) {
+      return deduped.slice(0, 24);
     }
     return deduped;
   });
@@ -388,8 +432,8 @@
       const hasOverflow = node.scrollWidth > node.clientWidth + 4;
       const atStart = node.scrollLeft <= 4;
       const atEnd = node.scrollLeft + node.clientWidth >= node.scrollWidth - 4;
-      node.style.setProperty('--fade-start', hasOverflow && !atStart ? '2.75rem' : '0px');
-      node.style.setProperty('--fade-end', hasOverflow && !atEnd ? '2.75rem' : '0px');
+      node.dataset.fadeStart = hasOverflow && !atStart ? 'true' : 'false';
+      node.dataset.fadeEnd = hasOverflow && !atEnd ? 'true' : 'false';
     };
     update();
     node.addEventListener('scroll', update, { passive: true });
@@ -439,6 +483,8 @@
               onSearchYTMusicArtists?.('');
             } else if (pill.id === 'album') {
               onSearchYTMusicAlbums?.('');
+            } else if (pill.id === 'playlist') {
+              onSearchYTMusicPlaylists?.('');
             }
           }}
           class="px-3.5 py-1.5 rounded-full text-xs font-semibold transition-colors duration-200 cursor-pointer hover:brightness-110"
@@ -515,12 +561,11 @@
                     class="velora-card-artwork-hit flex items-center justify-center cursor-pointer"
                   >
                     {#if cover}
-                      <img
+                      <CoverImage
                         src={cover}
-                        alt={pl.name}
-                        loading="lazy"
-                        decoding="async"
-                        class:velora-yt-video-thumb={isYTVideoThumb(cover)}
+                        fallbackIcon="playlist"
+                        iconSize={44}
+                        isVideoThumb={isYTVideoThumb(cover)}
                       />
                     {:else}
                       <Icon name="playlist" weight="fill" size={44} class="text-white/95 drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]" />
@@ -609,23 +654,9 @@
                 {@const cover = resolveCoverUrl(item.coverUrl, mediaBaseUrl)}
                 {@const isItemLoading = loadingCollectionId === item.id}
                 {@const isCardActive = isCollectionCardActive(item)}
-                <button
-                  type="button"
-                  onclick={() => {
-                    if (item.kind === 'artist') {
-                      onNavigate({
-                        name: 'artist-detail',
-                        browseId: item.browseId,
-                        artistName: item.title,
-                        avatarUrl: item.coverUrl
-                      });
-                    } else if (isCardActive && onTogglePlay) {
-                      onTogglePlay();
-                    } else {
-                      onPlayYTCollection(item);
-                    }
-                  }}
-                  class="group {isExpanded ? 'w-full min-w-0' : 'w-[132px] sm:w-[172px] shrink-0'} flex flex-col justify-start items-stretch self-start p-2 sm:p-2.5 rounded-lg border-0 outline-none focus:outline-none text-left cursor-pointer transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]"
+                <div
+                  role="group"
+                  class="group {isExpanded ? 'w-full min-w-0' : 'w-[132px] sm:w-[172px] shrink-0'} flex flex-col justify-start items-stretch self-start p-2 sm:p-2.5 rounded-lg border-0 outline-none focus:outline-none text-left transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]"
                 >
                   <div class="relative mb-2.5">
                     <div
@@ -634,42 +665,88 @@
                         ? 'background-color: var(--md-sys-color-surface-container-high);'
                         : 'background: linear-gradient(135deg, var(--md-sys-color-primary-container), var(--md-sys-color-surface-container-highest));'}
                     >
-                      {#if cover}
-                        <img
+                      <button
+                        type="button"
+                        onclick={() => {
+                          if (item.kind === 'artist') {
+                            onNavigate({
+                              name: 'artist-detail',
+                              browseId: item.browseId,
+                              artistName: item.title,
+                              avatarUrl: item.coverUrl
+                            });
+                          } else if (onOpenYTAlbum) {
+                            onOpenYTAlbum(item);
+                          } else {
+                            onPlayYTCollection(item);
+                          }
+                        }}
+                        aria-label="Buka {item.title}"
+                        class="velora-card-artwork-hit cursor-pointer"
+                      >
+                        <CoverImage
                           src={cover}
-                          alt={item.title}
-                          loading="lazy"
-                          decoding="async"
-                          class:velora-yt-video-thumb={isYTVideoThumb(cover)}
+                          fallbackIcon={item.kind === 'artist' ? 'user' : item.kind === 'playlist' ? 'playlist' : 'vinyl-record'}
+                          iconSize={42}
+                          isVideoThumb={isYTVideoThumb(cover)}
                         />
-                      {:else}
-                        <Icon name="vinyl-record" weight="fill" size={44} class="text-white drop-shadow-sm" />
-                      {/if}
+                      </button>
                     </div>
 
-                    <span
-                      class="absolute z-20 bottom-1.5 right-1.5 w-10 h-10 rounded-full border-0 outline-none shadow-lg bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center transition-all duration-200 {isCardActive
-                        ? 'opacity-100 translate-y-0'
-                        : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'}"
-                    >
-                      {#if isCardActive && isPlaying}
-                        <EqIndicator color="currentColor" />
-                        <span class="hidden group-hover:inline-flex items-center justify-center">
-                          <Icon name="pause" weight="fill" size={18} />
-                        </span>
-                      {:else}
-                        <Icon name="play" weight="fill" size={18} />
-                      {/if}
-                    </span>
+                    {#if item.kind !== 'artist'}
+                      <button
+                        type="button"
+                        onclick={(e) => {
+                          e.stopPropagation();
+                          if (isCardActive && onTogglePlay) {
+                            onTogglePlay();
+                          } else {
+                            onPlayYTCollection(item);
+                          }
+                        }}
+                        aria-label="Putar {item.title}"
+                        class="absolute z-20 bottom-1.5 right-1.5 w-10 h-10 rounded-full border-0 outline-none shadow-lg bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer transition-all duration-200 {isCardActive
+                          ? 'opacity-100 translate-y-0'
+                          : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'}"
+                      >
+                        {#if isCardActive && isActuallyPlaying}
+                          <EqIndicator color="currentColor" />
+                          <span class="hidden group-hover:inline-flex items-center justify-center">
+                            <Icon name="pause" weight="fill" size={18} />
+                          </span>
+                        {:else}
+                          <Icon name="play" weight="fill" size={18} />
+                        {/if}
+                      </button>
+                    {/if}
                   </div>
 
-                  <div class="text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
-                    {item.title}
-                  </div>
-                  <div class="text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-                    {localizeItemSubtitle(item)}
-                  </div>
-                </button>
+                  <button
+                    type="button"
+                    onclick={() => {
+                      if (item.kind === 'artist') {
+                        onNavigate({
+                          name: 'artist-detail',
+                          browseId: item.browseId,
+                          artistName: item.title,
+                          avatarUrl: item.coverUrl
+                        });
+                      } else if (onOpenYTAlbum) {
+                        onOpenYTAlbum(item);
+                      } else {
+                        onPlayYTCollection(item);
+                      }
+                    }}
+                    class="w-full text-left cursor-pointer"
+                  >
+                    <div class="text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
+                      {item.title}
+                    </div>
+                    <div class="text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
+                      {localizeItemSubtitle(item)}
+                    </div>
+                  </button>
+                </div>
               {/each}
             </div>
             {#if shelf.title === 'Artis Populer' && isExpanded && onLoadMorePopularArtists}
@@ -697,7 +774,7 @@
 
         {#if ytLoading}
           <div class="velora-card-grid-7">
-            {#each Array.from({ length: 28 }, (_, idx) => idx) as idx (idx)}
+            {#each Array.from({ length: 24 }, (_, idx) => idx) as idx (idx)}
               <div class="w-full min-w-0 p-2.5 rounded-lg space-y-2.5">
                 <div class="w-full aspect-square {activeFilterPill === 'artis' ? 'rounded-full' : 'rounded-md'} bg-[var(--md-sys-color-surface-container-high)] animate-pulse"></div>
                 <div class="h-3.5 w-3/4 rounded bg-[var(--md-sys-color-surface-container-highest)] animate-pulse"></div>
@@ -745,17 +822,11 @@
                         aria-label="Buka artis {ar.name}"
                         class="velora-card-artwork-hit cursor-pointer"
                       >
-                        {#if avatar}
-                          <img
-                            src={avatar}
-                            alt={ar.name}
-                            loading="lazy"
-                            decoding="async"
-                            class="object-cover object-center"
-                          />
-                        {:else}
-                          <Icon name="user" weight="fill" size={44} style="color: var(--md-sys-color-on-primary-container); opacity: 0.7;" />
-                        {/if}
+                        <CoverImage
+                          src={avatar}
+                          fallbackIcon="user"
+                          iconSize={42}
+                        />
                       </button>
                     </div>
 
@@ -775,8 +846,8 @@
                       }}
                       title={ar.isFavorite ? tr(lang, 'nav.removeFromFavorites') : tr(lang, 'nav.addToFavorites')}
                       aria-label={ar.isFavorite ? tr(lang, 'nav.removeFromFavorites') : tr(lang, 'nav.addToFavorites')}
-                      class="border-0 shadow-md absolute z-20 bottom-1 right-1 w-8 h-8 rounded-full backdrop-blur-xs flex items-center justify-center cursor-pointer transition-opacity {ar.isFavorite
-                        ? 'opacity-100'
+                      class="velora-heart-btn border-0 shadow-md absolute z-20 bottom-1 right-1 w-8 h-8 rounded-full backdrop-blur-xs flex items-center justify-center cursor-pointer {ar.isFavorite
+                        ? 'is-loved opacity-100'
                         : 'opacity-0 group-hover:opacity-100'}"
                       style="background-color: color-mix(in srgb, var(--md-sys-color-surface-container-highest) 90%, transparent); color: {ar.isFavorite
                         ? 'var(--md-sys-color-primary)'
@@ -810,7 +881,7 @@
             </div>
           {/if}
         {:else if activeFilterPill === 'album'}
-          {#if ytAlbumResults.length === 0}
+          {#if displayedFilteredAlbums.length === 0}
             <EmptyState
               icon="vinyl-record"
               title={tr(lang, 'nav.noAlbumsTitle')}
@@ -848,17 +919,12 @@
                       aria-label="Buka album {item.title}"
                       class="velora-card-artwork-hit cursor-pointer"
                     >
-                      {#if cover}
-                        <img
-                          src={cover}
-                          alt={item.title}
-                          loading="lazy"
-                          decoding="async"
-                          class:velora-yt-video-thumb={isYTVideoThumb(cover)}
-                        />
-                      {:else}
-                        <Icon name="vinyl-record" weight="fill" size={44} class="text-white drop-shadow-sm" />
-                      {/if}
+                      <CoverImage
+                        src={cover}
+                        fallbackIcon="vinyl-record"
+                        iconSize={42}
+                        isVideoThumb={isYTVideoThumb(cover)}
+                      />
                     </button>
 
                     <button
@@ -869,7 +935,7 @@
                         ? 'opacity-100 translate-y-0'
                         : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'}"
                     >
-                      {#if isAlbumActive && isPlaying}
+                      {#if isAlbumActive && isActuallyPlaying}
                         <EqIndicator color="currentColor" />
                         <span class="hidden group-hover:inline-flex items-center justify-center">
                           <Icon name="pause" weight="fill" size={18} />
@@ -897,7 +963,7 @@
             </div>
           {/if}
         {:else if activeFilterPill === 'playlist'}
-          {#if ytPlaylistResults.length === 0}
+          {#if displayedFilteredPlaylists.length === 0}
             <EmptyState
               icon="playlist"
               title={tr(lang, 'nav.noPlaylists')}
@@ -906,7 +972,7 @@
             >
               <button
                 type="button"
-                onclick={() => onSearchYTMusicPlaylists?.('Top Hits Indonesia Playlist')}
+                onclick={() => onSearchYTMusicPlaylists?.('')}
                 class="mt-6 h-10 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
                 style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
               >
@@ -918,10 +984,9 @@
               {#each displayedFilteredPlaylists as item (item.id)}
                 {@const cover = resolveCoverUrl(item.coverUrl, mediaBaseUrl)}
                 {@const isPlaylistActive = isCollectionCardActive(item)}
-                <button
-                  type="button"
-                  onclick={() => (isPlaylistActive && onTogglePlay ? onTogglePlay() : onPlayYTCollection(item))}
-                  class="group w-full min-w-0 flex flex-col justify-start items-stretch self-start p-2.5 rounded-lg text-left cursor-pointer transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]"
+                <div
+                  role="group"
+                  class="group w-full min-w-0 flex flex-col justify-start items-stretch self-start p-2.5 rounded-lg text-left transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]"
                 >
                   <div
                     class="velora-card-artwork mb-2.5 flex items-center justify-center"
@@ -929,24 +994,36 @@
                       ? 'background-color: var(--md-sys-color-surface-container-high);'
                       : 'background: linear-gradient(135deg, var(--md-sys-color-primary-container), var(--md-sys-color-surface-container-highest));'}
                   >
-                    {#if cover}
-                      <img
+                    <button
+                      type="button"
+                      onclick={() => (onOpenYTAlbum ? onOpenYTAlbum(item) : onPlayYTCollection(item))}
+                      aria-label="Buka playlist {item.title}"
+                      class="velora-card-artwork-hit cursor-pointer"
+                    >
+                      <CoverImage
                         src={cover}
-                        alt={item.title}
-                        loading="lazy"
-                        decoding="async"
-                        class:velora-yt-video-thumb={isYTVideoThumb(cover)}
+                        fallbackIcon="playlist"
+                        iconSize={42}
+                        isVideoThumb={isYTVideoThumb(cover)}
                       />
-                    {:else}
-                      <Icon name="playlist" weight="fill" size={44} class="text-white drop-shadow-sm" />
-                    {/if}
+                    </button>
 
-                    <span
-                      class="absolute bottom-2 right-2 w-10 h-10 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center transition-all duration-200 {isPlaylistActive
+                    <button
+                      type="button"
+                      onclick={(e) => {
+                        e.stopPropagation();
+                        if (isPlaylistActive && onTogglePlay) {
+                          onTogglePlay();
+                        } else {
+                          onPlayYTCollection(item);
+                        }
+                      }}
+                      aria-label="Putar playlist {item.title}"
+                      class="absolute z-20 bottom-2 right-2 w-10 h-10 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer transition-all duration-200 {isPlaylistActive
                         ? 'opacity-100 translate-y-0'
                         : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'}"
                     >
-                      {#if isPlaylistActive && isPlaying}
+                      {#if isPlaylistActive && isActuallyPlaying}
                         <EqIndicator color="currentColor" />
                         <span class="hidden group-hover:inline-flex items-center justify-center">
                           <Icon name="pause" weight="fill" size={18} />
@@ -954,16 +1031,22 @@
                       {:else}
                         <Icon name="play" weight="fill" size={18} />
                       {/if}
-                    </span>
+                    </button>
                   </div>
 
-                  <div class="text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
-                    {item.title}
-                  </div>
-                  <div class="text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-                    {item.subtitle || 'Playlist'}
-                  </div>
-                </button>
+                  <button
+                    type="button"
+                    onclick={() => (onOpenYTAlbum ? onOpenYTAlbum(item) : onPlayYTCollection(item))}
+                    class="w-full text-left cursor-pointer"
+                  >
+                    <div class="text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
+                      {item.title}
+                    </div>
+                    <div class="text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
+                      {item.subtitle || 'Playlist'}
+                    </div>
+                  </button>
+                </div>
               {/each}
             </div>
           {/if}
@@ -995,10 +1078,9 @@
             {#each displayedFilteredResults as yt (yt.videoId)}
               {@const cover = resolveCoverUrl(yt.coverUrl, mediaBaseUrl)}
               {@const isSongActive = isTrackCardActive(yt.videoId, yt.title, yt.artist)}
-              <button
-                type="button"
-                onclick={() => (isSongActive && onTogglePlay ? onTogglePlay() : onPlayYTMusic(yt))}
-                class="group w-full min-w-0 flex flex-col justify-start items-stretch self-start p-2.5 rounded-lg border-0 outline-none focus:outline-none text-left cursor-pointer transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]"
+              <div
+                role="group"
+                class="group w-full min-w-0 flex flex-col justify-start items-stretch self-start p-2.5 rounded-lg border-0 outline-none focus:outline-none text-left transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]"
               >
                 <div
                   class="velora-card-artwork mb-2.5 flex items-center justify-center"
@@ -1006,24 +1088,36 @@
                     ? 'background-color: var(--md-sys-color-surface-container-high);'
                     : 'background: linear-gradient(135deg, var(--md-sys-color-primary-container), var(--md-sys-color-surface-container-highest));'}
                 >
-                  {#if cover}
-                    <img
+                  <button
+                    type="button"
+                    onclick={() => (onOpenYTSong ? onOpenYTSong(yt) : onPlayYTMusic(yt))}
+                    aria-label="Buka album {yt.title}"
+                    class="velora-card-artwork-hit cursor-pointer"
+                  >
+                    <CoverImage
                       src={cover}
-                      alt={yt.title}
-                      loading="lazy"
-                      decoding="async"
-                      class:velora-yt-video-thumb={isYTVideoThumb(cover)}
+                      fallbackIcon="music-note"
+                      iconSize={42}
+                      isVideoThumb={isYTVideoThumb(cover)}
                     />
-                  {:else}
-                    <Icon name="vinyl-record" weight="fill" size={44} class="text-white drop-shadow-sm" />
-                  {/if}
+                  </button>
 
-                  <span
-                    class="absolute z-20 bottom-2 right-2 w-10 h-10 rounded-full border-0 outline-none shadow-lg bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center transition-all duration-200 {isSongActive
+                  <button
+                    type="button"
+                    onclick={(e) => {
+                      e.stopPropagation();
+                      if (isSongActive && onTogglePlay) {
+                        onTogglePlay();
+                      } else {
+                        onPlayYTMusic(yt);
+                      }
+                    }}
+                    aria-label="Putar {yt.title}"
+                    class="absolute z-20 bottom-2 right-2 w-10 h-10 rounded-full border-0 outline-none shadow-lg bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer transition-all duration-200 {isSongActive
                       ? 'opacity-100 translate-y-0'
                       : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'}"
                   >
-                    {#if isSongActive && isPlaying}
+                    {#if isSongActive && isActuallyPlaying}
                       <EqIndicator color="currentColor" />
                       <span class="hidden group-hover:inline-flex items-center justify-center">
                         <Icon name="pause" weight="fill" size={18} />
@@ -1031,16 +1125,22 @@
                     {:else}
                       <Icon name="play" weight="fill" size={18} />
                     {/if}
-                  </span>
+                  </button>
                 </div>
 
-                <div class="text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
-                  {yt.title}
-                </div>
-                <div class="text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-                  {yt.artist}
-                </div>
-              </button>
+                <button
+                  type="button"
+                  onclick={() => (onOpenYTSong ? onOpenYTSong(yt) : onPlayYTMusic(yt))}
+                  class="w-full text-left cursor-pointer"
+                >
+                  <div class="text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
+                    {yt.title}
+                  </div>
+                  <div class="text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
+                    {yt.artist}
+                  </div>
+                </button>
+              </div>
             {/each}
           </div>
         {/if}
