@@ -74,7 +74,7 @@ export function svelteMotionEnter(
   node: HTMLElement,
   params: { delay?: number; y?: number; scale?: number; duration?: number } = {}
 ) {
-  const { delay = 0, y = 10, scale = 1, duration = 0.36 } = params;
+  const { delay = 0, y = 6, scale = 1, duration = 0.26 } = params;
   node.style.opacity = '0';
   node.style.willChange = 'transform, opacity';
   const anim = animate(
@@ -87,10 +87,11 @@ export function svelteMotionEnter(
     {
       duration,
       delay,
-      ease: [0.05, 0.7, 0.1, 1]
+      ease: [0.22, 1, 0.36, 1]
     }
   );
   void anim.finished.then(() => {
+    node.style.opacity = '';
     node.style.willChange = '';
   });
   return {

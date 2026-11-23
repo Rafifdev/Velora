@@ -1,6 +1,5 @@
 <script lang="ts">
   import { formatDuration, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
-  import { svelteMotionEnter } from '../lib/motion';
   import type { Album, Artist, DownloadProgress, Playlist, Track, ViewRoute, YTMusicArtistView, YTMusicCard, YTMusicTrack } from '../lib/types';
   import { tr, type LangCode } from '../lib/i18n';
   import CoverImage from '../components/CoverImage.svelte';
@@ -335,7 +334,6 @@
   <div
     class="relative h-full w-full overflow-y-auto rounded-xl select-none flex flex-col"
     style="background-color: var(--md-sys-color-surface-container-low);"
-    use:svelteMotionEnter={{ y: 8 }}
   >
     <section
       class="relative z-10 px-6 sm:px-7 pt-7 pb-7"
@@ -451,7 +449,6 @@
   <div
     class="relative h-full w-full overflow-y-auto rounded-xl select-none flex flex-col"
     style="background-color: var(--md-sys-color-surface-container-low);"
-    use:svelteMotionEnter={{ y: 8 }}
   >
     <section
       class="relative z-10 px-6 sm:px-7 pt-7 pb-7"
@@ -610,7 +607,6 @@
     onscroll={(e) => (albumsScrolled = (e.currentTarget as HTMLElement).scrollTop > 8)}
     class="relative h-full w-full overflow-y-auto rounded-xl select-none flex flex-col"
     style="background-color: var(--md-sys-color-surface-container-low);"
-    use:svelteMotionEnter={{ y: 8 }}
   >
     <div
       class="pointer-events-none sticky top-0 left-0 right-0 h-16 -mb-16 z-30 transition-opacity duration-300"
@@ -733,7 +729,6 @@
     onscroll={(e) => (artistsScrolled = (e.currentTarget as HTMLElement).scrollTop > 8)}
     class="relative h-full w-full overflow-y-auto rounded-xl select-none flex flex-col"
     style="background-color: var(--md-sys-color-surface-container-low);"
-    use:svelteMotionEnter={{ y: 8 }}
   >
     <div
       class="pointer-events-none sticky top-0 left-0 right-0 h-16 -mb-16 z-30 transition-opacity duration-300"
@@ -867,7 +862,7 @@
   {@const isArtistFav = !!selectedArtist?.isFavorite}
   {@const isArtistPlaying = isPlaying && artistTracks.some((t) => isTrackActive(t))}
 
-  <div class="relative min-h-full flex flex-col" use:svelteMotionEnter={{ y: 8 }}>
+  <div class="relative min-h-full flex flex-col">
     {#if ytArtistLoading}
       <div class="relative overflow-hidden px-4 sm:px-6 pt-8 pb-6 sm:pt-12 sm:pb-8 animate-pulse">
         <div class="flex flex-col sm:flex-row sm:items-end gap-4 sm:gap-6">
@@ -1144,7 +1139,7 @@
     {/if}
   </div>
 {:else}
-  <div class="p-3 sm:p-6 space-y-1 sm:space-y-6" use:svelteMotionEnter={{ y: 8 }}>
+  <div class="p-3 sm:p-6 space-y-1 sm:space-y-6">
     <form
       onsubmit={(e) => {
         e.preventDefault();

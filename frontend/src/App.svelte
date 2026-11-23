@@ -129,6 +129,38 @@
   let navStack = $state<ViewRoute[]>([{ name: 'home' }]);
   let navIndex = $state(0);
   const currentRoute = $derived(navStack[navIndex] || { name: 'home' });
+  const routeTransitionKey = $derived.by(() => {
+    const r = currentRoute;
+    if (r.name === 'artist-detail') return `artist-detail:${r.artistId ?? r.browseId ?? r.artistName ?? ''}`;
+    if (r.name === 'playlist-detail') return `playlist-detail:${r.playlistId}`;
+    if (r.name === 'album-detail') return `album-detail:${r.albumId}`;
+    if (r.name === 'track-detail') return `track-detail:${r.trackId}`;
+    if (r.name === 'yt-album-detail') return `yt-album-detail:${r.browseId}:${r.kind ?? 'album'}`;
+    return r.name;
+  });
+  const isFullHeightRoute = $derived(
+    currentRoute.name !== 'home' && currentRoute.name !== 'sources'
+  );
+
+  function routeExitFade(node: HTMLElement, { duration = 140 }: { duration?: number } = {}) {
+    const top = node.offsetTop;
+    const clipHeight = mainScrollEl?.clientHeight || node.parentElement?.clientHeight || 0;
+    node.style.position = 'absolute';
+    node.style.top = `${top}px`;
+    node.style.left = '0';
+    node.style.right = '0';
+    if (clipHeight > 0) {
+      node.style.height = `${clipHeight}px`;
+    }
+    node.style.overflow = 'hidden';
+    node.style.pointerEvents = 'none';
+    node.style.zIndex = '0';
+    return {
+      duration,
+      easing: cubicOut,
+      css: (t: number) => `opacity: ${t};`
+    };
+  }
 
   let selectedPlaylistDetail = $state<PlaylistDetail | null>(null);
   let detailTracks = $state<Track[]>([]);
@@ -3285,9 +3317,16 @@
 
     <main
       bind:this={mainScrollEl}
-      class="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden scroll-pt-16 rounded-lg transition-colors duration-300 {isMobile && mobileShowQueue ? 'hidden' : ''}"
+      class="flex-1 min-w-0 min-h-0 {isFullHeightRoute ? 'overflow-hidden' : 'overflow-y-auto overflow-x-hidden'} scroll-pt-16 rounded-lg transition-colors duration-300 {isMobile && mobileShowQueue ? 'hidden' : ''}"
       style="background-color: var(--md-sys-color-surface);"
     >
+      <div class="velora-route-stage {isFullHeightRoute ? 'h-full' : ''}">
+        {#key routeTransitionKey}
+          <div
+            in:fly={{ y: 8, duration: 240, easing: cubicOut }}
+            out:routeExitFade={{ duration: 140 }}
+            class="velora-route-pane {isFullHeightRoute ? 'h-full min-h-0' : ''}"
+          >
       {#if currentRoute.name === 'home'}
         <HomeView
           lang={appLang}
@@ -3340,7 +3379,6 @@
           onNavigate={navigate}
         />
       {:else if currentRoute.name === 'search' || currentRoute.name === 'liked-songs' || currentRoute.name === 'downloaded' || currentRoute.name === 'favorite-albums' || currentRoute.name === 'favorite-artists' || currentRoute.name === 'artist-detail'}
-        {#key `${currentRoute.name}:${currentRoute.name === 'artist-detail' ? currentRoute.artistId ?? currentRoute.browseId ?? currentRoute.artistName ?? '' : ''}`}
         <LibraryViews
           lang={appLang}
           mode={currentRoute.name}
@@ -3423,9 +3461,7 @@
             })}
           onNavigate={navigate}
         />
-        {/key}
       {:else if currentRoute.name === 'playlists' || currentRoute.name === 'local-playlists' || currentRoute.name === 'playlist-detail'}
-        {#key `${currentRoute.name}:${currentRoute.name === 'playlist-detail' ? currentRoute.playlistId : ''}`}
         <PlaylistViews
           lang={appLang}
           mode={currentRoute.name}
@@ -3516,7 +3552,6 @@
             }
           }}
         />
-        {/key}
       {:else if currentRoute.name === 'sources'}
         <SourcesView
           {sources}
@@ -3634,7 +3669,6 @@
           }}
         />
       {:else}
-        {#key currentRoute.name}
         <AnalyticsAndSettingsViews
           mode={currentRoute.name}
           {history}
@@ -3685,8 +3719,10 @@
           }}
           onNavigate={navigate}
         />
-        {/key}
       {/if}
+          </div>
+        {/key}
+      </div>
     </main>
 
     {#if !lockRightHidden && (!isMobile || mobileShowQueue) && currentRoute.name !== 'preferences' && currentRoute.name !== 'track-detail' && currentRoute.name !== 'album-detail' && currentRoute.name !== 'yt-album-detail' && currentRoute.name !== 'lyrics'}
@@ -4038,3 +4074,18 @@
     {tooltipText}
   </div>
 {/if}
+
+<style>
+  .velora-route-stage {
+    position: relative;
+    width: 100%;
+  }
+
+  .velora-route-pane {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    min-width: 0;
+    will-change: transform, opacity;
+  }
+</style>
