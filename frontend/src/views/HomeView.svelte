@@ -772,7 +772,9 @@
                   </article>
                 {:else if variant === 'wide-rect'}
                   <article
-                    class="group {isExpanded || twoRow ? 'w-full min-w-0' : 'w-[258px] sm:w-[296px] shrink-0'} flex items-center gap-3 p-2.5 rounded-xl bg-[var(--md-sys-color-surface-container)]/65 hover:bg-[var(--md-sys-color-state-hover)] transition-colors duration-200"
+                    class="group {isExpanded || twoRow
+                      ? 'w-full min-w-0'
+                      : `grow shrink-0 basis-[258px] sm:basis-[296px] min-w-0 ${visibleItems.length <= 2 ? 'max-w-[460px]' : ''}`} flex items-center gap-3 p-2.5 rounded-xl bg-[var(--md-sys-color-surface-container)]/65 hover:bg-[var(--md-sys-color-state-hover)] transition-colors duration-200"
                   >
                     <button
                       type="button"
@@ -829,10 +831,10 @@
                     class="group {isExpanded
                       ? 'w-full min-w-0'
                       : isLarge
-                        ? 'w-[188px] sm:w-[224px] shrink-0'
+                        ? `grow shrink-0 basis-[188px] sm:basis-[224px] min-w-0 ${visibleItems.length <= 2 ? 'max-w-[340px]' : ''}`
                         : isSmall
-                          ? 'w-[116px] sm:w-[138px] shrink-0'
-                          : 'w-[136px] sm:w-[172px] shrink-0'} flex flex-col justify-start items-stretch self-start {isLarge
+                          ? `grow shrink-0 basis-[116px] sm:basis-[138px] min-w-0 ${visibleItems.length <= 2 ? 'max-w-[300px]' : ''}`
+                          : `grow shrink-0 basis-[136px] sm:basis-[172px] min-w-0 ${visibleItems.length <= 2 ? 'max-w-[320px]' : ''}`} flex flex-col justify-start items-stretch self-start {isLarge
                       ? 'p-3 rounded-xl bg-[var(--md-sys-color-surface-container)]/50'
                       : isSmall
                         ? 'p-1.5 sm:p-2 rounded-lg'
@@ -891,7 +893,7 @@
                     <button
                       type="button"
                       onclick={() => openCard(item)}
-                      class="w-full text-left cursor-pointer"
+                      class="w-full min-w-0 text-left cursor-pointer"
                     >
                       <div
                         class="{isLarge ? 'text-sm' : isSmall ? 'text-[11px]' : 'text-xs'} font-bold truncate"
@@ -900,7 +902,7 @@
                         {item.title}
                       </div>
                       <div
-                        class="{isLarge ? 'text-xs line-clamp-2' : isSmall ? 'text-[10px] truncate' : 'text-[11px] line-clamp-2'} leading-snug mt-0.5"
+                        class="{isLarge ? 'text-xs line-clamp-2 break-words' : isSmall ? 'text-[10px] truncate' : 'text-[11px] line-clamp-2 break-words'} leading-snug mt-0.5"
                         style="color: var(--md-sys-color-on-surface-variant);"
                       >
                         {localizeItemSubtitle(item)}
