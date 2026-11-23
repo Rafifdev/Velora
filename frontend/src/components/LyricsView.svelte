@@ -127,18 +127,60 @@
     if (!container || idx < 0) return;
     const el = lineEls[idx];
     if (!el) return;
-    const targetTop = Math.max(
-      0,
-      el.offsetTop - container.clientHeight * 0.42 + el.clientHeight / 2
-    );
+    const cRect = container.getBoundingClientRect();
+    const eRect = el.getBoundingClientRect();
+    const elCenterInScroll = container.scrollTop + (eRect.top - cRect.top) + eRect.height / 2;
+    const targetTop = Math.max(0, elCenterInScroll - container.clientHeight / 2);
     container.scrollTo({ top: targetTop, behavior });
   }
 
   $effect(() => {
-    const _trackId = track?.id;
+    const cur = track;
+    const key = cur ? (cur.externalId || `${cur.title}::${cur.artistName}`).toLowerCase() : '';
     autoSync = lyricsAutoScroll;
-    offsetSec = 0;
+    if (key && typeof localStorage !== 'undefined') {
+      const saved = Number(localStorage.getItem(`velora.lyricOffset:${key}`) || '0');
+      offsetSec = Number.isFinite(saved) ? saved : 0;
+    } else {
+      offsetSec = 0;
+    }
   });
+
+  function applyOffset(next: number) {
+    const rounded = Number(next.toFixed(2));
+    offsetSec = rounded;
+    if (!track || typeof localStorage === 'undefined') return;
+    const key = (track.externalId || `${track.title}::${track.artistName}`).toLowerCase();
+    if (!key) return;
+    if (rounded === 0) localStorage.removeItem(`velora.lyricOffset:${key}`);
+    else localStorage.setItem(`velora.lyricOffset:${key}`, String(rounded));
+  }
+
+  let nudgeTimer: ReturnType<typeof setInterval> | null = null;
+  let nudgeDelay: ReturnType<typeof setTimeout> | null = null;
+
+  function stopNudgeHold() {
+    if (nudgeDelay) {
+      clearTimeout(nudgeDelay);
+      nudgeDelay = null;
+    }
+    if (nudgeTimer) {
+      clearInterval(nudgeTimer);
+      nudgeTimer = null;
+    }
+  }
+
+  function startNudgeHold(dir: -1 | 1, shiftKey: boolean) {
+    stopNudgeHold();
+    const step = shiftKey ? 5 : lyricsNudgeStepSec;
+    applyOffset(offsetSec + dir * step);
+    if (shiftKey) return;
+    nudgeDelay = setTimeout(() => {
+      nudgeTimer = setInterval(() => {
+        applyOffset(offsetSec + dir * Math.max(1, lyricsNudgeStepSec * 2));
+      }, 90);
+    }, 320);
+  }
 
   $effect(() => {
     autoSync = lyricsAutoScroll;
@@ -211,9 +253,17 @@
         <div class="flex items-center gap-1 bg-white/10 rounded-full px-1.5 py-1">
           <button
             type="button"
-            onclick={() => (offsetSec = Number((offsetSec - lyricsNudgeStepSec).toFixed(2)))}
+            onpointerdown={(e) => {
+              if (e.button === 0) startNudgeHold(-1, e.shiftKey);
+            }}
+            onpointerup={stopNudgeHold}
+            onpointerleave={stopNudgeHold}
+            onpointercancel={stopNudgeHold}
+            onclick={(e) => {
+              if (e.detail === 0) applyOffset(offsetSec - (e.shiftKey ? 5 : lyricsNudgeStepSec));
+            }}
             class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white/80 hover:text-white hover:bg-white/15 cursor-pointer"
-            title="{tr(lang, 'nav.nudgeLyricBack')} {lyricsNudgeStepSec}s"
+            title="{tr(lang, 'nav.nudgeLyricBack')} {lyricsNudgeStepSec}s (Shift: 5s)"
             aria-label={tr(lang, 'nav.nudgeLyricBack')}
           >
             -
@@ -221,7 +271,7 @@
           {#if offsetSec !== 0}
             <button
               type="button"
-              onclick={() => (offsetSec = 0)}
+              onclick={() => applyOffset(0)}
               class="px-1.5 text-[11px] font-semibold tabular-nums text-white/85 hover:text-white cursor-pointer"
               title={tr(lang, 'nav.resetLyricOffset')}
             >
@@ -230,9 +280,17 @@
           {/if}
           <button
             type="button"
-            onclick={() => (offsetSec = Number((offsetSec + lyricsNudgeStepSec).toFixed(2)))}
+            onpointerdown={(e) => {
+              if (e.button === 0) startNudgeHold(1, e.shiftKey);
+            }}
+            onpointerup={stopNudgeHold}
+            onpointerleave={stopNudgeHold}
+            onpointercancel={stopNudgeHold}
+            onclick={(e) => {
+              if (e.detail === 0) applyOffset(offsetSec + (e.shiftKey ? 5 : lyricsNudgeStepSec));
+            }}
             class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white/80 hover:text-white hover:bg-white/15 cursor-pointer"
-            title="{tr(lang, 'nav.nudgeLyricForward')} {lyricsNudgeStepSec}s"
+            title="{tr(lang, 'nav.nudgeLyricForward')} {lyricsNudgeStepSec}s (Shift: 5s)"
             aria-label={tr(lang, 'nav.nudgeLyricForward')}
           >
             +
@@ -292,7 +350,7 @@
         <p class="text-sm font-medium">{tr(lang, 'nav.loadingLyrics')}</p>
       </div>
     {:else if hasSynced}
-      <div class="max-w-4xl mx-auto flex flex-col gap-5 py-12">
+      <div class="max-w-4xl mx-auto flex flex-col gap-5 pt-[38vh] pb-[42vh]">
         {#each syncedLines as line, idx (idx + '-' + line.timeSec)}
           {@const active = idx === activeSyncedIndex}
           <button

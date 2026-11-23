@@ -56,4 +56,13 @@ func TestAlignIntroOffset(t *testing.T) {
 	if aligned[0].TimeSec != 17.0 || aligned[1].TimeSec != 195.0 {
 		t.Fatalf("expected +15s intro alignment, got %+v", aligned)
 	}
+
+	mvLines := []LyricLine{
+		{TimeSec: 5.04, Text: "Intro"},
+		{TimeSec: 271.33, Text: "Outro"},
+	}
+	alignedMV := alignIntroOffset(mvLines, 278.0, 339)
+	if alignedMV[0].TimeSec != 66.04 || alignedMV[1].TimeSec != 332.33 {
+		t.Fatalf("expected +61s MV intro alignment, got %+v", alignedMV)
+	}
 }

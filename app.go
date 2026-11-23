@@ -1174,7 +1174,7 @@ func (a *App) GetTrackLyrics(trackID int64, title, artist, album string, duratio
 	if trackID > 0 {
 		if tr, trErr := a.store.GetTrackByID(trackID); trErr == nil {
 			dbDur = tr.DurationSec
-			if durationSec > 0 && (dbDur <= 0 || dbDur == 200) && durationSec != dbDur {
+			if durationSec > 0 && (dbDur <= 0 || dbDur == 200 || math.Abs(float64(durationSec-dbDur)) >= 8.0) && durationSec != dbDur {
 				_ = a.store.UpdateTrackDuration(trackID, durationSec)
 			}
 		}
@@ -1184,7 +1184,7 @@ func (a *App) GetTrackLyrics(trackID int64, title, artist, album string, duratio
 			if lines == nil {
 				lines = []sources.LyricLine{}
 			}
-			staleByDuration := durationSec > 0 && ((dbDur <= 0 || dbDur == 200) && math.Abs(float64(durationSec-dbDur)) >= 3.0)
+			staleByDuration := durationSec > 0 && (((dbDur <= 0 || dbDur == 200) && math.Abs(float64(durationSec-dbDur)) >= 3.0) || math.Abs(float64(durationSec-dbDur)) >= 8.0)
 			if !staleByDuration && len(lines) > 0 && durationSec > 0 && lines[len(lines)-1].TimeSec > float64(durationSec)+6.0 {
 				staleByDuration = true
 			}
