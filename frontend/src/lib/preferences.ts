@@ -778,6 +778,18 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
     fr: ['Afficher la barre de progression', 'Indicateur de progression de la lecture du titre.'],
     es: ['Mostrar barra de progreso', 'Indicador de progreso de reproducción de la pista.']
   },
+  'dynamicIsland.showClosedProgress': {
+    en: ['Show circle when closed', 'Progress ring on the right when closed.'],
+    id: ['Lingkaran saat tertutup', 'Tampilkan lingkaran progres kecil di sisi kanan saat Dynamic Island tertutup.'],
+    ms: ['Bulatan semasa tertutup', 'Paparkan bulatan kemajuan kecil di sebelah kanan apabila Dynamic Island tertutup.'],
+    ja: ['閉じた状態の進捗リング', 'Dynamic Islandが閉じているときに右側に小さな円形プログレスを表示します。'],
+    ko: ['닫혔을 때 원형 진행 표시', 'Dynamic Island가 닫혀 있을 때 오른쪽에 작은 원형 진행 표시를 나타냅니다.'],
+    hi: ['बंद होने पर रिंग दिखाएं', 'Dynamic Island बंद होने पर दाईं ओर छोटा गोलाकार प्रगति रिंग दिखाएं।'],
+    pt: ['Mostrar anel quando fechado', 'Exibe um pequeno anel de progresso à direita quando o Dynamic Island está fechado.'],
+    de: ['Kreis im geschlossenen Zustand', 'Zeigt rechts einen kleinen Fortschrittsring, wenn das Dynamic Island geschlossen ist.'],
+    fr: ['Anneau lorsque fermé', 'Affiche un petit anneau de progression à droite lorsque le Dynamic Island est fermé.'],
+    es: ['Anillo cuando está cerrado', 'Muestra un pequeño anillo de progreso a la derecha cuando Dynamic Island está cerrado.']
+  },
   'dynamicIsland.progressStyle': {
     en: ['Progress bar style', 'Choose thin, thick, dotted, or wave progress bar.'],
     id: ['Gaya progres', 'Pilih gaya bilah progres tipis, tebal, titik, atau gelombang.'],
@@ -1545,6 +1557,17 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     widget: 'toggle',
     defaultValue: 'true',
     visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.showClosedProgress',
+    category: 'dynamic-island',
+    group: 'grp.islandContent',
+    title: 'Show circle when closed',
+    description: 'Progress ring on the right when closed.',
+    widget: 'toggle',
+    defaultValue: 'true',
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' },
+    disabledWhen: { id: 'dynamicIsland.showProgress', equals: 'false' }
   },
   {
     id: 'dynamicIsland.closedCoverSpin',

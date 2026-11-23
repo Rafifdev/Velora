@@ -515,6 +515,7 @@ export const api = {
     showHeart: boolean,
     showDots: boolean,
     showProgress: boolean,
+    showClosedProgress: boolean,
     progressStyle: string
   ): void {
     if (isJamRemote) return;
@@ -527,6 +528,7 @@ export const api = {
       showHeart,
       showDots,
       showProgress,
+      showClosedProgress,
       progressStyle
     );
   },

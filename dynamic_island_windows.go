@@ -538,6 +538,7 @@ type dynamicIslandController struct {
 	showHeart            bool
 	showDots             bool
 	showProgress         bool
+	showClosedProgress   bool
 	progressStyle        string
 	hideWhenAppActive    bool
 	hideInFullscreen     bool
@@ -713,6 +714,7 @@ func (a *App) initDynamicIsland(ctx context.Context) {
 	showHeart := true
 	showDots := true
 	showProgress := true
+	showClosedProgress := true
 	progressStyle := "thin"
 	themeSeed := "monolith"
 	accentHex := "#F6847E"
@@ -788,6 +790,9 @@ func (a *App) initDynamicIsland(ctx context.Context) {
 			if v, ok := prefs["dynamicIsland.showProgress"]; ok && v == "false" {
 				showProgress = false
 			}
+			if v, ok := prefs["dynamicIsland.showClosedProgress"]; ok && v == "false" {
+				showClosedProgress = false
+			}
 			if v := strings.ToLower(strings.TrimSpace(prefs["dynamicIsland.progressStyle"])); v == "thick" || v == "dots" || v == "thin" {
 				progressStyle = v
 			}
@@ -849,8 +854,9 @@ func (a *App) initDynamicIsland(ctx context.Context) {
 		showArtist:        showArtist,
 		showLyric:         showLyric,
 		showHeart:         showHeart,
-		showDots:          showDots,
-		showProgress:      showProgress,
+		showDots:           showDots,
+		showProgress:       showProgress,
+		showClosedProgress: showClosedProgress,
 		progressStyle:     progressStyle,
 		lastActivityAt:    now,
 		repeatMode:        "off",
@@ -1236,7 +1242,7 @@ func (a *App) SetDynamicIslandPauseHideSeconds(sec int) {
 	}
 }
 
-func (a *App) SetDynamicIslandContent(showStatus, showCover, showClosedCover, showArtist, showLyric, showHeart, showDots, showProgress bool, progressStyle string) {
+func (a *App) SetDynamicIslandContent(showStatus, showCover, showClosedCover, showArtist, showLyric, showHeart, showDots, showProgress, showClosedProgress bool, progressStyle string) {
 	style := strings.ToLower(strings.TrimSpace(progressStyle))
 	if style != "thick" && style != "dots" && style != "wave" {
 		style = "thin"
@@ -1256,6 +1262,7 @@ func (a *App) SetDynamicIslandContent(showStatus, showCover, showClosedCover, sh
 	ctrl.showHeart = showHeart
 	ctrl.showDots = showDots
 	ctrl.showProgress = showProgress
+	ctrl.showClosedProgress = showClosedProgress
 	ctrl.progressStyle = style
 	ctrl.mu.Unlock()
 	if ctrl.hwnd != 0 {
@@ -3980,6 +3987,7 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	showHeart := c.showHeart
 	showDots := c.showDots
 	showProgress := c.showProgress
+	showClosedProgress := c.showClosedProgress
 	progressStyle := c.progressStyle
 	if pillMode && easeAppear < 0.999 {
 		slideUp := (1.0 - easeAppear) * (float64(c.winY) + c.curH*u*0.55)
@@ -4134,10 +4142,7 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 
 	switch mode {
 	case diModeResting, diModeClosed:
-		miniPx := maxInt(21, int(math.Round(20.8*u)))
-		topCov := int(math.Round((h/2.0)*u - float64(miniPx)/2.0))
-		leftCov := int(math.Round((nx+20.0)*u - float64(miniPx)/2.0))
-		cyExact := float64(topCov) + float64(miniPx)/2.0
+		miniPx, topCov, leftCov, ringCx, ringCy, strokeW, ringR := closedPillCoverAndRingGeom(nx, w, h, u)
 
 		miniArt := coverImgMini
 		isFallbackMini := false
@@ -4152,17 +4157,16 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 				blitPremulRGBAWithOp(pix, physW, physH, miniArt, leftCov, topCov, 1.0)
 			}
 			if isFallbackMini {
-				c.drawPhosphorGlyphGdip(g, false, 0xE33C, (nx+20.0)*u, cyExact, 11.0*u, rgbaToARGB(pal.TextVariant, 0.55))
+				leftCx := float64(leftCov) + float64(miniPx-1)/2.0
+				c.drawPhosphorGlyphGdip(g, false, 0xE33C, leftCx, ringCy, 11.0*u, rgbaToARGB(pal.TextVariant, 0.55))
 			}
 		}
-		if showProgress {
+		if showProgress && showClosedProgress {
 			ringProg := progRatio
 			if ringProg < 0.02 && playing {
 				ringProg = 0.02
 			}
-			strokeW := 2.8 * u
-			ringR := (float64(miniPx) - 1.0 - strokeW) / 2.0
-			drawPkRingGdip(g, (nx+w-20.0)*u, cyExact, ringR, strokeW, ringProg, 1.0,
+			drawPkRingGdip(g, ringCx, ringCy, ringR, strokeW, ringProg, 1.0,
 				rgbaToRGBHex(activeAccent), rgbaToARGB(activeAccent, 0.25))
 		}
 
@@ -5945,6 +5949,20 @@ func fillCircleGdip(g, brush uintptr, cx, cy, r float64) {
 		uintptr(math.Float32bits(float32(r*2))),
 		uintptr(math.Float32bits(float32(r*2))),
 	)
+}
+
+// closedPillCoverAndRingGeom computes symmetrical geometry for the compact cover disc and progress ring.
+func closedPillCoverAndRingGeom(nx, w, h, u float64) (miniPx, topCov, leftCov int, ringCx, ringCy, strokeW, ringR float64) {
+	miniPx = maxInt(21, int(math.Round(20.8*u)))
+	topCov = int(math.Round((h/2.0)*u - float64(miniPx)/2.0))
+	leftCov = int(math.Round((nx+20.0)*u - float64(miniPx)/2.0))
+	leftCxIdx := float64(leftCov) + float64(miniPx-1)/2.0
+	pillMidIdx := (nx+w/2.0)*u - 0.5
+	ringCx = 2.0*pillMidIdx - leftCxIdx
+	ringCy = float64(topCov) + float64(miniPx-1)/2.0
+	strokeW = 2.8 * u
+	ringR = (float64(miniPx) - strokeW) / 2.0
+	return miniPx, topCov, leftCov, ringCx, ringCy, strokeW, ringR
 }
 
 func drawPkRingGdip(g uintptr, cx, cy, r, strokeW, prog, op float64, fgRGB, bgARGB uint32) {
