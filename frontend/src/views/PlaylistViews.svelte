@@ -1,6 +1,5 @@
 <script lang="ts">
   import { extractDominantColor, formatDuration, formatTotalMinutes, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
-  import { svelteMotionEnter } from '../lib/motion';
   import type { Playlist, PlaylistDetail, Track, YTMusicTrack } from '../lib/types';
   import { tr, type LangCode } from '../lib/i18n';
   import CoverImage from '../components/CoverImage.svelte';
@@ -357,7 +356,6 @@
       openActionTrackId = null;
     }}
     role="presentation"
-    use:svelteMotionEnter={{ y: 8 }}
   >
     <section class="relative shrink-0 overflow-hidden px-6 sm:px-10 pt-8 pb-8">
       {#if plCover}
@@ -784,7 +782,6 @@
   <div
     class="relative h-full w-full overflow-y-auto rounded-xl select-none flex flex-col"
     style="background-color: var(--md-sys-color-surface-container-low);"
-    use:svelteMotionEnter={{ y: 8 }}
   >
     <section
       class="relative z-10 shrink-0 px-6 sm:px-7 pt-7 pb-7"

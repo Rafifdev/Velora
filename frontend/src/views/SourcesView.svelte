@@ -1,6 +1,5 @@
 <script lang="ts">
   import { formatDuration, resolveCoverUrl } from '../lib/api';
-  import { svelteMotionEnter } from '../lib/motion';
   import type { Source, YTMusicTrack } from '../lib/types';
   import Icon from '../components/Icon.svelte';
 
@@ -38,7 +37,7 @@
   let dragOver = $state(false);
 </script>
 
-<div class="px-5 py-4 space-y-6" use:svelteMotionEnter={{ y: 8 }}>
+<div class="px-5 py-4 space-y-6">
   <div class="flex flex-wrap items-end justify-between gap-4">
     <div class="flex items-center gap-3.5 min-w-0">
       <div

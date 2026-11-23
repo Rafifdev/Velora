@@ -1,5 +1,7 @@
 <script lang="ts">
   import { animate } from 'motion';
+  import { cubicIn, cubicOut } from 'svelte/easing';
+  import { fly } from 'svelte/transition';
   import type { ViewRoute } from '../lib/types';
   import { tr, type LangCode } from '../lib/i18n';
   import Icon from './Icon.svelte';
@@ -101,6 +103,30 @@
     return currentRoute.name === name;
   }
 
+  let navEl: HTMLElement | undefined = $state();
+  let pillTop = $state(0);
+  let pillHeight = $state(40);
+  let pillVisible = $state(false);
+
+  $effect(() => {
+    void currentRoute.name;
+    void collapsed;
+    void isPreferencesMode;
+    void lang;
+    if (isPreferencesMode || !navEl) {
+      pillVisible = false;
+      return;
+    }
+    const activeBtn = navEl.querySelector('[data-sidebar-active="true"]') as HTMLElement | null;
+    if (!activeBtn) {
+      pillVisible = false;
+      return;
+    }
+    pillTop = activeBtn.offsetTop;
+    pillHeight = activeBtn.offsetHeight;
+    pillVisible = true;
+  });
+
   $effect(() => {
     const nextCollapsed = collapsed;
     const targetEl = collapseIconEl;
@@ -154,8 +180,13 @@
   class="relative shrink-0 h-full min-h-0 flex flex-col select-none overflow-visible rounded-lg"
   style="width: {isPreferencesMode ? width : collapsed ? COLLAPSED_WIDTH : width}px; background-color: var(--md-sys-color-surface-container-low); transition: {isResizing ? 'none' : 'width 380ms cubic-bezier(0.16, 1, 0.3, 1), background-color 300ms ease'};"
 >
+  <div class="velora-sidebar-stage w-full h-full min-h-0 overflow-hidden rounded-lg">
   {#if isPreferencesMode}
-    <div class="w-full h-full min-h-0 flex flex-col overflow-hidden rounded-lg">
+    <div
+      in:fly={{ x: 14, duration: 240, delay: 30, easing: cubicOut }}
+      out:fly={{ x: -10, duration: 150, easing: cubicIn }}
+      class="velora-sidebar-pane w-full h-full min-h-0 flex flex-col overflow-hidden rounded-lg"
+    >
       <PreferencesSidebar
         bind:activeTab={activePrefTab}
         bind:search={prefSearch}
@@ -165,7 +196,11 @@
       />
     </div>
   {:else}
-  <div class="w-full h-full min-h-0 flex flex-col overflow-hidden rounded-lg p-2.5">
+  <div
+    in:fly={{ x: -14, duration: 240, delay: 30, easing: cubicOut }}
+    out:fly={{ x: 10, duration: 150, easing: cubicIn }}
+    class="velora-sidebar-pane w-full h-full min-h-0 flex flex-col overflow-hidden rounded-lg p-2.5"
+  >
     <div class="flex items-center pb-2 w-full shrink-0 {collapsed ? 'justify-center px-0' : 'justify-between px-1'}">
       <span
         class="text-[11px] font-semibold uppercase tracking-wider truncate overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] {collapsed
@@ -195,21 +230,34 @@
     </div>
 
     <div class="flex-1 min-h-0 flex flex-col justify-between w-full">
-      <nav class="flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-1 pt-1 {collapsed ? '[&::-webkit-scrollbar]:hidden' : ''}" aria-label="Menu Utama">
+      <nav bind:this={navEl} class="relative flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col gap-1 pt-1 {collapsed ? '[&::-webkit-scrollbar]:hidden' : ''}" aria-label="Menu Utama">
+        <div
+          aria-hidden="true"
+          class="pointer-events-none absolute left-0 right-0 rounded-md z-0"
+          style="
+            top: 0;
+            height: {pillHeight}px;
+            transform: translateY({pillTop}px);
+            opacity: {pillVisible ? 1 : 0};
+            background-color: var(--md-sys-color-primary-container);
+            transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1), height 220ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease;
+          "
+        ></div>
         {#each flatMenuItems as item (item.id)}
           {@const active = isActive(item.id)}
           <button
             type="button"
+            data-sidebar-active={active ? 'true' : undefined}
             onclick={() => onNavigate({ name: item.id } as ViewRoute)}
             title={collapsed ? item.label : undefined}
             aria-label={item.label}
-            class="group relative w-full h-10 flex items-center rounded-md text-[13px] transition-[padding,background-color,color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] cursor-pointer {collapsed
+            class="group relative z-10 w-full h-10 flex items-center rounded-md text-[13px] transition-[padding,background-color,color,transform] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98] cursor-pointer {collapsed
               ? 'justify-center px-0'
               : 'justify-start px-3 text-left'} {active
               ? 'font-semibold'
               : 'font-medium hover:bg-[var(--md-sys-color-state-hover)]'}"
             style={active
-              ? 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'
+              ? 'background-color: transparent; color: var(--md-sys-color-on-primary-container);'
               : 'color: var(--md-sys-color-on-surface-variant);'}
           >
             <span
@@ -239,7 +287,7 @@
           onclick={() => onNavigate({ name: 'preferences' })}
           title={collapsed ? tr(lang, 'nav.settings') : undefined}
           aria-label={tr(lang, 'nav.settings')}
-          class="group relative w-full h-10 flex items-center rounded-md text-[13px] transition-[padding,background-color,color] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] cursor-pointer {collapsed
+          class="group relative w-full h-10 flex items-center rounded-md text-[13px] transition-[padding,background-color,color,transform] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98] cursor-pointer {collapsed
             ? 'justify-center px-0'
             : 'justify-start px-3 text-left'} {prefActive
             ? 'font-semibold'
@@ -270,6 +318,7 @@
     </div>
   </div>
   {/if}
+  </div>
 
   {#if !collapsed || isPreferencesMode}
     <div
@@ -287,3 +336,16 @@
     </div>
   {/if}
 </aside>
+
+<style>
+  .velora-sidebar-stage {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .velora-sidebar-pane {
+    grid-area: 1 / 1;
+    will-change: transform, opacity;
+  }
+</style>

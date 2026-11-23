@@ -1,7 +1,6 @@
 <script lang="ts">
   import { fade, fly, scale } from 'svelte/transition';
   import { api, formatDuration, resolveCoverUrl } from '../lib/api';
-  import { svelteMotionEnter } from '../lib/motion';
   import {
     PREFERENCE_APP_TABS,
     PREFERENCE_CATEGORIES,
@@ -1326,7 +1325,6 @@
     style="background-color: var(--md-sys-color-surface-container-low);"
     onclick={() => (openHistoryActionId = null)}
     role="presentation"
-    use:svelteMotionEnter={{ y: 8 }}
   >
     <section
       class="relative z-10 px-6 sm:px-7 pt-7 pb-7"
@@ -1583,7 +1581,6 @@
   <div
     class="relative h-full w-full overflow-y-auto rounded-xl select-none flex flex-col"
     style="background-color: var(--md-sys-color-surface-container-low);"
-    use:svelteMotionEnter={{ y: 8 }}
   >
     <section
       class="relative z-10 px-6 sm:px-8 pt-6 pb-6"
@@ -2031,7 +2028,7 @@
     </div>
   </div>
 {:else if mode === 'fire-streak'}
-  <div class="p-6 space-y-6" use:svelteMotionEnter={{ y: 8 }}>
+  <div class="p-6 space-y-6">
     <div class="m3-card-elevated p-6 rounded-lg flex flex-wrap items-center justify-between gap-4">
       <div class="flex items-center gap-4">
         <div
@@ -2081,7 +2078,7 @@
     </div>
   </div>
 {:else}
-  <div class="h-full min-h-0 flex flex-col overflow-hidden relative" use:svelteMotionEnter={{ y: 8 }}>
+  <div class="h-full min-h-0 flex flex-col overflow-hidden relative">
     <div
       class="md:hidden shrink-0 px-4 pt-3 pb-2.5 space-y-2.5 border-b"
       style="background-color: var(--md-sys-color-surface-container-low); border-color: var(--md-sys-color-outline-variant);"
