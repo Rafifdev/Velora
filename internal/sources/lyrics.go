@@ -156,7 +156,7 @@ func alignIntroOffset(lines []LyricLine, lrcDurationSec float64, trackDurationSe
 		return lines
 	}
 	delta := float64(trackDurationSec) - lrcDurationSec
-	if delta >= 2.5 && delta <= 45.0 && lines[0].TimeSec < 6.0 && lines[len(lines)-1].TimeSec+delta <= float64(trackDurationSec)+1.5 {
+	if delta >= 2.5 && delta <= 90.0 && lines[0].TimeSec < 12.0 && lines[len(lines)-1].TimeSec+delta <= float64(trackDurationSec)+2.0 {
 		for i := range lines {
 			lines[i].TimeSec += delta
 		}
