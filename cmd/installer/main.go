@@ -25,7 +25,7 @@ var veloraIconBytes []byte
 
 const (
 	appName      = "Velora"
-	appVersion   = "1.0.0"
+	appVersion   = "1.1.0"
 	appPublisher = "Yoapipp"
 	appURL       = "https://github.com/Rafifdev/Velora"
 	uninstallKey = `Software\Microsoft\Windows\CurrentVersion\Uninstall\Velora`

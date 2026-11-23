@@ -1475,7 +1475,7 @@ type UpdateCheckResult struct {
 }
 
 const (
-	veloraAppVersion         = "1.0.0"
+	veloraAppVersion         = "1.1.0"
 	veloraReleasesLatestAPI  = "https://api.github.com/repos/Rafifdev/Velora/releases/latest"
 	veloraReleasesPageURL    = "https://github.com/Rafifdev/Velora/releases"
 	veloraFeedbackWebhookURL = "https://script.google.com/macros/s/AKfycbwhnfjZ_CFzPRc-3Yw6rtz39IKqbjRlc7CIz2OOUhe8tk64sDR1y5oMWa4zxgx66j9Cxw/exec"
