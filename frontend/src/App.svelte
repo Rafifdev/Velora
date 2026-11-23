@@ -894,6 +894,7 @@
       getPrefValue(preferences, 'dynamicIsland.showHeart') !== 'false',
       getPrefValue(preferences, 'dynamicIsland.showDots') !== 'false',
       getPrefValue(preferences, 'dynamicIsland.showProgress') !== 'false',
+      getPrefValue(preferences, 'dynamicIsland.showClosedProgress') !== 'false',
       getPrefValue(preferences, 'dynamicIsland.progressStyle') || 'thin'
     );
     api.setDynamicIslandCoverOptions(
@@ -1069,6 +1070,7 @@
       patch['dynamicIsland.showHeart'] !== undefined ||
       patch['dynamicIsland.showDots'] !== undefined ||
       patch['dynamicIsland.showProgress'] !== undefined ||
+      patch['dynamicIsland.showClosedProgress'] !== undefined ||
       patch['dynamicIsland.progressStyle'] !== undefined
     ) {
       api.setDynamicIslandContent(
@@ -1080,6 +1082,7 @@
         getPrefValue(preferences, 'dynamicIsland.showHeart') !== 'false',
         getPrefValue(preferences, 'dynamicIsland.showDots') !== 'false',
         getPrefValue(preferences, 'dynamicIsland.showProgress') !== 'false',
+        getPrefValue(preferences, 'dynamicIsland.showClosedProgress') !== 'false',
         getPrefValue(preferences, 'dynamicIsland.progressStyle') || 'thin'
       );
     }

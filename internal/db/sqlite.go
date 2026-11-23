@@ -1054,7 +1054,7 @@ func (s *Store) SeedDefaults() error {
 		"accent_color":        "#FF9E64",
 		"gapless_playback":         "true",
 		"volume":                   "100",
-		"integrations.jam.enabled": "true",
+		"integrations.jam.enabled": "false",
 		"playback.waveBar":         "false",
 		"playback.prevRestartSec":  "0",
 		"lyrics.textSize":          "0",

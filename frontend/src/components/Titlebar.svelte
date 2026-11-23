@@ -84,7 +84,7 @@
     jamLoading = false,
     jamRunning = false,
     jamConnected = false,
-    jamPrefEnabled = true,
+    jamPrefEnabled = false,
     saveSearches = true,
     onOpenJamSettings,
     onResetZoom
@@ -792,7 +792,7 @@
           }}
           title={!jamPrefEnabled ? 'Velora Jam (Izin Nonaktif)' : jamRunning ? 'Velora Jam Remote (Aktif)' : 'Velora Jam Remote'}
           aria-label="Remote QR & Integrations"
-          class="relative w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-all duration-200 hover:brightness-125 {!jamPrefEnabled ? 'opacity-45' : ''}"
+          class="relative w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-all duration-300 ease-out hover:brightness-125 {!jamPrefEnabled ? 'opacity-45' : ''}"
           style={!jamPrefEnabled
             ? 'background-color: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface-variant);'
             : jamRunning

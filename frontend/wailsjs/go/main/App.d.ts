@@ -132,7 +132,7 @@ export function SearchYouTubeMusicPlaylists(arg1:string):Promise<Array<sources.Y
 
 export function SetDynamicIslandAnimSpeed(arg1:string):Promise<void>;
 
-export function SetDynamicIslandContent(arg1:boolean,arg2:boolean,arg3:boolean,arg4:boolean,arg5:boolean,arg6:boolean,arg7:boolean,arg8:boolean,arg9:string):Promise<void>;
+export function SetDynamicIslandContent(arg1:boolean,arg2:boolean,arg3:boolean,arg4:boolean,arg5:boolean,arg6:boolean,arg7:boolean,arg8:boolean,arg9:boolean,arg10:string):Promise<void>;
 
 export function SetDynamicIslandCoverOptions(arg1:string,arg2:boolean,arg3:boolean):Promise<void>;
 

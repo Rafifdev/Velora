@@ -250,8 +250,8 @@ export function SetDynamicIslandAnimSpeed(arg1) {
   return window['go']['main']['App']['SetDynamicIslandAnimSpeed'](arg1);
 }
 
-export function SetDynamicIslandContent(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
-  return window['go']['main']['App']['SetDynamicIslandContent'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
+export function SetDynamicIslandContent(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10) {
+  return window['go']['main']['App']['SetDynamicIslandContent'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
 }
 
 export function SetDynamicIslandCoverOptions(arg1, arg2, arg3) {
