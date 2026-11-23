@@ -1384,7 +1384,7 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     title: 'Allow Velora Jam (Wi-Fi remote)',
     description: 'Grant permission to turn Velora Jam on or off from the top bar.',
     widget: 'toggle',
-    defaultValue: 'true'
+    defaultValue: 'false'
   },
   {
     id: 'integrations.jam.remoteUrl',
