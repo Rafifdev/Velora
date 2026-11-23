@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { fly } from 'svelte/transition';
   import { PREFERENCE_APP_TABS, PREFERENCE_CATEGORIES } from '../lib/preferences';
   import { tr, type LangCode } from '../lib/i18n';
   import Icon from './Icon.svelte';
@@ -29,7 +28,6 @@
 </script>
 
 <div
-  in:fly={{ x: -12, duration: 220 }}
   aria-label="Settings navigation"
   class="w-full h-full min-h-0 flex flex-col justify-between select-none"
 >
