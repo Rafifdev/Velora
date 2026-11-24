@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { animate } from 'motion';
+  import { cubicOut } from 'svelte/easing';
   import { fade, fly, slide } from 'svelte/transition';
   import { isYTVideoThumb, resolveCoverUrl } from '../lib/api';
   import {
@@ -11,7 +12,7 @@
   import { svelteMotionEnter } from '../lib/motion';
   import { getPrefBool, getPrefValue } from '../lib/preferences';
   import { getPrefLang, tr } from '../lib/i18n';
-  import type { Track, TrackLyrics } from '../lib/types';
+  import type { AudioOutputDevice, Track, TrackLyrics } from '../lib/types';
   import EmptyState from './EmptyState.svelte';
   import EqIndicator from './EqIndicator.svelte';
   import Icon from './Icon.svelte';
@@ -19,19 +20,25 @@
   interface Props {
     width: number;
     collapsed: boolean;
-    mode?: 'now-playing' | 'queue';
+    mode?: 'now-playing' | 'queue' | 'devices';
     currentTrack: Track | null;
     queue: Track[];
+    queueIndex?: number;
     queueSourceTitle?: string;
+    audioOutputs?: AudioOutputDevice[];
+    switchingOutputId?: string | null;
     isPlaying: boolean;
     positionSec: number;
+    lyricOffsetSec?: number;
     lyrics: TrackLyrics | null;
     lyricsLoading: boolean;
     preferences: Record<string, string>;
     mediaBaseUrl: string;
     accentColor: string;
     focusCardSignal?: { card: 'album' | 'lyrics' | 'queue'; seq: number } | null;
-    onChangeMode?: (mode: 'now-playing' | 'queue') => void;
+    onChangeMode?: (mode: 'now-playing' | 'queue' | 'devices') => void;
+    onSelectOutputDevice?: (deviceId: string) => void;
+    onRefreshAudioOutputs?: () => void;
     onToggleCollapse: () => void;
     onResizeWidth: (newWidth: number) => void;
     onResizeEnd: (finalWidth: number) => void;
@@ -52,15 +59,21 @@
     mode = 'now-playing',
     currentTrack,
     queue,
+    queueIndex = -1,
     queueSourceTitle = '',
+    audioOutputs = [],
+    switchingOutputId = null,
     isPlaying,
     positionSec,
+    lyricOffsetSec = 0,
     lyrics,
     lyricsLoading,
     preferences,
     mediaBaseUrl,
     focusCardSignal = null,
     onChangeMode,
+    onSelectOutputDevice,
+    onRefreshAudioOutputs,
     onToggleCollapse,
     onResizeWidth,
     onResizeEnd,
@@ -89,35 +102,68 @@
   let lyricsTall = $state(false);
   let titleWrapEl: HTMLElement | undefined = $state();
   let titleTextEl: HTMLElement | undefined = $state();
-  let titleMarqueeShift = $state(0);
-  let titleMarqueeDuration = $state(8);
+  let titleMarqueeAnim: Animation | null = null;
 
   $effect(() => {
     const _title = currentTrack?.title ?? '';
+    const isCollapsed = collapsed;
     const wrap = titleWrapEl;
     const text = titleTextEl;
-    if (!wrap || !text) {
-      titleMarqueeShift = 0;
-      return;
-    }
+    titleMarqueeAnim?.cancel();
+    titleMarqueeAnim = null;
+    if (!wrap || !text || isCollapsed) return;
 
-    const measure = () => {
+    const reducedMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reducedMotion) return;
+
+    const startOrUpdate = () => {
+      titleMarqueeAnim?.cancel();
+      titleMarqueeAnim = null;
       const overflow = Math.ceil(text.scrollWidth - wrap.clientWidth);
-      if (overflow > 2) {
-        titleMarqueeShift = overflow;
-        titleMarqueeDuration = Math.max(6, Math.min(16, 4 + overflow / 24));
-      } else {
-        titleMarqueeShift = 0;
-      }
+      if (overflow <= 2) return;
+
+      // Samakan persis dengan animasi marquee Dynamic Island (dynamic_island_windows.go)
+      const shift = overflow + 4;
+      const scrollDur = Math.max(1.4, shift / 28.0);
+      const pauseStart = 2.2;
+      const pauseEnd = 2.0;
+      const fadeOutDur = 0.24;
+      const fadeInDur = 0.24;
+      const cycle = pauseStart + scrollDur + pauseEnd + fadeOutDur + fadeInDur;
+
+      const t1 = pauseStart / cycle;
+      const t2 = (pauseStart + scrollDur) / cycle;
+      const t3 = (pauseStart + scrollDur + pauseEnd) / cycle;
+      const t4 = (pauseStart + scrollDur + pauseEnd + fadeOutDur) / cycle;
+
+      titleMarqueeAnim = text.animate(
+        [
+          { offset: 0, transform: 'translateX(0px)', opacity: 1, easing: 'linear' },
+          { offset: t1, transform: 'translateX(0px)', opacity: 1, easing: 'linear' },
+          { offset: t2, transform: `translateX(-${shift}px)`, opacity: 1, easing: 'linear' },
+          { offset: t3, transform: `translateX(-${shift}px)`, opacity: 1, easing: 'ease' },
+          { offset: Math.max(t3 + 0.0001, t4 - 0.0001), transform: `translateX(-${shift}px)`, opacity: 0 },
+          { offset: t4, transform: 'translateX(0px)', opacity: 0, easing: 'ease' },
+          { offset: 1, transform: 'translateX(0px)', opacity: 1 }
+        ],
+        {
+          duration: cycle * 1000,
+          iterations: Infinity
+        }
+      );
     };
 
-    measure();
-    const rafId = requestAnimationFrame(measure);
-    const ro = new ResizeObserver(measure);
+    startOrUpdate();
+    const rafId = requestAnimationFrame(startOrUpdate);
+    const ro = new ResizeObserver(startOrUpdate);
     ro.observe(wrap);
     return () => {
       cancelAnimationFrame(rafId);
       ro.disconnect();
+      titleMarqueeAnim?.cancel();
+      titleMarqueeAnim = null;
     };
   });
 
@@ -186,19 +232,35 @@
     }
     let rafId = 0;
     const step = (now: number) => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        rafId = 0;
+        return;
+      }
       const dtSec = Math.max(0, Math.min(0.35, (now - anchorAt) / 1000));
       smoothPosSec = anchorPos + dtSec;
       rafId = requestAnimationFrame(step);
     };
-    rafId = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(rafId);
+    const onVisibility = () => {
+      if (!document.hidden && !rafId) {
+        rafId = requestAnimationFrame(step);
+      }
+    };
+    if (typeof document === 'undefined' || !document.hidden) {
+      rafId = requestAnimationFrame(step);
+    }
+    document?.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      cancelAnimationFrame(rafId);
+      document?.removeEventListener('visibilitychange', onVisibility);
+    };
   });
 
   const activeSyncedIndex = $derived.by(() => {
     if (!lyrics?.syncedLyrics || lyrics.syncedLyrics.length === 0) return -1;
     let active = -1;
+    const eff = smoothPosSec + 0.05 + lyricOffsetSec;
     for (let i = 0; i < lyrics.syncedLyrics.length; i++) {
-      if (smoothPosSec + 0.05 >= lyrics.syncedLyrics[i].timeSec) {
+      if (eff >= lyrics.syncedLyrics[i].timeSec) {
         active = i;
       } else {
         break;
@@ -212,8 +274,20 @@
     const cur = lyrics.syncedLyrics[idx];
     const next = lyrics.syncedLyrics[idx + 1];
     if (!cur) return 1;
-    return computeLineSweepProgress(cur.text || '♪', cur.timeSec, next?.timeSec, smoothPosSec);
+    return computeLineSweepProgress(cur.text || '♪', cur.timeSec, next?.timeSec, smoothPosSec + lyricOffsetSec);
   }
+
+  function outputDeviceIcon(connType: string): string {
+    if (connType === 'bluetooth' || connType === 'wired') return 'headphones';
+    return 'speaker-high';
+  }
+
+  const activeOutputDev = $derived(
+    audioOutputs.find((d) => d.isActive) ?? audioOutputs[0] ?? null
+  );
+  const otherOutputDevs = $derived(
+    audioOutputs.filter((d) => !d.isActive && (!activeOutputDev || d.id !== activeOutputDev.id))
+  );
 
   const previewLines = $derived.by(() => {
     if (lyricLines.length === 0) return [];
@@ -224,7 +298,10 @@
   const upcomingQueue = $derived.by(() => {
     if (queue.length === 0) return [];
     if (!currentTrack) return queue;
-    const idx = queue.findIndex((t) => t.id === currentTrack.id);
+    const idx =
+      queueIndex >= 0 && queueIndex < queue.length && queue[queueIndex].id === currentTrack.id
+        ? queueIndex
+        : queue.findIndex((t) => t.id === currentTrack.id);
     if (idx >= 0) {
       return [...queue.slice(idx + 1), ...queue.slice(0, idx)];
     }
@@ -348,7 +425,7 @@
   class="relative shrink-0 h-full min-h-0 flex flex-col select-none overflow-visible {collapsed
     ? 'rounded-l-lg rounded-r-none'
     : 'rounded-lg'}"
-  style="width: {collapsed ? (collapsedHover ? COLLAPSED_HOVER_WIDTH : COLLAPSED_WIDTH) : width}px; background-color: var(--md-sys-color-surface-container-low); transition: {isResizing ? 'none' : 'width 320ms cubic-bezier(0.16, 1, 0.3, 1), background-color 300ms ease'};"
+  style="width: {collapsed ? (collapsedHover ? COLLAPSED_HOVER_WIDTH : COLLAPSED_WIDTH) : width}px; background-color: var(--md-sys-color-surface-container-low); transition: {isResizing ? 'none' : 'width 360ms cubic-bezier(0.22, 1, 0.36, 1), background-color 300ms ease'};"
 >
   {#if !collapsed}
     <div
@@ -369,10 +446,10 @@
   <div class="relative w-full h-full min-h-0 overflow-hidden {collapsed ? 'rounded-l-lg rounded-r-none' : 'rounded-lg'}">
     <div
       aria-hidden={collapsed}
-      class="absolute inset-y-0 left-0 flex flex-col transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] {collapsed
+      class="absolute inset-y-0 left-0 flex flex-col transition-all duration-[360ms] ease-[cubic-bezier(0.22,1,0.36,1)] {collapsed
         ? collapsedHover
           ? 'opacity-55 translate-x-0 scale-100 pointer-events-none'
-          : 'opacity-0 translate-x-6 scale-[0.97] pointer-events-none'
+          : 'opacity-0 translate-x-10 scale-[0.98] pointer-events-none'
         : 'opacity-100 translate-x-0 scale-100 pointer-events-auto delay-75'}"
       style="width: {collapsed ? `${width}px` : '100%'}; {collapsed ? '' : 'right: 0;'}"
     >
@@ -394,10 +471,14 @@
           </span>
         </button>
         <span class="text-xs font-semibold tracking-wide truncate" style="color: var(--md-sys-color-on-surface-variant);">
-          {mode === 'queue' ? tr(lang, 'nav.queue') : tr(lang, 'nav.nowPlaying')}
+          {mode === 'queue'
+            ? tr(lang, 'nav.queue')
+            : mode === 'devices'
+              ? tr(lang, 'nav.connectDevice')
+              : tr(lang, 'nav.nowPlaying')}
         </span>
       </div>
-      {#if mode === 'queue' && onChangeMode}
+      {#if (mode === 'queue' || mode === 'devices') && onChangeMode}
         <button
           type="button"
           onclick={() => onChangeMode('now-playing')}
@@ -415,8 +496,149 @@
         class="pointer-events-none absolute inset-x-0 top-0 h-5 z-10"
         style="background: linear-gradient(to bottom, var(--md-sys-color-surface-container-low) 0%, transparent 100%);"
       ></div>
-      <div bind:this={panelScrollEl} class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 pt-2 pb-4 flex flex-col">
-      {#if mode === 'queue'}
+      <div bind:this={panelScrollEl} class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain px-3 pt-2 pb-4 flex flex-col">
+      {#key mode}
+      <div
+        in:fly={{ x: mode === 'now-playing' ? -20 : 44, duration: 280, easing: cubicOut }}
+        class="flex-1 flex flex-col min-h-0"
+      >
+      {#if mode === 'devices'}
+        <div class="flex-1 flex flex-col justify-between gap-6 pt-1">
+          <div class="space-y-5">
+            {#if activeOutputDev}
+              <div
+                class="flex items-center gap-3 p-3 rounded-xl"
+                style="background-color: var(--md-sys-color-surface-container);"
+              >
+                <div
+                  class="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+                  style="color: var(--md-sys-color-primary);"
+                >
+                  <Icon name={outputDeviceIcon(activeOutputDev.connType)} weight="bold" size={22} />
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div
+                    class="text-[14px] font-bold truncate leading-snug"
+                    style="color: var(--md-sys-color-primary);"
+                  >
+                    {activeOutputDev.name}
+                  </div>
+                  <div
+                    class="text-[12px] truncate mt-0.5 flex items-center gap-1.5"
+                    style="color: var(--md-sys-color-on-surface-variant);"
+                  >
+                    <span>{tr(lang, 'nav.thisComputer')}</span>
+                    {#if activeOutputDev.batPct >= 0 && activeOutputDev.batPct <= 100}
+                      <span>· {activeOutputDev.batPct}%</span>
+                    {/if}
+                  </div>
+                </div>
+              </div>
+            {/if}
+
+            {#if otherOutputDevs.length > 0}
+              <section class="space-y-2">
+                <h3 class="px-1.5 text-[13px] font-bold" style="color: var(--md-sys-color-on-surface);">
+                  {tr(lang, 'nav.otherDevices')}
+                </h3>
+                <div class="space-y-1">
+                  {#each otherOutputDevs as dev (dev.id)}
+                    {@const isSwitching = switchingOutputId === dev.id}
+                    <button
+                      type="button"
+                      disabled={isSwitching}
+                      onclick={() => onSelectOutputDevice?.(dev.id)}
+                      class="w-full flex items-center gap-3 px-2.5 py-2.5 rounded-xl text-left cursor-pointer hover:bg-[var(--md-sys-color-state-hover)] transition-colors disabled:opacity-60"
+                    >
+                      <div
+                        class="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+                        style="color: var(--md-sys-color-on-surface-variant);"
+                      >
+                        <Icon name={outputDeviceIcon(dev.connType)} size={20} />
+                      </div>
+                      <div class="min-w-0 flex-1">
+                        <div class="text-[14px] font-semibold truncate leading-snug" style="color: var(--md-sys-color-on-surface);">
+                          {dev.name}
+                        </div>
+                        <div class="text-[12px] truncate mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
+                          {tr(lang, 'nav.availableDevice')}
+                          {#if dev.batPct >= 0 && dev.batPct <= 100}
+                            · {dev.batPct}%
+                          {/if}
+                        </div>
+                      </div>
+                    </button>
+                  {/each}
+                </div>
+              </section>
+            {:else}
+              <section class="px-1.5 space-y-4">
+                <h3 class="text-[15px] font-bold leading-snug" style="color: var(--md-sys-color-on-surface);">
+                  {tr(lang, 'nav.noOtherDevicesFound')}
+                </h3>
+
+                <div class="space-y-4">
+                  <div class="flex items-start gap-3">
+                    <span class="mt-0.5 shrink-0" style="color: var(--md-sys-color-on-surface-variant);">
+                      <Icon name="wifi-high" size={19} />
+                    </span>
+                    <div class="min-w-0">
+                      <div class="text-[13px] font-bold leading-snug" style="color: var(--md-sys-color-on-surface);">
+                        {tr(lang, 'nav.checkWifi')}
+                      </div>
+                      <p class="text-[12px] leading-relaxed mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
+                        {tr(lang, 'nav.checkWifiDesc')}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="flex items-start gap-3">
+                    <span class="mt-0.5 shrink-0" style="color: var(--md-sys-color-on-surface-variant);">
+                      <Icon name="devices" size={19} />
+                    </span>
+                    <div class="min-w-0">
+                      <div class="text-[13px] font-bold leading-snug" style="color: var(--md-sys-color-on-surface);">
+                        {tr(lang, 'nav.playFromAnotherDevice')}
+                      </div>
+                      <p class="text-[12px] leading-relaxed mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
+                        {tr(lang, 'nav.playFromAnotherDeviceDesc')}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="flex items-start gap-3">
+                    <span class="mt-0.5 shrink-0" style="color: var(--md-sys-color-on-surface-variant);">
+                      <Icon name="power" size={19} />
+                    </span>
+                    <div class="min-w-0">
+                      <div class="text-[13px] font-bold leading-snug" style="color: var(--md-sys-color-on-surface);">
+                        {tr(lang, 'nav.restartSpeaker')}
+                      </div>
+                      <p class="text-[12px] leading-relaxed mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
+                        {tr(lang, 'nav.restartSpeakerDesc')}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            {/if}
+          </div>
+
+          <button
+            type="button"
+            onclick={() => onRefreshAudioOutputs?.()}
+            title={tr(lang, 'nav.scanAgain')}
+            class="px-1.5 py-2 rounded-lg flex items-center justify-between gap-2 text-left cursor-pointer hover:bg-[var(--md-sys-color-state-hover)] transition-colors"
+          >
+            <span class="text-[13px] font-bold truncate" style="color: var(--md-sys-color-on-surface);">
+              {tr(lang, 'nav.dontSeeDevice')}
+            </span>
+            <span class="shrink-0" style="color: var(--md-sys-color-on-surface-variant);">
+              <Icon name="arrows-clockwise" size={17} />
+            </span>
+          </button>
+        </div>
+      {:else if mode === 'queue'}
         {#if !currentTrack && upcomingQueue.length === 0}
           <EmptyState
             icon="queue"
@@ -426,16 +648,13 @@
             descClass="mt-1.5 text-[13px] max-w-[230px] mx-auto"
           />
         {:else}
-        <div
-          in:fly={{ x: 24, duration: 280 }}
-          class="space-y-4 pt-1"
-        >
+        <div class="space-y-4 pt-1">
           <section class="space-y-2">
             <h3 class="px-1.5 text-[14px] font-bold" style="color: var(--md-sys-color-on-surface);">
               {tr(lang, 'nav.nowPlaying')}
             </h3>
             {#if currentTrack}
-              {@const activeCover = resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl)}
+              {@const activeCover = resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl, 96)}
               <div class="flex items-center gap-3 p-1.5 rounded-lg bg-[var(--md-sys-color-surface-container)]">
                 <div class="relative w-11 h-11 rounded-md overflow-hidden shrink-0 bg-[var(--md-sys-color-surface-container-highest)]">
                   {#if activeCover}
@@ -475,7 +694,8 @@
                   <button
                     type="button"
                     onclick={onOpenQueueSource}
-                    class="hover:underline cursor-pointer text-left inline font-bold"
+                    title={queueSourceTitle}
+                    class="hover:underline underline-offset-2 cursor-pointer text-left inline font-bold transition-opacity hover:opacity-85"
                     style="color: var(--md-sys-color-on-surface);"
                   >
                     {queueSourceTitle}
@@ -493,8 +713,8 @@
               </p>
             {:else}
               <div class="space-y-1">
-                {#each upcomingQueue as qt (`${qt.id}-${qt.externalId || qt.title}`)}
-                  {@const qCover = resolveCoverUrl(qt.coverUrl, mediaBaseUrl)}
+                {#each upcomingQueue as qt, qIdx (`${qIdx}-${qt.id}-${qt.externalId || qt.title}`)}
+                  {@const qCover = resolveCoverUrl(qt.coverUrl, mediaBaseUrl, 96)}
                   <button
                     type="button"
                     onclick={() => onPlayTrack(qt, queue)}
@@ -548,7 +768,7 @@
         style="background-color: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface);"
       >
         {#if currentTrack}
-          {@const cover = resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl)}
+          {@const cover = resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl, 544)}
           <div class="relative w-full aspect-square overflow-clip bg-[var(--md-sys-color-surface-container-highest)]">
             {#if cover}
               <img
@@ -570,15 +790,14 @@
                 type="button"
                 bind:this={titleWrapEl}
                 onclick={() => onOpenTrackDetail?.(currentTrack)}
+                onmouseenter={() => titleMarqueeAnim?.pause()}
+                onmouseleave={() => titleMarqueeAnim?.play()}
                 class="w-full overflow-hidden text-left text-[16px] font-bold leading-snug hover:underline cursor-pointer"
                 title={tr(lang, 'nav.viewTrackDetails')}
               >
                 <span
                   bind:this={titleTextEl}
-                  class="inline-block whitespace-nowrap {titleMarqueeShift > 0 ? 'velora-title-marquee' : ''}"
-                  style={titleMarqueeShift > 0
-                    ? `--marquee-shift: -${titleMarqueeShift}px; --marquee-duration: ${titleMarqueeDuration}s;`
-                    : undefined}
+                  class="inline-block whitespace-nowrap"
                 >
                   {currentTrack.title}
                 </span>
@@ -724,7 +943,7 @@
             {tr(lang, 'nav.emptyQueue')}
           </p>
         {:else if !queueExpanded}
-          {@const nextCover = resolveCoverUrl(nextTrack.coverUrl, mediaBaseUrl)}
+          {@const nextCover = resolveCoverUrl(nextTrack.coverUrl, mediaBaseUrl, 96)}
           <div transition:fade={{ duration: 160 }}>
             <button
               type="button"
@@ -757,8 +976,8 @@
           </div>
         {:else}
           <div transition:slide={{ duration: 240 }} class="max-h-60 overflow-y-auto overscroll-contain pr-1 space-y-2">
-            {#each upcomingQueue as qt (qt.id)}
-              {@const qCover = resolveCoverUrl(qt.coverUrl, mediaBaseUrl)}
+            {#each upcomingQueue as qt, qIdx (`${qIdx}-${qt.id}-${qt.externalId || qt.title}`)}
+              {@const qCover = resolveCoverUrl(qt.coverUrl, mediaBaseUrl, 96)}
               <button
                 type="button"
                 onclick={() => onPlayTrack(qt, queue)}
@@ -793,6 +1012,8 @@
       </section>
       </div>
       {/if}
+      </div>
+      {/key}
       </div>
       <div
         class="pointer-events-none absolute inset-x-0 bottom-0 h-7 z-10"
@@ -834,34 +1055,3 @@
     </div>
   </div>
 </aside>
-
-<style>
-  @keyframes velora-title-marquee-pingpong {
-    0%,
-    18% {
-      transform: translateX(0);
-    }
-    50%,
-    68% {
-      transform: translateX(var(--marquee-shift, 0px));
-    }
-    100% {
-      transform: translateX(0);
-    }
-  }
-
-  .velora-title-marquee {
-    animation: velora-title-marquee-pingpong var(--marquee-duration, 8s) ease-in-out infinite;
-    will-change: transform;
-  }
-
-  button:hover .velora-title-marquee {
-    animation-play-state: paused;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .velora-title-marquee {
-      animation: none;
-    }
-  }
-</style>

@@ -416,6 +416,28 @@ export namespace jam {
 
 export namespace main {
 	
+	export class AudioOutputDevice {
+	    id: string;
+	    name: string;
+	    connType: string;
+	    isActive: boolean;
+	    batPct: number;
+	    volPct: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new AudioOutputDevice(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.connType = source["connType"];
+	        this.isActive = source["isActive"];
+	        this.batPct = source["batPct"];
+	        this.volPct = source["volPct"];
+	    }
+	}
 	export class BootstrapData {
 	    tracks: db.Track[];
 	    albums: db.Album[];
@@ -505,6 +527,7 @@ export namespace main {
 	    streakDays: number;
 	    lyricsLoading: boolean;
 	    trackLoading: boolean;
+	    lyricOffsetSec: number;
 	    queueTitle: string;
 	    queueIndex: number;
 	    queue: DynamicIslandQueueItem[];
@@ -533,6 +556,7 @@ export namespace main {
 	        this.streakDays = source["streakDays"];
 	        this.lyricsLoading = source["lyricsLoading"];
 	        this.trackLoading = source["trackLoading"];
+	        this.lyricOffsetSec = source["lyricOffsetSec"];
 	        this.queueTitle = source["queueTitle"];
 	        this.queueIndex = source["queueIndex"];
 	        this.queue = this.convertValues(source["queue"], DynamicIslandQueueItem);
@@ -766,6 +790,7 @@ export namespace sources {
 	    album: string;
 	    durationSec: number;
 	    explicit?: boolean;
+	    videoType?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new YTMusicCard(source);
@@ -785,6 +810,7 @@ export namespace sources {
 	        this.album = source["album"];
 	        this.durationSec = source["durationSec"];
 	        this.explicit = source["explicit"];
+	        this.videoType = source["videoType"];
 	    }
 	}
 	export class YTMusicTrack {
@@ -797,6 +823,7 @@ export namespace sources {
 	    format: string;
 	    playCountText?: string;
 	    explicit?: boolean;
+	    videoType?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new YTMusicTrack(source);
@@ -813,6 +840,7 @@ export namespace sources {
 	        this.format = source["format"];
 	        this.playCountText = source["playCountText"];
 	        this.explicit = source["explicit"];
+	        this.videoType = source["videoType"];
 	    }
 	}
 	export class YTMusicShelf {

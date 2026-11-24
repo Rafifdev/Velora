@@ -17,6 +17,7 @@ export interface Track {
   isDownloaded?: boolean;
   downloadedAt?: string;
   globalPlays?: string;
+  historyEntryId?: number;
   createdAt: string;
 }
 
@@ -286,6 +287,15 @@ export interface YTMusicArtistView {
   topTracks: Track[];
   albums: YTMusicCard[];
   relatedArtists: YTMusicCard[];
+}
+
+export interface AudioOutputDevice {
+  id: string;
+  name: string;
+  connType: 'bluetooth' | 'wired' | 'speaker' | string;
+  isActive: boolean;
+  batPct: number;
+  volPct: number;
 }
 
 export interface LyricLine {

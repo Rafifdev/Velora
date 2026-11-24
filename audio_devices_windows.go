@@ -10,14 +10,16 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-type windowsAudioEndpoint struct {
-	ID       string
-	Name     string
-	ConnType string // "bluetooth", "wired", "speaker"
-	IsActive bool
-	BatPct   int // -1 if no battery (wired/speaker), 0..100 if Bluetooth battery reported
-	VolPct   int // 0..100 endpoint master volume (-1 if unavailable)
+type AudioOutputDevice struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	ConnType string `json:"connType"` // "bluetooth", "wired", "speaker"
+	IsActive bool   `json:"isActive"`
+	BatPct   int    `json:"batPct"` // -1 if no battery (wired/speaker), 0..100 if Bluetooth battery reported
+	VolPct   int    `json:"volPct"` // 0..100 endpoint master volume (-1 if unavailable)
 }
+
+type windowsAudioEndpoint = AudioOutputDevice
 
 var (
 	diOle32              = windows.NewLazySystemDLL("ole32.dll")

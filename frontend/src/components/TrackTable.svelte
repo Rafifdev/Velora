@@ -91,6 +91,16 @@
       onPlayTrack(tr, tracks);
     }
   }
+
+  const activeRowTrackId = $derived.by<number | null>(() => {
+    const matches = tracks.filter((t) => isTrackActive(t));
+    if (matches.length === 0) return null;
+    const exactId = matches.find((t) => currentTrackId !== null && t.id === currentTrackId);
+    if (exactId) return exactId.id;
+    const exactExt = currentExternalId ? matches.find((t) => t.externalId === currentExternalId) : undefined;
+    if (exactExt) return exactExt.id;
+    return matches[0].id;
+  });
 </script>
 
 <div class="w-full">
@@ -107,7 +117,7 @@
 
   <div class="space-y-0.5 mt-1">
     {#each tracks as item, idx (item.id)}
-      {@const active = isTrackActive(item)}
+      {@const active = activeRowTrackId === item.id}
       {@const cover = resolveCoverUrl(item.coverUrl, mediaBaseUrl)}
       <div
         class="velora-track-row group grid grid-cols-[28px_minmax(0,1fr)_auto] sm:grid-cols-[36px_1.4fr_1fr_92px_96px] gap-2 sm:gap-3 px-2 sm:px-3.5 py-2 items-center rounded-lg transition-colors duration-150 {active

@@ -48,12 +48,13 @@ const (
 	dxgiFormatB8G8R8A8UNORM     = 87
 	d2dAlphaModeIgnore          = 3
 
-	d2dTextAAModeClearType    = 1
-	d2dTextAAModeGrayscale    = 2
-	d2dAAModePerPrimitive     = 0
-	d2dDrawTextOptNoSnap      = 0x00000001
-	d2dDrawTextOptClip        = 0x00000002
-	d2dDrawTextOptClipNoSnap  = d2dDrawTextOptClip | d2dDrawTextOptNoSnap
+	d2dTextAAModeClearType   = 1
+	d2dTextAAModeGrayscale   = 2
+	d2dAAModePerPrimitive    = 0
+	d2dDrawTextOptNoSnap     = 0x00000001
+	d2dDrawTextOptClip       = 0x00000002
+	d2dDrawTextOptColorFont  = 0x00000004
+	d2dDrawTextOptClipNoSnap = d2dDrawTextOptClip | d2dDrawTextOptNoSnap
 
 	dwFontWeightNormal   = 400
 	dwFontWeightSemiBold = 600
@@ -450,6 +451,23 @@ func (c *dynamicIslandController) measureDWriteText(txt string, tf uintptr, maxW
 	return float64(m.WidthIncludingTrailingWhitespace), float64(m.Height)
 }
 
+func (c *dynamicIslandController) measureClosedLyricWidthDp(txt string, u float64) (float64, bool) {
+	if c.dwFactory == 0 || txt == "" || u <= 0 {
+		return 0, false
+	}
+	miniPx := maxInt(21, int(math.Round(20.8*u)))
+	txtHeightPx := float64(miniPx) * 0.72
+	tf := c.getDWriteTextFormat(1, txtHeightPx, dwTextAlignCenter, dwParaAlignCenter, false, false)
+	if tf == 0 {
+		return 0, false
+	}
+	wPx, _ := c.measureDWriteText(txt, tf, 4096.0*u, txtHeightPx*2.0)
+	if wPx <= 0 {
+		return 0, false
+	}
+	return wPx / u, true
+}
+
 func (c *dynamicIslandController) drawD2DStr(txt string, tf uintptr, col color.RGBA, alphaMult, px, py, pw, ph float64, noSnap bool) {
 	if txt == "" || tf == 0 || c.d2dDCRT == 0 || c.d2dBrush == 0 || alphaMult <= 0.01 {
 		return
@@ -466,9 +484,9 @@ func (c *dynamicIslandController) drawD2DStr(txt string, tf uintptr, col color.R
 		Right:  float32(px + pw),
 		Bottom: float32(py + ph),
 	}
-	opts := uintptr(d2dDrawTextOptClip)
+	opts := uintptr(d2dDrawTextOptClip | d2dDrawTextOptColorFont)
 	if noSnap {
-		opts = d2dDrawTextOptClipNoSnap
+		opts = d2dDrawTextOptClipNoSnap | d2dDrawTextOptColorFont
 	}
 	comVtblCall(
 		c.d2dDCRT,
@@ -521,6 +539,7 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 	hpListOpen bool,
 	hpListProg float64,
 	lyricsLoading bool,
+	lyricsHasPlain bool,
 	lyrics []sources.LyricLine,
 	lyricIdx int,
 	prevLyricIdx int,
@@ -660,11 +679,12 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 		miniPx := maxInt(21, int(math.Round(20.8*u)))
 		topCov := int(math.Round((h/2.0)*u - float64(miniPx)/2.0))
 		cyExact := float64(topCov) + float64(miniPx)/2.0
-		if showLyric && playing && (lyricsOpen || c.compactStyle == "SATU_BARIS") && len(lyrics) > 0 {
+		if showLyric && playing && (lyricsOpen || c.compactStyle == "SATU_BARIS") && title != "" {
 			txtHeightPx := float64(miniPx) * 0.72
 			fClosed := c.getDWriteTextFormat(1, txtHeightPx, dwTextAlignCenter, dwParaAlignCenter, false, true)
-			c.pushD2DClip((nx+35.0)*u, 0, (w-70.0)*u, h*u)
-			maxBoxW := (560.0 - 80.0) * u
+			const closedClipMargin = 38.0
+			c.pushD2DClip((nx+closedClipMargin)*u, 0, math.Max(1.0, (w-closedClipMargin*2.0)*u), h*u)
+			maxBoxW := math.Max(12.0*u, (w-84.0)*u)
 			boxH := txtHeightPx * 2.0
 			if closedLyricProg < 0.99 && closedLyricFrom != "" && closedLyricFrom != closedLyricTo {
 				outOp := contentOp * (1.0 - closedLyricProg)
@@ -675,12 +695,7 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 			}
 			inTxt := closedLyricTo
 			if inTxt == "" {
-				act := c.currentLyricIndexLocked()
-				if act >= 0 && act < len(lyrics) {
-					inTxt = strings.TrimSpace(lyrics[act].Text)
-				} else if len(lyrics) > 0 {
-					inTxt = "♪  • • •"
-				}
+				inTxt = fallbackClosedLyricText(lyrics, lyricIdx, lyricsLoading, lyricsHasPlain, diStr)
 			}
 			if inTxt != "" {
 				inOp := contentOp
@@ -786,17 +801,27 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 		}
 
 		onPrimCont := color.RGBA{R: 0xD8, G: 0xF3, B: 0xFF, A: 255}
+		fLyrWrap := c.getDWriteTextFormat(2, 13.8*u, dwTextAlignLeading, dwParaAlignNear, true, false)
+		wrapW := mapW(234)
 		if len(lyrics) == 0 {
 			msgTitle := diStr.NoLyrics
 			if lyricsLoading {
 				msgTitle = diStr.LoadingLyrics
+			} else if lyricsHasPlain {
+				msgTitle = diStr.NoSyncLyrics
 			}
-			c.drawD2DStr(msgTitle, f135Semi, onPrimCont, 0.78*contentOp, mapX(262), mapY(82), mapW(230), 22*u, false)
+			msgHDp := 22.0
+			if fLyrWrap != 0 && msgTitle != "" {
+				if _, mh := c.measureDWriteText(msgTitle, fLyrWrap, wrapW, 106.5*u); mh > 1.0 {
+					msgHDp = mh/u + 2.0
+				}
+			}
+			yMsg := math.Max(42.0, 92.0-msgHDp/2.0)
+			c.pushD2DClip(mapX(256), mapY(39), mapW(242), mapH(106.5))
+			c.drawD2DStr(msgTitle, fLyrWrap, onPrimCont, contentOp, mapX(260), mapY(yMsg), wrapW, msgHDp*u+4*u, false)
+			c.popD2DClip()
 			return true
 		}
-
-		fLyrWrap := c.getDWriteTextFormat(2, 13.8*u, dwTextAlignLeading, dwParaAlignNear, true, false)
-		wrapW := mapW(234)
 		lineTops := make([]float64, len(lyrics))
 		lineHeights := make([]float64, len(lyrics))
 		curTopDp := 0.0

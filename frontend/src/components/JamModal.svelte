@@ -45,7 +45,7 @@
   >
     <div class="w-full flex items-center justify-between gap-3">
       <div class="min-w-0 space-y-0.5">
-        <div class="text-xs font-semibold tracking-tight truncate">Velora Jam</div>
+        <div class="text-xs font-semibold tracking-tight truncate">Velora Jam (Beta)</div>
         <div class="text-[11px] truncate transition-colors duration-250" style="color: var(--md-sys-color-on-surface-variant);">
           {status.running ? `${status.connectedClients} ${tr(lang, 'nav.connectedDevices')}` : tr(lang, 'nav.remoteViaNetwork')}
         </div>

@@ -637,22 +637,23 @@ func (p *PlayerController) handleCoverProxy(w http.ResponseWriter, r *http.Reque
 	cacheDir := filepath.Join(p.artworkDir, "ytcache")
 	cachePath := filepath.Join(cacheDir, key+".img")
 
-	if data, err := os.ReadFile(cachePath); err == nil && len(data) > 0 {
-		w.Header().Set("Content-Type", http.DetectContentType(data))
+	if st, err := os.Stat(cachePath); err == nil && !st.IsDir() && st.Size() > 0 {
 		w.Header().Set("Cache-Control", "public, max-age=604800, immutable")
-		_, _ = w.Write(data)
+		http.ServeFile(w, r, cachePath)
 		return
 	}
 
 	lockVal, _ := coverKeyLocks.LoadOrStore(key, &sync.Mutex{})
 	mu := lockVal.(*sync.Mutex)
 	mu.Lock()
-	defer mu.Unlock()
+	defer func() {
+		mu.Unlock()
+		coverKeyLocks.Delete(key)
+	}()
 
-	if data, err := os.ReadFile(cachePath); err == nil && len(data) > 0 {
-		w.Header().Set("Content-Type", http.DetectContentType(data))
+	if st, err := os.Stat(cachePath); err == nil && !st.IsDir() && st.Size() > 0 {
 		w.Header().Set("Cache-Control", "public, max-age=604800, immutable")
-		_, _ = w.Write(data)
+		http.ServeFile(w, r, cachePath)
 		return
 	}
 

@@ -30,6 +30,7 @@
     playlists?: Playlist[];
     downloadStates?: Record<number, DownloadProgress>;
     currentTrackId?: number | null;
+    currentHistoryEntryId?: number | null;
     currentExternalId?: string | null;
     currentTrackTitle?: string | null;
     currentTrackArtist?: string | null;
@@ -67,6 +68,7 @@
     playlists = [],
     downloadStates = {},
     currentTrackId = null,
+    currentHistoryEntryId = null,
     currentExternalId = null,
     currentTrackTitle = null,
     currentTrackArtist = null,
@@ -684,7 +686,7 @@
 
   function historyItemToTrack(item: PlayHistoryItem): Track {
     const byId = tracks.find((t) => t.id === item.trackId);
-    if (byId) return byId;
+    if (byId) return { ...byId, historyEntryId: item.id };
     const targetTitle = normHistoryTitle(item.title);
     const targetArtist = (item.artistName || '').trim().toLowerCase();
     const byMeta = targetTitle
@@ -694,7 +696,7 @@
             (!targetArtist || t.artistName.trim().toLowerCase().includes(targetArtist))
         )
       : undefined;
-    if (byMeta) return byMeta;
+    if (byMeta) return { ...byMeta, historyEntryId: item.id };
     return {
       id: item.trackId,
       title: item.title,
@@ -711,6 +713,7 @@
       coverUrl: item.coverUrl || '',
       isFavorite: false,
       playCount: 1,
+      historyEntryId: item.id,
       createdAt: item.playedAt || ''
     };
   }
@@ -739,15 +742,29 @@
     return false;
   }
 
+  const activeHistoryEntryId = $derived.by<number | null>(() => {
+    const matchingIds: number[] = [];
+    for (const item of history) {
+      if (isHistoryTrackActive(historyItemToTrack(item))) {
+        matchingIds.push(item.id);
+      }
+    }
+    if (matchingIds.length === 0) return null;
+    if (currentHistoryEntryId !== null && matchingIds.includes(currentHistoryEntryId)) {
+      return currentHistoryEntryId;
+    }
+    return matchingIds[0];
+  });
+
   function playHistoryTrack(item: PlayHistoryItem) {
-    const target = historyItemToTrack(item);
-    const list = filteredHistory.map(historyItemToTrack);
+    const list = history.map(historyItemToTrack);
+    const target = list.find((t) => t.historyEntryId === item.id) ?? historyItemToTrack(item);
     onPlayTrack(target, list.length > 0 ? list : [target]);
   }
 
   function playAllHistory() {
-    if (filteredHistory.length === 0) return;
-    const list = filteredHistory.map(historyItemToTrack);
+    if (history.length === 0) return;
+    const list = history.map(historyItemToTrack);
     onPlayTrack(list[0], list);
   }
 
@@ -1414,7 +1431,7 @@
             {#each history as item, idx (item.id)}
               {@const trItem = historyItemToTrack(item)}
               {@const cover = resolveCoverUrl(trItem.coverUrl || item.coverUrl, mediaBaseUrl)}
-              {@const active = isHistoryTrackActive(trItem)}
+              {@const active = activeHistoryEntryId === item.id}
               {@const menuOpen = openHistoryActionId === item.id}
               {@const dlState = downloadStates[trItem.id]}
               {@const isDlActive = dlState && (dlState.status === 'queued' || dlState.status === 'downloading')}

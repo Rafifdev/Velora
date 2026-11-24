@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	_ "embed"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -122,7 +123,7 @@ func Open(dbPath string) (*Store, error) {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 	conn.SetMaxOpenConns(1)
-	if _, err := conn.Exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;`); err != nil {
+	if _, err := conn.Exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA cache_size=-4000; PRAGMA temp_store=MEMORY;`); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("pragma sqlite: %w", err)
 	}
@@ -132,7 +133,122 @@ func Open(dbPath string) (*Store, error) {
 	}
 	_, _ = conn.Exec(`ALTER TABLE tracks ADD COLUMN is_downloaded INTEGER NOT NULL DEFAULT 0;`)
 	_, _ = conn.Exec(`ALTER TABLE tracks ADD COLUMN downloaded_at TEXT NOT NULL DEFAULT '';`)
-	return &Store{db: conn}, nil
+	_, _ = conn.Exec(`ALTER TABLE track_lyrics ADD COLUMN synced_duration_sec INTEGER NOT NULL DEFAULT 0;`)
+	store := &Store{db: conn}
+	store.healLegacyMetadata()
+	return store, nil
+}
+
+func parseColonDurationSec(s string) int {
+	parts := strings.Split(strings.TrimSpace(s), ":")
+	if len(parts) < 2 || len(parts) > 3 {
+		return 0
+	}
+	total := 0
+	for _, p := range parts {
+		if p == "" {
+			return 0
+		}
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return 0
+		}
+		total = total*60 + n
+	}
+	return total
+}
+
+func parseLegacySubtitleArtist(rawArtist, curAlbum string, curDur int) (cleanArtist, cleanAlbum string, cleanDur int, changed bool) {
+	cleanArtist = strings.TrimSpace(rawArtist)
+	cleanAlbum = strings.TrimSpace(curAlbum)
+	cleanDur = curDur
+	if !strings.ContainsAny(rawArtist, "\u2022\u00b7") {
+		return cleanArtist, cleanAlbum, cleanDur, false
+	}
+	parts := strings.FieldsFunc(rawArtist, func(r rune) bool {
+		return r == '\u2022' || r == '\u00b7'
+	})
+	var textParts []string
+	parsedDur := 0
+	for _, p := range parts {
+		t := strings.TrimSpace(p)
+		if t == "" {
+			continue
+		}
+		low := strings.ToLower(t)
+		switch low {
+		case "song", "video", "lagu", "musik", "single", "ep", "album", "playlist":
+			continue
+		}
+		if strings.Contains(low, "pemutaran") || strings.Contains(low, "ditonton") || strings.HasSuffix(low, "plays") || strings.HasSuffix(low, "views") {
+			continue
+		}
+		if d := parseColonDurationSec(t); d > 0 {
+			parsedDur = d
+			continue
+		}
+		textParts = append(textParts, t)
+	}
+	if len(textParts) > 0 && textParts[0] != "" {
+		cleanArtist = textParts[0]
+		changed = cleanArtist != rawArtist
+	}
+	if len(textParts) > 1 && textParts[1] != "" && (cleanAlbum == "" || strings.EqualFold(cleanAlbum, "Single") || strings.EqualFold(cleanAlbum, "YouTube Music")) {
+		cleanAlbum = textParts[1]
+		changed = true
+	}
+	if (cleanDur <= 0 || cleanDur == 200) && parsedDur > 0 {
+		cleanDur = parsedDur
+		changed = true
+	}
+	return cleanArtist, cleanAlbum, cleanDur, changed
+}
+
+func (s *Store) healLegacyMetadata() {
+	// Purge legacy track_lyrics rows created before synced_duration_sec tracking (may hold +16s/200s offsets).
+	_, _ = s.db.Exec(`DELETE FROM track_lyrics WHERE synced_duration_sec = 0;`)
+	_, _ = s.db.Exec(`UPDATE tracks SET duration_sec = 0 WHERE source_type = 'ytmusic' AND duration_sec = 200;`)
+
+	rows, err := s.db.Query(`SELECT id, artist_name, album_title, duration_sec, cover_url, source_type, external_id FROM tracks WHERE source_type = 'ytmusic' AND (artist_name LIKE '%•%' OR artist_name LIKE '%·%')`)
+	if err != nil {
+		return
+	}
+	type dirtyRow struct {
+		id         int64
+		artistName string
+		albumTitle string
+		durSec     int
+		coverURL   string
+		sourceType string
+		externalID string
+	}
+	var dirty []dirtyRow
+	for rows.Next() {
+		var r dirtyRow
+		if err := rows.Scan(&r.id, &r.artistName, &r.albumTitle, &r.durSec, &r.coverURL, &r.sourceType, &r.externalID); err == nil {
+			dirty = append(dirty, r)
+		}
+	}
+	_ = rows.Close()
+
+	for _, r := range dirty {
+		cArt, cAlb, cDur, changed := parseLegacySubtitleArtist(r.artistName, r.albumTitle, r.durSec)
+		if !changed {
+			continue
+		}
+		artID, err := s.ensureArtist(cArt, r.coverURL, r.sourceType, r.externalID)
+		if err != nil {
+			continue
+		}
+		albID, err := s.ensureAlbum(cAlb, artID, cArt, r.coverURL, 2024, r.sourceType, r.externalID)
+		if err != nil {
+			continue
+		}
+		_, _ = s.db.Exec(
+			`UPDATE tracks SET artist_id = ?, artist_name = ?, album_id = ?, album_title = ?, duration_sec = ? WHERE id = ?`,
+			artID, cArt, albID, cAlb, cDur, r.id,
+		)
+	}
 }
 
 func (s *Store) DB() *sql.DB {
@@ -229,8 +345,8 @@ func (s *Store) UpsertTrack(t Track) (Track, error) {
 	if strings.TrimSpace(t.Format) == "" {
 		t.Format = "MP3"
 	}
-	if t.DurationSec <= 0 {
-		t.DurationSec = 180
+	if t.DurationSec < 0 {
+		t.DurationSec = 0
 	}
 
 	artistID, err := s.ensureArtist(t.ArtistName, t.CoverURL, t.SourceType, t.ExternalID)
@@ -253,8 +369,8 @@ func (s *Store) UpsertTrack(t Track) (Track, error) {
 
 	if existingID > 0 {
 		_, err = s.db.Exec(
-			`UPDATE tracks SET title = ?, artist_id = ?, artist_name = ?, album_id = ?, album_title = ?, duration_sec = ?, format = ?, bitrate = ?, cover_url = CASE WHEN ? != '' THEN ? ELSE cover_url END WHERE id = ?`,
-			t.Title, artistID, t.ArtistName, albumID, t.AlbumTitle, t.DurationSec, strings.ToUpper(t.Format), t.Bitrate, t.CoverURL, t.CoverURL, existingID,
+			`UPDATE tracks SET title = ?, artist_id = ?, artist_name = ?, album_id = ?, album_title = ?, duration_sec = CASE WHEN ? > 0 THEN ? ELSE duration_sec END, format = ?, bitrate = ?, cover_url = CASE WHEN ? != '' THEN ? ELSE cover_url END WHERE id = ?`,
+			t.Title, artistID, t.ArtistName, albumID, t.AlbumTitle, t.DurationSec, t.DurationSec, strings.ToUpper(t.Format), t.Bitrate, t.CoverURL, t.CoverURL, existingID,
 		)
 		if err != nil {
 			return Track{}, err
@@ -1098,34 +1214,45 @@ func (s *Store) SeedDefaults() error {
 	return nil
 }
 
-func (s *Store) GetCachedLyrics(trackID int64) (plainLyrics, syncedJSON, source string, ok bool) {
+func (s *Store) GetCachedLyrics(trackID int64) (plainLyrics, syncedJSON, source string, syncedDurationSec int, ok bool) {
 	if trackID <= 0 {
-		return "", "", "", false
+		return "", "", "", 0, false
 	}
 	err := s.db.QueryRow(
-		`SELECT plain_lyrics, synced_json, source FROM track_lyrics WHERE track_id = ?`,
+		`SELECT plain_lyrics, synced_json, source, synced_duration_sec FROM track_lyrics WHERE track_id = ?`,
 		trackID,
-	).Scan(&plainLyrics, &syncedJSON, &source)
+	).Scan(&plainLyrics, &syncedJSON, &source, &syncedDurationSec)
 	if err != nil {
-		return "", "", "", false
+		return "", "", "", 0, false
 	}
-	return plainLyrics, syncedJSON, source, source != "" && source != "fallback"
+	return plainLyrics, syncedJSON, source, syncedDurationSec, source != "" && source != "fallback"
 }
 
-func (s *Store) SaveCachedLyrics(trackID int64, plainLyrics, syncedJSON, source string) {
+func (s *Store) SaveCachedLyrics(trackID int64, plainLyrics, syncedJSON, source string, syncedDurationSec int) {
 	if trackID <= 0 || source == "" || source == "fallback" {
 		return
 	}
+	if syncedDurationSec <= 0 {
+		syncedDurationSec = -1
+	}
 	_, _ = s.db.Exec(
-		`INSERT INTO track_lyrics (track_id, plain_lyrics, synced_json, source, updated_at)
-		 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+		`INSERT INTO track_lyrics (track_id, plain_lyrics, synced_json, source, synced_duration_sec, updated_at)
+		 VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		 ON CONFLICT(track_id) DO UPDATE SET
 		   plain_lyrics = excluded.plain_lyrics,
 		   synced_json = excluded.synced_json,
 		   source = excluded.source,
+		   synced_duration_sec = excluded.synced_duration_sec,
 		   updated_at = CURRENT_TIMESTAMP`,
-		trackID, plainLyrics, syncedJSON, source,
+		trackID, plainLyrics, syncedJSON, source, syncedDurationSec,
 	)
+}
+
+func (s *Store) DeleteCachedLyrics(trackID int64) {
+	if trackID <= 0 {
+		return
+	}
+	_, _ = s.db.Exec(`DELETE FROM track_lyrics WHERE track_id = ?`, trackID)
 }
 
 func (s *Store) MarkTrackDownloaded(trackID int64, filePath, format string) (Track, error) {

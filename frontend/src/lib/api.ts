@@ -10,6 +10,7 @@ import type {
   Source,
   Track,
   TrackLyrics,
+  AudioOutputDevice,
   DownloadProgress,
   JamPlaybackSnapshot,
   JamStatus,
@@ -83,14 +84,21 @@ export function formatTotalMinutes(seconds: number): string {
   return `${hrs} jam ${rem} mnt`;
 }
 
-export function resolveCoverUrl(coverUrl: string, mediaBaseUrl = ''): string {
+export function resolveCoverUrl(coverUrl: string, mediaBaseUrl = '', targetPx = 256): string {
   if (!coverUrl) return '';
   let resolved = coverUrl;
   const ytImgMatch = resolved.match(/https?:\/\/i\.ytimg\.com\/(?:vi|vi_webp)\/([^/?#]+)\/[^?#]+(?:\?.*)?$/i);
   if (ytImgMatch) {
-    resolved = `https://i.ytimg.com/vi/${ytImgMatch[1]}/mqdefault.jpg`;
+    const thumbVariant = targetPx <= 120 ? 'default.jpg' : 'mqdefault.jpg';
+    resolved = `https://i.ytimg.com/vi/${ytImgMatch[1]}/${thumbVariant}`;
   } else if (resolved.includes('googleusercontent.com') || resolved.includes('yt3.ggpht.com')) {
-    resolved = resolved.replace(/=w\d+-h\d+[^&?]*/i, '=w544-h544-c-l90-rj');
+    const sizeParam =
+      targetPx <= 128
+        ? '=w120-h120-c-l85-rj'
+        : targetPx <= 300
+          ? '=w256-h256-c-l88-rj'
+          : '=w544-h544-c-l90-rj';
+    resolved = resolved.replace(/=w\d+-h\d+[^&?]*/i, sizeParam);
   }
   if (resolved.startsWith('http://') || resolved.startsWith('https://')) {
     if (
@@ -288,6 +296,19 @@ export const api = {
     album: string,
     durationSec: number
   ): Promise<TrackLyrics> {
+    return appBridge().GetTrackLyrics(trackId, title, artist, album, durationSec);
+  },
+  async refreshTrackLyrics(
+    trackId: number,
+    title: string,
+    artist: string,
+    album: string,
+    durationSec: number
+  ): Promise<TrackLyrics> {
+    const fn = appBridge()?.RefreshTrackLyrics;
+    if (fn) {
+      return fn(trackId, title, artist, album, durationSec);
+    }
     return appBridge().GetTrackLyrics(trackId, title, artist, album, durationSec);
   },
   async saveYTMusicTrack(track: YTMusicTrack): Promise<Track> {
@@ -559,6 +580,7 @@ export const api = {
     streakDays: number;
     lyricsLoading: boolean;
     trackLoading?: boolean;
+    lyricOffsetSec?: number;
     queueTitle: string;
     queueIndex: number;
     queue: Array<{
@@ -576,10 +598,45 @@ export const api = {
   notifyDynamicIslandAudioDevice(deviceName = ''): void {
     if (isJamRemote) return;
     appBridge()?.NotifyDynamicIslandAudioDevice?.(deviceName);
+  },
+  setDynamicIslandLyricOffset(offsetSec: number): void {
+    if (isJamRemote) return;
+    appBridge()?.SetDynamicIslandLyricOffset?.(offsetSec);
+  },
+  async getAudioOutputs(): Promise<AudioOutputDevice[]> {
+    if (isJamRemote) return [];
+    const fn = appBridge()?.GetAudioOutputs;
+    if (!fn) return [];
+    const res = await fn();
+    return Array.isArray(res) ? res : [];
+  },
+  async setAudioOutput(deviceId: string): Promise<boolean> {
+    if (isJamRemote) return false;
+    const fn = appBridge()?.SetAudioOutput;
+    if (!fn) return false;
+    return Boolean(await fn(deviceId));
+  },
+  async trimMemory(): Promise<boolean> {
+    if (isJamRemote) return false;
+    const fn = appBridge()?.TrimMemory;
+    if (!fn) return false;
+    return Boolean(await fn());
   }
 };
 
+const DOMINANT_COLOR_CACHE_LIMIT = 40;
 const dominantColorCache = new Map<string, string | null>();
+
+function setDominantColorCache(key: string, value: string | null): void {
+  if (dominantColorCache.has(key)) {
+    dominantColorCache.delete(key);
+  }
+  dominantColorCache.set(key, value);
+  if (dominantColorCache.size > DOMINANT_COLOR_CACHE_LIMIT) {
+    const oldest = dominantColorCache.keys().next().value;
+    if (oldest !== undefined) dominantColorCache.delete(oldest);
+  }
+}
 
 export async function extractDominantColor(imageUrl: string): Promise<string | null> {
   if (!imageUrl || typeof document === 'undefined') return null;
@@ -627,20 +684,27 @@ export async function extractDominantColor(imageUrl: string): Promise<string | n
         }
 
         if (wSum === 0) {
-          dominantColorCache.set(imageUrl, null);
+          setDominantColorCache(imageUrl, null);
           resolve(null);
           return;
         }
         const color = `rgb(${Math.round(rSum / wSum)}, ${Math.round(gSum / wSum)}, ${Math.round(bSum / wSum)})`;
-        dominantColorCache.set(imageUrl, color);
+        setDominantColorCache(imageUrl, color);
         resolve(color);
       } catch {
-        dominantColorCache.set(imageUrl, null);
+        setDominantColorCache(imageUrl, null);
         resolve(null);
+      } finally {
+        img.onload = null;
+        img.onerror = null;
+        img.src = '';
       }
     };
     img.onerror = () => {
-      dominantColorCache.set(imageUrl, null);
+      setDominantColorCache(imageUrl, null);
+      img.onload = null;
+      img.onerror = null;
+      img.src = '';
       resolve(null);
     };
     img.src = imageUrl;

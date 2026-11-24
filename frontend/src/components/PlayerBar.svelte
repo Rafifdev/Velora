@@ -1,7 +1,7 @@
 <script lang="ts">
   import { fade, fly } from 'svelte/transition';
   import { api, formatDuration, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
-  import type { Track } from '../lib/types';
+  import type { AudioOutputDevice, Track } from '../lib/types';
   import { tr, type LangCode } from '../lib/i18n';
   import Icon from './Icon.svelte';
 
@@ -16,7 +16,8 @@
     shuffle: boolean;
     repeatMode: 'off' | 'all' | 'one';
     rightCollapsed: boolean;
-    rightPanelMode?: 'now-playing' | 'queue';
+    rightPanelMode?: 'now-playing' | 'queue' | 'devices';
+    activeOutputDevice?: AudioOutputDevice | null;
     isLyricsOpen?: boolean;
     seekDeltaSec?: number;
     seekDeltaSeq?: number;
@@ -37,6 +38,7 @@
     onOpenTrackDetail?: (track: Track) => void;
     onOpenArtistDetail?: (track: Track) => void;
     onToggleLyrics?: () => void;
+    onToggleDevices?: () => void;
     onOpenMobileNowPlaying?: () => void;
   }
 
@@ -52,6 +54,7 @@
     repeatMode,
     rightCollapsed,
     rightPanelMode = 'now-playing',
+    activeOutputDevice = null,
     isLyricsOpen = false,
     seekDeltaSec = 0,
     seekDeltaSeq = 0,
@@ -71,6 +74,7 @@
     onOpenTrackDetail,
     onOpenArtistDetail,
     onToggleLyrics,
+    onToggleDevices,
     onOpenMobileNowPlaying
   }: Props = $props();
 
@@ -90,14 +94,34 @@
   $effect(() => {
     if (!isPlaying || effectiveDuration <= 0) return;
     let rafId = 0;
-    const tick = () => {
-      const elapsed = (performance.now() - lastSyncedAt) / 1000;
-      // Cap extrapolation at +0.6s past last timeupdate
-      smoothPositionSec = Math.min(effectiveDuration, lastSyncedPos + Math.min(elapsed, 0.6));
+    let lastDrawnAt = 0;
+    const minIntervalMs = waveBar ? 0 : 66;
+    const tick = (now: number) => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        rafId = 0;
+        return;
+      }
+      if (minIntervalMs === 0 || now - lastDrawnAt >= minIntervalMs) {
+        lastDrawnAt = now;
+        const elapsed = (now - lastSyncedAt) / 1000;
+        // Cap extrapolation at +0.6s past last timeupdate
+        smoothPositionSec = Math.min(effectiveDuration, lastSyncedPos + Math.min(elapsed, 0.6));
+      }
       rafId = requestAnimationFrame(tick);
     };
-    rafId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafId);
+    const onVisibility = () => {
+      if (!document.hidden && !rafId) {
+        rafId = requestAnimationFrame(tick);
+      }
+    };
+    if (typeof document === 'undefined' || !document.hidden) {
+      rafId = requestAnimationFrame(tick);
+    }
+    document?.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      cancelAnimationFrame(rafId);
+      document?.removeEventListener('visibilitychange', onVisibility);
+    };
   });
 
   const progressPct = $derived(
@@ -119,8 +143,8 @@
         class="flex-1 min-w-0 flex items-center gap-2.5 text-left cursor-pointer rounded-lg px-1 -mx-1 transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
       >
         <div class="w-10 h-10 rounded-md overflow-hidden shrink-0 bg-[var(--md-sys-color-surface-container-highest)] flex items-center justify-center">
-          {#if currentTrack && resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl)}
-            {@const mCover = resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl)}
+          {#if currentTrack && resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl, 96)}
+            {@const mCover = resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl, 96)}
             <img
               src={mCover}
               alt={currentTrack.title}
@@ -255,7 +279,7 @@
   <div class="h-[68px] px-3 sm:px-6 pb-2 flex items-center justify-between gap-2 sm:gap-4">
     <div class="flex-1 min-w-0 sm:flex-none sm:w-[30%] sm:min-w-[180px] flex items-center gap-2.5 sm:gap-3.5">
       {#if currentTrack}
-        {@const cover = resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl)}
+        {@const cover = resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl, 96)}
         <button
           type="button"
           onclick={() => onFocusRightCard('album')}
@@ -410,11 +434,41 @@
           onclick={() => onFocusRightCard('queue')}
           title={rightCollapsed ? tr(lang, 'nav.expandQueue') : tr(lang, 'nav.focusQueue')}
           aria-label={tr(lang, 'nav.focusQueue')}
-          class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer"
+          class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer relative"
           style={!rightCollapsed && rightPanelMode === 'queue' ? 'color: var(--md-sys-color-primary);' : ''}
         >
           <Icon name="queue" weight={!rightCollapsed && rightPanelMode === 'queue' ? 'bold' : 'regular'} size={17} />
+          {#if !rightCollapsed && rightPanelMode === 'queue'}
+            <span
+              class="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
+              style="background-color: var(--md-sys-color-primary);"
+            ></span>
+          {/if}
         </button>
+        {#if onToggleDevices}
+          {@const devIcon =
+            activeOutputDevice?.connType === 'bluetooth' || activeOutputDevice?.connType === 'wired'
+              ? 'headphones'
+              : 'speaker-hifi'}
+          <button
+            type="button"
+            onclick={() => onToggleDevices()}
+            title={activeOutputDevice?.name
+              ? `${tr(lang, 'nav.connectDevice')} · ${activeOutputDevice.name}`
+              : tr(lang, 'nav.outputDevice')}
+            aria-label={tr(lang, 'nav.outputDevice')}
+            class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer relative"
+            style={!rightCollapsed && rightPanelMode === 'devices' ? 'color: var(--md-sys-color-primary);' : ''}
+          >
+            <Icon name={devIcon} weight={!rightCollapsed && rightPanelMode === 'devices' ? 'bold' : 'regular'} size={17} />
+            {#if !rightCollapsed && rightPanelMode === 'devices'}
+              <span
+                class="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
+                style="background-color: var(--md-sys-color-primary);"
+              ></span>
+            {/if}
+          </button>
+        {/if}
         <button
           type="button"
           onclick={() => api.windowMinimize()}

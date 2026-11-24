@@ -694,7 +694,7 @@
           {@const twoRow = !isAlwaysFull && isTwoRowShelf(shelf)}
           {@const minShowAll = shelfCollapsedMinItems(variant, twoRow)}
           {@const visibleItems = variant === 'compact-list' && !isExpanded ? shelf.items.slice(0, 9) : shelf.items}
-          <section class="min-w-0 space-y-3" use:svelteMotionEnter={{ delay: Math.min(0.18, sIdx * 0.04) }}>
+          <section class="velora-cv-section min-w-0 space-y-3" use:svelteMotionEnter={{ delay: Math.min(0.18, sIdx * 0.04) }}>
             <div class="flex items-center justify-between gap-2">
               <h2 class="text-xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
                 {localizeShelfTitle(shelf.title)}
@@ -716,7 +716,7 @@
               class={shelfContainerClass(variant, isExpanded, twoRow)}
             >
               {#each visibleItems as item (item.id)}
-                {@const cover = resolveCoverUrl(item.coverUrl, mediaBaseUrl)}
+                {@const cover = resolveCoverUrl(item.coverUrl, mediaBaseUrl, variant === 'compact-list' ? 96 : 256)}
                 {@const isCardActive = isCollectionCardActive(item)}
                 {#if variant === 'compact-list'}
                   <article

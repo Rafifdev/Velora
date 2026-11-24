@@ -90,6 +90,11 @@ body,
   font-variant-numeric: tabular-nums;
 }
 
+.velora-cv-section {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 260px;
+}
+
 .wails-drag {
   --wails-draggable: drag;
 }

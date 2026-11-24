@@ -63,13 +63,17 @@ type App struct {
 	quitting     atomic.Bool
 	closeToTray  atomic.Bool
 	closingOnce  sync.Once
-	player       *audio.PlayerController
-	ytHomeMu     sync.Mutex
-	ytHomeDone   chan struct{}
-	ytHomeFeed   sources.YTMusicHomeFeed
-	ytHomeErr    error
-	ytHomeCached bool
-	ytHomeAt     time.Time
+	player               *audio.PlayerController
+	ytHomeMu             sync.Mutex
+	ytHomeDone           chan struct{}
+	ytHomeFeed           sources.YTMusicHomeFeed
+	ytHomeErr            error
+	ytHomeCached         bool
+	ytHomeAt             time.Time
+	lyricUpgradeMu       sync.Mutex
+	lyricUpgradeTriedMap map[int64]bool
+	lyricsSeqMu          sync.Mutex
+	lyricsSeqMap         map[int64]uint64
 }
 
 func NewApp() *App {
@@ -130,6 +134,7 @@ func (a *App) startup(ctx context.Context) {
 		}
 	})
 	a.startYTMusicHomePrefetch()
+	go a.ensureStoreDesktopShortcut()
 	a.player = audio.NewPlayerController(store, a.ytClient, a.artworkDir)
 	_, _ = a.player.StartMediaServer()
 	a.jamSrv = jam.NewServer(
@@ -361,6 +366,11 @@ func (a *App) ensureTrackPlayableExternalID(ctx context.Context, tr db.Track) (d
 func (a *App) domReady(ctx context.Context) {
 	a.initTaskbar(ctx)
 	a.initDynamicIsland(ctx)
+	startMemoryTrimMonitor(ctx)
+}
+
+func (a *App) TrimMemory() {
+	go trimAppMemoryWorkingSet()
 }
 
 func (a *App) forceQuitApp() {
@@ -527,6 +537,22 @@ func (a *App) GetPlaylists(localOnly bool) ([]db.Playlist, error) {
 
 func (a *App) GetPlaylistDetail(id int64) (db.PlaylistDetail, error) {
 	return a.store.GetPlaylistDetail(id)
+}
+
+func (a *App) GetAudioOutputs() []AudioOutputDevice {
+	list := listWindowsAudioOutputs(-1, "")
+	if list == nil {
+		return []AudioOutputDevice{}
+	}
+	return list
+}
+
+func (a *App) SetAudioOutput(deviceID string) bool {
+	ok := setDefaultWindowsAudioOutput(strings.TrimSpace(deviceID))
+	if ok {
+		a.NotifyDynamicIslandAudioDevice("")
+	}
+	return ok
 }
 
 func (a *App) CreatePlaylist(name, description string, isLocal bool, coverColor string) (db.Playlist, error) {
@@ -1164,32 +1190,89 @@ func (a *App) GetYTMusicArtistDetail(browseID, name, avatarURL string) (YTMusicA
 	}, nil
 }
 
+func (a *App) tryUpgradeUnsyncedOnce(trackID int64) bool {
+	if trackID <= 0 {
+		return false
+	}
+	a.lyricUpgradeMu.Lock()
+	defer a.lyricUpgradeMu.Unlock()
+	if a.lyricUpgradeTriedMap == nil {
+		a.lyricUpgradeTriedMap = make(map[int64]bool)
+	}
+	if a.lyricUpgradeTriedMap[trackID] {
+		return false
+	}
+	a.lyricUpgradeTriedMap[trackID] = true
+	return true
+}
+
+func (a *App) nextLyricsReqSeq(trackID int64) uint64 {
+	a.lyricsSeqMu.Lock()
+	defer a.lyricsSeqMu.Unlock()
+	if a.lyricsSeqMap == nil {
+		a.lyricsSeqMap = map[int64]uint64{}
+	}
+	a.lyricsSeqMap[trackID]++
+	return a.lyricsSeqMap[trackID]
+}
+
+func (a *App) isLatestLyricsReqSeq(trackID int64, seq uint64) bool {
+	a.lyricsSeqMu.Lock()
+	defer a.lyricsSeqMu.Unlock()
+	return a.lyricsSeqMap != nil && a.lyricsSeqMap[trackID] == seq
+}
+
+func (a *App) RefreshTrackLyrics(trackID int64, title, artist, album string, durationSec int) sources.TrackLyrics {
+	return a.resolveTrackLyrics(trackID, title, artist, album, durationSec, true)
+}
+
 func (a *App) GetTrackLyrics(trackID int64, title, artist, album string, durationSec int) sources.TrackLyrics {
+	return a.resolveTrackLyrics(trackID, title, artist, album, durationSec, false)
+}
+
+func (a *App) resolveTrackLyrics(trackID int64, title, artist, album string, durationSec int, forceRefresh bool) sources.TrackLyrics {
 	ctx := a.ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	dbDur := 0
+	extID := ""
 	if trackID > 0 {
 		if tr, trErr := a.store.GetTrackByID(trackID); trErr == nil {
 			dbDur = tr.DurationSec
-			if durationSec > 0 && (dbDur <= 0 || dbDur == 200 || math.Abs(float64(durationSec-dbDur)) >= 8.0) && durationSec != dbDur {
+			extID = strings.TrimSpace(tr.ExternalID)
+			if strings.TrimSpace(title) == "" {
+				title = tr.Title
+			}
+			if strings.TrimSpace(artist) == "" {
+				artist = tr.ArtistName
+			}
+			if strings.TrimSpace(album) == "" {
+				album = tr.AlbumTitle
+			}
+			if durationSec <= 0 && dbDur > 0 {
+				durationSec = dbDur
+			}
+			if durationSec > 0 && (dbDur <= 0 || math.Abs(float64(durationSec-dbDur)) >= 4.0) && durationSec != dbDur {
 				_ = a.store.UpdateTrackDuration(trackID, durationSec)
 			}
 		}
-		if plain, syncedJSON, source, ok := a.store.GetCachedLyrics(trackID); ok {
+		if forceRefresh {
+			a.store.DeleteCachedLyrics(trackID)
+		} else if plain, syncedJSON, source, syncedDurSec, ok := a.store.GetCachedLyrics(trackID); ok {
 			var lines []sources.LyricLine
 			_ = json.Unmarshal([]byte(syncedJSON), &lines)
 			if lines == nil {
 				lines = []sources.LyricLine{}
 			}
-			staleByDuration := durationSec > 0 && (((dbDur <= 0 || dbDur == 200) && math.Abs(float64(durationSec-dbDur)) >= 3.0) || math.Abs(float64(durationSec-dbDur)) >= 8.0)
+			staleByDuration := durationSec > 0 && (syncedDurSec <= 0 || math.Abs(float64(durationSec-syncedDurSec)) >= 3.0)
 			if !staleByDuration && len(lines) > 0 && durationSec > 0 && lines[len(lines)-1].TimeSec > float64(durationSec)+6.0 {
 				staleByDuration = true
 			}
-			if !staleByDuration {
-				a.updateDynamicIslandLyrics(lines, plain)
+			needSyncUpgrade := !staleByDuration && len(lines) == 0 && source != "instrumental" && a.tryUpgradeUnsyncedOnce(trackID)
+			if !staleByDuration && !needSyncUpgrade {
+				a.updateDynamicIslandLyrics(lines, plain, source)
 				return sources.TrackLyrics{
 					TrackID:      trackID,
 					Title:        title,
@@ -1202,30 +1285,51 @@ func (a *App) GetTrackLyrics(trackID int64, title, artist, album string, duratio
 		}
 	}
 
-	res := sources.FetchLyrics(ctx, trackID, title, artist, album, durationSec)
+	reqSeq := a.nextLyricsReqSeq(trackID)
+	res := sources.FetchLyricsWithVideo(ctx, trackID, extID, title, artist, album, durationSec)
 
-	if res.Source == "fallback" && trackID > 0 {
-		if tr, err := a.store.GetTrackByID(trackID); err == nil && strings.TrimSpace(tr.ExternalID) != "" {
-			ytCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
-			defer cancel()
-			if ytLyrics, ok := a.ytClient.GetLyricsByVideoID(ytCtx, tr.ExternalID); ok {
-				res.PlainLyrics = ytLyrics
+	if res.Source != "instrumental" && extID != "" && (len(res.SyncedLyrics) == 0 || res.NeedsVideoVerify) {
+		ytCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
+		defer cancel()
+		if ytSynced, ytPlain, ok := a.ytClient.GetSyncedOrPlainLyricsByVideoID(ytCtx, extID); ok {
+			if len(ytSynced) > 0 {
+				ytAligned := sources.AlignLyricsWithVideo(ctx, extID, ytSynced, 0, durationSec)
+				if len(res.SyncedLyrics) == 0 {
+					res.SyncedLyrics = ytAligned
+					res.PlainLyrics = ytPlain
+					res.Source = "ytmusic-synced"
+				} else if res.NeedsVideoVerify && durationSec > 0 && ytAligned[len(ytAligned)-1].TimeSec <= float64(durationSec)+3.0 {
+					res.SyncedLyrics = ytAligned
+					res.PlainLyrics = ytPlain
+					res.Source = "ytmusic-synced"
+				}
+			} else if len(res.SyncedLyrics) == 0 && (res.Source == "fallback" || strings.TrimSpace(res.PlainLyrics) == "") && ytPlain != "" {
+				res.PlainLyrics = ytPlain
 				res.Source = "ytmusic"
 			}
 		}
 	}
 
-	if trackID > 0 && res.Source != "fallback" {
-		b, _ := json.Marshal(res.SyncedLyrics)
-		a.store.SaveCachedLyrics(trackID, res.PlainLyrics, string(b), res.Source)
+	if trackID > 0 && !a.isLatestLyricsReqSeq(trackID, reqSeq) {
+		return res
 	}
-	a.updateDynamicIslandLyrics(res.SyncedLyrics, res.PlainLyrics)
+	if trackID > 0 && res.Source != "fallback" {
+		if durationSec <= 0 {
+			if _, _, _, existingDur, ok := a.store.GetCachedLyrics(trackID); ok && existingDur > 0 {
+				a.updateDynamicIslandLyrics(res.SyncedLyrics, res.PlainLyrics, res.Source)
+				return res
+			}
+		}
+		b, _ := json.Marshal(res.SyncedLyrics)
+		a.store.SaveCachedLyrics(trackID, res.PlainLyrics, string(b), res.Source, durationSec)
+	}
+	a.updateDynamicIslandLyrics(res.SyncedLyrics, res.PlainLyrics, res.Source)
 	return res
 }
 
 func (a *App) SaveYTMusicTrack(yt sources.YTMusicTrack) (db.Track, error) {
 	isHybridTrack := isHybridTrackID(yt.VideoID)
-	if !isHybridTrack && (strings.TrimSpace(yt.Album) == "" || strings.EqualFold(strings.TrimSpace(yt.Album), "YouTube Music")) {
+	if !isHybridTrack && (strings.TrimSpace(yt.Album) == "" || strings.EqualFold(strings.TrimSpace(yt.Album), "YouTube Music") || yt.DurationSec <= 0) {
 		ctx := a.ctx
 		if ctx == nil {
 			ctx = context.Background()
@@ -1236,10 +1340,16 @@ func (a *App) SaveYTMusicTrack(yt sources.YTMusicTrack) (db.Track, error) {
 		if q != "" {
 			if hits, err := a.ytClient.Search(reqCtx, q); err == nil {
 				for _, h := range hits {
+					if h.VideoID == yt.VideoID && yt.DurationSec <= 0 && h.DurationSec > 0 {
+						yt.DurationSec = h.DurationSec
+					}
 					if h.Album != "" && !strings.EqualFold(h.Album, "YouTube Music") {
 						yt.Album = h.Album
 						if yt.CoverURL == "" && h.CoverURL != "" {
 							yt.CoverURL = h.CoverURL
+						}
+						if yt.DurationSec <= 0 && h.DurationSec > 0 {
+							yt.DurationSec = h.DurationSec
 						}
 						break
 					}
@@ -1475,7 +1585,7 @@ type UpdateCheckResult struct {
 }
 
 const (
-	veloraAppVersion         = "1.1.1"
+	veloraAppVersion         = "1.1.2"
 	veloraReleasesLatestAPI  = "https://api.github.com/repos/Rafifdev/Velora/releases/latest"
 	veloraReleasesPageURL    = "https://github.com/Rafifdev/Velora/releases"
 	veloraFeedbackWebhookURL = "https://script.google.com/macros/s/AKfycbwhnfjZ_CFzPRc-3Yw6rtz39IKqbjRlc7CIz2OOUhe8tk64sDR1y5oMWa4zxgx66j9Cxw/exec"

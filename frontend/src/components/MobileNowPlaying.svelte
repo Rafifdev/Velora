@@ -11,6 +11,7 @@
     currentTrack: Track | null;
     lyrics: TrackLyrics | null;
     queue: Track[];
+    queueIndex?: number;
     isPlaying: boolean;
     positionSec: number;
     durationSec: number;
@@ -38,6 +39,7 @@
     currentTrack,
     lyrics,
     queue,
+    queueIndex = -1,
     isPlaying,
     positionSec,
     durationSec,
@@ -93,11 +95,14 @@
 
   const upcomingQueue = $derived.by(() => {
     if (!currentTrack) return queue;
-    const idx = queue.findIndex(
-      (t) =>
-        (currentTrack.id > 0 && t.id === currentTrack.id) ||
-        (currentTrack.externalId && t.externalId === currentTrack.externalId)
-    );
+    const idx =
+      queueIndex >= 0 && queueIndex < queue.length && queue[queueIndex].id === currentTrack.id
+        ? queueIndex
+        : queue.findIndex(
+            (t) =>
+              (currentTrack.id > 0 && t.id === currentTrack.id) ||
+              (currentTrack.externalId && t.externalId === currentTrack.externalId)
+          );
     if (idx < 0) return queue.filter((t) => t.id !== currentTrack.id);
     return queue.slice(idx + 1);
   });

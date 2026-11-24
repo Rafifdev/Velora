@@ -29,6 +29,7 @@ type YTMusicTrack struct {
 	Format        string `json:"format"`
 	PlayCountText string `json:"playCountText,omitempty"`
 	Explicit      bool   `json:"explicit,omitempty"`
+	VideoType     string `json:"videoType,omitempty"`
 }
 
 type YTMusicCard struct {
@@ -44,6 +45,7 @@ type YTMusicCard struct {
 	Album       string `json:"album"`
 	DurationSec int    `json:"durationSec"`
 	Explicit    bool   `json:"explicit,omitempty"`
+	VideoType   string `json:"videoType,omitempty"`
 }
 
 type YTMusicShelf struct {
@@ -539,11 +541,14 @@ func ytWebRemixContext() map[string]any {
 	return ytWebRemixContextFor("ID")
 }
 
-func PickBestYTMusicVideoID(hits []YTMusicTrack, title, artist string, targetDurationSec int) string {
-	bestID := ""
+// PickBestYTMusicTrack scores search hits to prefer matching studio audio over videos, covers, or remixes.
+func PickBestYTMusicTrack(hits []YTMusicTrack, title, artist string, targetDurationSec int) (YTMusicTrack, bool) {
+	var best YTMusicTrack
+	hasBest := false
 	bestScore := -1e9
 	reqTitle := strings.ToLower(strings.TrimSpace(title))
-	reqArtist := strings.ToLower(strings.TrimSpace(primaryLyricArtist(artist)))
+	cleanReqTitle := strings.ToLower(strings.TrimSpace(cleanLyricTitle(title)))
+	reqArtist := strings.ToLower(strings.TrimSpace(cleanLyricArtist(primaryLyricArtist(artist))))
 	for _, h := range hits {
 		vid := strings.TrimSpace(h.VideoID)
 		if vid == "" {
@@ -558,23 +563,41 @@ func PickBestYTMusicVideoID(hits []YTMusicTrack, title, artist string, targetDur
 			score += 80.0
 		}
 		hitTitle := strings.ToLower(strings.TrimSpace(h.Title))
-		for _, tag := range []string{"official video", "music video", "lyric video", "mv", "live", "extended"} {
+		cleanHitTitle := strings.ToLower(strings.TrimSpace(cleanLyricTitle(h.Title)))
+		for _, tag := range []string{"official video", "music video", "lyric video", "mv", "live", "extended", "slowed", "reverb", "sped up", "nightcore", "karaoke", "instrumental", "cover", "remix"} {
 			if strings.Contains(hitTitle, tag) && !strings.Contains(reqTitle, tag) {
 				score -= 150.0
 			}
 		}
-		if reqTitle != "" && (strings.Contains(hitTitle, reqTitle) || strings.Contains(reqTitle, hitTitle)) {
+		if cleanReqTitle != "" && cleanHitTitle == cleanReqTitle {
+			score += 70.0
+		} else if reqTitle != "" && (strings.Contains(hitTitle, reqTitle) || strings.Contains(reqTitle, hitTitle)) {
 			score += 30.0
 		}
 		if reqArtist != "" && strings.Contains(strings.ToLower(h.Artist), reqArtist) {
-			score += 20.0
+			score += 40.0
 		}
-		if bestID == "" || score > bestScore {
+		if h.VideoType == "MUSIC_VIDEO_TYPE_ATV" {
+			score += 120.0
+		} else if (h.VideoType == "MUSIC_VIDEO_TYPE_OMV" || h.VideoType == "MUSIC_VIDEO_TYPE_UGC") &&
+			!strings.Contains(reqTitle, "video") && !strings.Contains(reqTitle, "mv") && !strings.Contains(reqTitle, "live") {
+			score -= 90.0
+		}
+		if !hasBest || score > bestScore {
 			bestScore = score
-			bestID = vid
+			best = h
+			hasBest = true
 		}
 	}
-	return bestID
+	return best, hasBest
+}
+
+func PickBestYTMusicVideoID(hits []YTMusicTrack, title, artist string, targetDurationSec int) string {
+	best, ok := PickBestYTMusicTrack(hits, title, artist, targetDurationSec)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(best.VideoID)
 }
 
 func (c *YTMusicClient) Search(ctx context.Context, query string) ([]YTMusicTrack, error) {
@@ -1407,14 +1430,23 @@ func appendShelvesToFeed(
 				if _, dup := seenTrack[item.VideoID]; !dup {
 					seenTrack[item.VideoID] = struct{}{}
 					dur := item.DurationSec
-					if dur <= 0 {
-						dur = 200
-					}
 					artist := item.Artist
 					if artist == "" {
 						artist = item.Subtitle
 					}
 					album := item.Album
+					if strings.ContainsAny(artist, "•·") {
+						pArt, pAlb, pDur, _ := ParseYTMusicSubtitle(nil, artist)
+						if pArt != "" {
+							artist = pArt
+						}
+						if pAlb != "" && (album == "" || strings.EqualFold(album, "YouTube Music")) {
+							album = pAlb
+						}
+						if dur <= 0 && pDur > 0 {
+							dur = pDur
+						}
+					}
 					if album == "" {
 						album = "YouTube Music"
 					}
@@ -1427,6 +1459,7 @@ func appendShelvesToFeed(
 						CoverURL:    item.CoverURL,
 						Format:      "OPUS",
 						Explicit:    item.Explicit,
+						VideoType:   item.VideoType,
 					})
 				}
 			}
@@ -1466,18 +1499,15 @@ func (c *YTMusicClient) GetTop100Tracks(ctx context.Context) ([]YTMusicTrack, er
 				if item.VideoID != "" {
 					if _, dup := seen[item.VideoID]; !dup {
 						seen[item.VideoID] = struct{}{}
-						dur := item.DurationSec
-						if dur <= 0 {
-							dur = 200
-						}
 						results = append(results, YTMusicTrack{
 							VideoID:     item.VideoID,
 							Title:       item.Title,
 							Artist:      item.Artist,
 							Album:       item.Album,
-							DurationSec: dur,
+							DurationSec: item.DurationSec,
 							CoverURL:    item.CoverURL,
 							Format:      "OPUS",
+							VideoType:   item.VideoType,
 						})
 					}
 				}
@@ -2309,7 +2339,7 @@ func parsePlaylistPanelItem(r map[string]any) (YTMusicTrack, bool) {
 			}
 		}
 	}
-	durationSec := 200
+	durationSec := 0
 	if d := parseDurationString(extractRunsText(r["lengthText"])); d > 0 {
 		durationSec = d
 	}
@@ -2331,6 +2361,7 @@ func parsePlaylistPanelItem(r map[string]any) (YTMusicTrack, bool) {
 		DurationSec: durationSec,
 		CoverURL:    cover,
 		Format:      "OPUS",
+		VideoType:   extractMusicVideoType(r["navigationEndpoint"]),
 	}, true
 }
 
@@ -2610,44 +2641,186 @@ func parseTwoRowItem(r map[string]any) (YTMusicCard, bool) {
 	}
 
 	albumTitle := title
+	cardDur := 0
+	videoType := extractMusicVideoType(r["navigationEndpoint"])
+	if videoType == "" {
+		videoType = extractMusicVideoType(r["thumbnailOverlay"])
+	}
 	if kind == "song" {
 		albumTitle = "YouTube Music"
-		// Check subtitle runs for linked album browseId (MPREb_), matching HomePage.Section.fromMusicTwoRowItemRenderer.
-		if subObj, ok := r["subtitle"].(map[string]any); ok {
-			if runs, ok := subObj["runs"].([]any); ok {
-				for _, runItem := range runs {
-					rm, ok := runItem.(map[string]any)
-					if !ok {
-						continue
-					}
-					if rnav, ok := rm["navigationEndpoint"].(map[string]any); ok {
-						if rbe, ok := rnav["browseEndpoint"].(map[string]any); ok {
-							if rbid, _ := rbe["browseId"].(string); strings.HasPrefix(rbid, "MPREb_") {
-								browseID = rbid
-								if rt, _ := rm["text"].(string); strings.TrimSpace(rt) != "" {
-									albumTitle = strings.TrimSpace(rt)
-								}
-							}
-						}
-					}
-				}
-			}
+		parsedArtist, parsedAlbum, parsedDur, linkedAlbID := ParseYTMusicSubtitle(r["subtitle"], subtitle)
+		if parsedArtist != "" {
+			artist = parsedArtist
+		}
+		if parsedAlbum != "" {
+			albumTitle = parsedAlbum
+		}
+		if parsedDur > 0 {
+			cardDur = parsedDur
+		}
+		if linkedAlbID != "" {
+			browseID = linkedAlbID
 		}
 	}
 
 	return YTMusicCard{
-		ID:         kind + ":" + idVal,
-		Title:      title,
-		Subtitle:   subtitle,
-		CoverURL:   cover,
-		Kind:       kind,
-		VideoID:    videoID,
-		BrowseID:   browseID,
-		PlaylistID: playlistID,
-		Artist:     artist,
-		Album:      albumTitle,
-		Explicit:   explicit,
+		ID:          kind + ":" + idVal,
+		Title:       title,
+		Subtitle:    subtitle,
+		CoverURL:    cover,
+		Kind:        kind,
+		VideoID:     videoID,
+		BrowseID:    browseID,
+		PlaylistID:  playlistID,
+		Artist:      artist,
+		Album:       albumTitle,
+		DurationSec: cardDur,
+		Explicit:    explicit,
+		VideoType:   videoType,
 	}, true
+}
+
+func extractMusicVideoType(node any) string {
+	switch v := node.(type) {
+	case map[string]any:
+		if cfg, ok := v["watchEndpointMusicConfig"].(map[string]any); ok {
+			if vt, ok := cfg["musicVideoType"].(string); ok && vt != "" {
+				return vt
+			}
+		}
+		for _, child := range v {
+			if vt := extractMusicVideoType(child); vt != "" {
+				return vt
+			}
+		}
+	case []any:
+		for _, child := range v {
+			if vt := extractMusicVideoType(child); vt != "" {
+				return vt
+			}
+		}
+	}
+	return ""
+}
+
+func isMetaNoiseLabel(lower string) bool {
+	switch lower {
+	case "song", "video", "lagu", "musik", "single", "ep", "album", "playlist":
+		return true
+	}
+	return false
+}
+
+func isPlayCountLabel(lower string) bool {
+	return strings.Contains(lower, "pemutaran") ||
+		strings.Contains(lower, "ditonton") ||
+		strings.HasSuffix(lower, "plays") ||
+		strings.HasSuffix(lower, "views")
+}
+
+// ParseYTMusicSubtitle extracts clean artist, album, durationSec, and album browseId from YT Music subtitle runs or raw text.
+func ParseYTMusicSubtitle(subObj any, rawSubtitle string) (artist, album string, durationSec int, albumBrowseID string) {
+	type subSeg struct {
+		text    string
+		isArt   bool
+		isAlb   bool
+		albID   string
+	}
+	var segments []subSeg
+
+	if m, ok := subObj.(map[string]any); ok {
+		if runs, ok := m["runs"].([]any); ok && len(runs) > 0 {
+			var cur subSeg
+			flush := func() {
+				cur.text = strings.TrimSpace(cur.text)
+				if cur.text != "" {
+					segments = append(segments, cur)
+				}
+				cur = subSeg{}
+			}
+			for _, item := range runs {
+				rm, ok := item.(map[string]any)
+				if !ok {
+					continue
+				}
+				txt, _ := rm["text"].(string)
+				trimmed := strings.TrimSpace(txt)
+				if trimmed == "\u2022" || trimmed == "\u00b7" {
+					flush()
+					continue
+				}
+				if nav, ok := rm["navigationEndpoint"].(map[string]any); ok {
+					if be, ok := nav["browseEndpoint"].(map[string]any); ok {
+						bid, _ := be["browseId"].(string)
+						pageType := ""
+						if cfg, ok := be["browseEndpointContextSupportedConfigs"].(map[string]any); ok {
+							if mc, ok := cfg["browseEndpointContextMusicConfig"].(map[string]any); ok {
+								pageType, _ = mc["pageType"].(string)
+							}
+						}
+						if strings.HasPrefix(bid, "MPREb_") || pageType == "MUSIC_PAGE_TYPE_ALBUM" {
+							cur.isAlb = true
+							cur.albID = bid
+						} else if strings.HasPrefix(bid, "UC") || pageType == "MUSIC_PAGE_TYPE_ARTIST" {
+							cur.isArt = true
+						}
+					}
+				}
+				cur.text += txt
+			}
+			flush()
+		}
+	}
+
+	if len(segments) <= 1 && strings.ContainsAny(rawSubtitle, "\u2022\u00b7") {
+		segments = nil
+		parts := strings.FieldsFunc(rawSubtitle, func(r rune) bool {
+			return r == '\u2022' || r == '\u00b7'
+		})
+		for _, p := range parts {
+			if t := strings.TrimSpace(p); t != "" {
+				segments = append(segments, subSeg{text: t})
+			}
+		}
+	}
+
+	for _, seg := range segments {
+		txt := strings.TrimSpace(seg.text)
+		if txt == "" {
+			continue
+		}
+		low := strings.ToLower(txt)
+		if isMetaNoiseLabel(low) || isPlayCountLabel(low) {
+			continue
+		}
+		if d := parseDurationString(txt); d > 0 {
+			durationSec = d
+			continue
+		}
+		if seg.isAlb {
+			if album == "" {
+				album = txt
+			}
+			if albumBrowseID == "" && seg.albID != "" {
+				albumBrowseID = seg.albID
+			}
+			continue
+		}
+		if seg.isArt {
+			if artist == "" {
+				artist = txt
+			} else {
+				artist += ", " + txt
+			}
+			continue
+		}
+		if artist == "" {
+			artist = txt
+		} else if album == "" && !yearRegex.MatchString(txt) {
+			album = txt
+		}
+	}
+	return artist, album, durationSec, albumBrowseID
 }
 
 func extractResponsiveItems(node any, out *[]YTMusicTrack, seen map[string]struct{}) {
@@ -2691,7 +2864,7 @@ func parseResponsiveListItem(r map[string]any) (YTMusicTrack, bool) {
 	artist := "YouTube Music Artist"
 	album := "YouTube Music"
 	playCountText := ""
-	durationSec := 200
+	durationSec := 0
 
 	isPlayCount := func(lower string) bool {
 		return strings.Contains(lower, "pemutaran") ||
@@ -2817,6 +2990,7 @@ func parseResponsiveListItem(r map[string]any) (YTMusicTrack, bool) {
 		CoverURL:      cover,
 		Format:        "OPUS",
 		PlayCountText: playCountText,
+		VideoType:     extractMusicVideoType(r),
 	}, true
 }
 
@@ -3028,7 +3202,7 @@ func (c *YTMusicClient) ResolveStreamWindow(ctx context.Context, videoID, qualit
 					URL:         line,
 					MimeType:    mime,
 					UserAgent:   ua,
-					DurationSec: 200,
+					DurationSec: 0,
 				}
 				if startTimeSecs <= 0 {
 					c.mu.Lock()
@@ -3036,7 +3210,7 @@ func (c *YTMusicClient) ResolveStreamWindow(ctx context.Context, videoID, qualit
 						URL:         line,
 						MimeType:    mime,
 						UserAgent:   ua,
-						DurationSec: 200,
+						DurationSec: 0,
 						ExpiresAt:   time.Now().Add(4 * time.Hour),
 					}
 					c.mu.Unlock()
@@ -3162,9 +3336,6 @@ func (c *YTMusicClient) resolveViaInnerTube(ctx context.Context, videoID, qualit
 		}
 
 		durSec, _ := strconv.Atoi(data.VideoDetails.LengthSeconds)
-		if durSec <= 0 {
-			durSec = 200
-		}
 
 		bestURL := ""
 		bestMime := "audio/mp4"
@@ -3233,16 +3404,22 @@ func (c *YTMusicClient) resolveViaInnerTube(ctx context.Context, videoID, qualit
 }
 
 func (c *YTMusicClient) GetLyricsByVideoID(ctx context.Context, videoID string) (string, bool) {
+	_, plain, ok := c.GetSyncedOrPlainLyricsByVideoID(ctx, videoID)
+	return plain, ok
+}
+
+// GetSyncedOrPlainLyricsByVideoID retrieves YTMusic timed or plain lyrics using the track videoId.
+func (c *YTMusicClient) GetSyncedOrPlainLyricsByVideoID(ctx context.Context, videoID string) ([]LyricLine, string, bool) {
 	vid := strings.TrimSpace(videoID)
-	if vid == "" {
-		return "", false
+	if vid == "" || isHybridVideoID(vid) {
+		return nil, "", false
 	}
 	nextTree, err := c.postInnerTube(ctx, "next", map[string]any{
 		"context": c.ytContext(),
 		"videoId": vid,
 	})
 	if err != nil {
-		return "", false
+		return nil, "", false
 	}
 
 	var lyricsBrowseID string
@@ -3270,7 +3447,11 @@ func (c *YTMusicClient) GetLyricsByVideoID(ctx context.Context, videoID string) 
 	}
 	findLyricsID(nextTree)
 	if lyricsBrowseID == "" {
-		return "", false
+		return nil, "", false
+	}
+
+	if synced, plain, ok := c.fetchYTMusicAndroidTimedLyrics(ctx, lyricsBrowseID); ok {
+		return synced, plain, true
 	}
 
 	browseTree, err := c.postInnerTube(ctx, "browse", map[string]any{
@@ -3278,7 +3459,7 @@ func (c *YTMusicClient) GetLyricsByVideoID(ctx context.Context, videoID string) 
 		"browseId": lyricsBrowseID,
 	})
 	if err != nil {
-		return "", false
+		return nil, "", false
 	}
 
 	var text string
@@ -3307,5 +3488,99 @@ func (c *YTMusicClient) GetLyricsByVideoID(ctx context.Context, videoID string) 
 		return false
 	}
 	findDesc(browseTree)
-	return text, text != ""
+	return nil, text, text != ""
+}
+
+func isHybridVideoID(vid string) bool {
+	return strings.HasPrefix(vid, "sp:") || strings.HasPrefix(vid, "dz:")
+}
+
+func (c *YTMusicClient) fetchYTMusicAndroidTimedLyrics(ctx context.Context, browseID string) ([]LyricLine, string, bool) {
+	bodyBytes, err := json.Marshal(map[string]any{
+		"context": map[string]any{
+			"client": map[string]any{
+				"clientName":    "ANDROID_MUSIC",
+				"clientVersion": "7.16.53",
+				"hl":            "en",
+				"gl":            "US",
+			},
+		},
+		"browseId": browseID,
+	})
+	if err != nil {
+		return nil, "", false
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://music.youtube.com/youtubei/v1/browse", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, "", false
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, "", false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, "", false
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, "", false
+	}
+	var tree any
+	if json.Unmarshal(raw, &tree) != nil {
+		return nil, "", false
+	}
+
+	var timedRaw []any
+	var findTimed func(n any) bool
+	findTimed = func(n any) bool {
+		switch v := n.(type) {
+		case map[string]any:
+			if arr, ok := v["timedLyricsData"].([]any); ok && len(arr) > 0 {
+				timedRaw = arr
+				return true
+			}
+			for _, child := range v {
+				if findTimed(child) {
+					return true
+				}
+			}
+		case []any:
+			for _, child := range v {
+				if findTimed(child) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	if !findTimed(tree) {
+		return nil, "", false
+	}
+
+	var synced []LyricLine
+	var plainParts []string
+	for _, entry := range timedRaw {
+		m, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		lineText, _ := m["lyricLine"].(string)
+		lineText = strings.TrimSpace(lineText)
+		if lineText != "" {
+			plainParts = append(plainParts, lineText)
+		}
+		if cue, ok := m["cueRange"].(map[string]any); ok {
+			if msStr, ok := cue["startTimeMilliseconds"].(string); ok {
+				if ms, err := strconv.ParseInt(msStr, 10, 64); err == nil && lineText != "" {
+					synced = append(synced, LyricLine{TimeSec: float64(ms) / 1000.0, Text: lineText})
+				}
+			}
+		}
+	}
+	if len(plainParts) == 0 && len(synced) == 0 {
+		return nil, "", false
+	}
+	return synced, strings.Join(plainParts, "\n"), true
 }

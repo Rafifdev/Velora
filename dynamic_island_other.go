@@ -33,17 +33,20 @@ type DynamicIslandSyncPayload struct {
 	ThemeSeed     string                   `json:"themeSeed"`
 	AccentColor   string                   `json:"accentColor"`
 	StreakDays    int                      `json:"streakDays"`
-	LyricsLoading bool                     `json:"lyricsLoading"`
-	QueueTitle    string                   `json:"queueTitle"`
-	QueueIndex    int                      `json:"queueIndex"`
-	Queue         []DynamicIslandQueueItem `json:"queue"`
+	LyricsLoading  bool                     `json:"lyricsLoading"`
+	TrackLoading   bool                     `json:"trackLoading"`
+	LyricOffsetSec float64                  `json:"lyricOffsetSec"`
+	QueueTitle     string                   `json:"queueTitle"`
+	QueueIndex     int                      `json:"queueIndex"`
+	Queue          []DynamicIslandQueueItem `json:"queue"`
 }
 
-func (a *App) initDynamicIsland(_ context.Context)                       {}
-func (a *App) shutdownDynamicIsland()                                    {}
-func (a *App) updateDynamicIslandState(_, _, _ string, _ bool)           {}
-func (a *App) UpdateDynamicIslandProgress(_ float64, _ float64)          {}
-func (a *App) updateDynamicIslandLyrics(_ []sources.LyricLine, _ string) {}
+func (a *App) initDynamicIsland(_ context.Context)                               {}
+func (a *App) shutdownDynamicIsland()                                            {}
+func (a *App) updateDynamicIslandState(_, _, _ string, _ bool)                   {}
+func (a *App) UpdateDynamicIslandProgress(_ float64, _ float64)                  {}
+func (a *App) updateDynamicIslandLyrics(_ []sources.LyricLine, _, _ string)      {}
+func (a *App) SetDynamicIslandLyricOffset(_ float64)                             {}
 func (a *App) SetDynamicIslandEnabled(_ bool)                            {}
 func (a *App) SetDynamicIslandStyle(_ string)                            {}
 func (a *App) SetDynamicIslandShapeSize(_, _ string, _ int)              {}

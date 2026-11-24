@@ -94,12 +94,27 @@
     }
     let rafId = 0;
     const step = (now: number) => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        rafId = 0;
+        return;
+      }
       const dtSec = Math.max(0, Math.min(0.35, (now - anchorAt) / 1000));
       smoothPosSec = anchorPos + dtSec;
       rafId = requestAnimationFrame(step);
     };
-    rafId = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(rafId);
+    const onVisibility = () => {
+      if (!document.hidden && !rafId) {
+        rafId = requestAnimationFrame(step);
+      }
+    };
+    if (typeof document === 'undefined' || !document.hidden) {
+      rafId = requestAnimationFrame(step);
+    }
+    document?.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      cancelAnimationFrame(rafId);
+      document?.removeEventListener('visibilitychange', onVisibility);
+    };
   });
 
   let effectiveTime = $derived(smoothPosSec + 0.05 + offsetSec);
@@ -154,6 +169,9 @@
     if (!key) return;
     if (rounded === 0) localStorage.removeItem(`velora.lyricOffset:${key}`);
     else localStorage.setItem(`velora.lyricOffset:${key}`, String(rounded));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('velora:lyric-offset', { detail: { key, offsetSec: rounded } }));
+    }
   }
 
   let nudgeTimer: ReturnType<typeof setInterval> | null = null;
