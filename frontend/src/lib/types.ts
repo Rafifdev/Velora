@@ -330,6 +330,8 @@ export type HomeFilter = 'semua' | 'musik' | 'artis' | 'album' | 'playlist' | 'p
 export type ViewRoute =
   | { name: 'home'; filter?: HomeFilter }
   | { name: 'search'; query: string }
+  | { name: 'library'; filter?: 'all' | 'music' | 'albums' | 'artists' | 'downloaded' }
+  | { name: 'downloads' }
   | { name: 'liked-songs' }
   | { name: 'favorite-albums' }
   | { name: 'album-detail'; albumId: number }

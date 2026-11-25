@@ -600,6 +600,130 @@ func PickBestYTMusicVideoID(hits []YTMusicTrack, title, artist string, targetDur
 	return strings.TrimSpace(best.VideoID)
 }
 
+var studioATVSkipMarkers = []string{
+	"official video", "music video", "lyric video", " mv", "(mv", "[mv", "m/v",
+	"live", "session", "cover", "karaoke", "remix", "acoustic", "dangdut", "koplo",
+	"slowed", "sped up", "nightcore", "instrumental",
+}
+
+// ShouldPreferStudioATV reports whether a YouTube Music track looks like a video/MV
+// that should be upgraded to an official studio audio (MUSIC_VIDEO_TYPE_ATV) version.
+func ShouldPreferStudioATV(title, coverURL, videoType string) bool {
+	lowTitle := strings.ToLower(strings.TrimSpace(title))
+	for _, marker := range studioATVSkipMarkers {
+		if strings.Contains(lowTitle, marker) {
+			return false
+		}
+	}
+	vt := strings.TrimSpace(videoType)
+	if vt == "MUSIC_VIDEO_TYPE_ATV" {
+		return false
+	}
+	if vt == "MUSIC_VIDEO_TYPE_OMV" || vt == "MUSIC_VIDEO_TYPE_UGC" {
+		return true
+	}
+	lowCover := strings.ToLower(strings.TrimSpace(coverURL))
+	return strings.Contains(lowCover, "ytimg.com") || strings.Contains(lowCover, "img.youtube.com")
+}
+
+// MatchStudioATVTrack selects the highest-scoring official studio audio hit matching title and artist.
+func MatchStudioATVTrack(hits []YTMusicTrack, title, artist string) (YTMusicTrack, bool) {
+	wantTitle := strings.ToLower(strings.TrimSpace(cleanLyricTitle(title)))
+	if wantTitle == "" {
+		return YTMusicTrack{}, false
+	}
+
+	rawTokens := artistSplitRegex.Split(strings.ToLower(cleanLyricArtist(artist)), -1)
+	var artistTokens []string
+	for _, tok := range rawTokens {
+		t := strings.TrimSpace(tok)
+		if len(t) >= 2 {
+			artistTokens = append(artistTokens, t)
+		}
+	}
+
+	var best YTMusicTrack
+	hasBest := false
+	bestScore := -1e9
+
+	for _, h := range hits {
+		vid := strings.TrimSpace(h.VideoID)
+		if vid == "" {
+			continue
+		}
+		vt := strings.TrimSpace(h.VideoType)
+		if vt != "MUSIC_VIDEO_TYPE_ATV" {
+			if vt != "" || strings.Contains(strings.ToLower(h.CoverURL), "ytimg.com") || strings.Contains(strings.ToLower(h.CoverURL), "img.youtube.com") {
+				continue
+			}
+		}
+
+		lowHitTitle := strings.ToLower(strings.TrimSpace(h.Title))
+		unwanted := false
+		for _, tag := range []string{"cover", "live", "session", "remix", "dangdut", "koplo", "acoustic", "karaoke", "instrumental", "slowed", "sped up", "nightcore"} {
+			if strings.Contains(lowHitTitle, tag) && !strings.Contains(strings.ToLower(title), tag) {
+				unwanted = true
+				break
+			}
+		}
+		if unwanted {
+			continue
+		}
+
+		cleanHitTitle := strings.ToLower(strings.TrimSpace(cleanLyricTitle(h.Title)))
+		if cleanHitTitle != wantTitle {
+			continue
+		}
+
+		matchedArtists := 0
+		lowHitArtist := strings.ToLower(h.Artist)
+		if len(artistTokens) > 0 {
+			for _, tok := range artistTokens {
+				if strings.Contains(lowHitArtist, tok) {
+					matchedArtists++
+					continue
+				}
+				for _, word := range strings.Fields(tok) {
+					if len(word) >= 4 && strings.Contains(lowHitArtist, word) {
+						matchedArtists++
+						break
+					}
+				}
+			}
+			if matchedArtists == 0 {
+				continue
+			}
+		}
+
+		score := float64(matchedArtists) * 40.0
+		if vt == "MUSIC_VIDEO_TYPE_ATV" {
+			score += 120.0
+		}
+		if h.Album != "" && !strings.EqualFold(strings.TrimSpace(h.Album), "YouTube Music") {
+			score += 80.0
+		}
+		if !hasBest || score > bestScore {
+			bestScore = score
+			best = h
+			hasBest = true
+		}
+	}
+	return best, hasBest
+}
+
+// FindStudioATVTrack searches YouTube Music's Songs (ATV) index for a matching studio audio track.
+func (c *YTMusicClient) FindStudioATVTrack(ctx context.Context, title, artist string) (YTMusicTrack, bool) {
+	q := strings.TrimSpace(cleanLyricTitle(title) + " " + cleanLyricArtist(artist))
+	if q == "" {
+		return YTMusicTrack{}, false
+	}
+	hits, err := c.Search(ctx, q)
+	if err != nil || len(hits) == 0 {
+		return YTMusicTrack{}, false
+	}
+	return MatchStudioATVTrack(hits, title, artist)
+}
+
 func (c *YTMusicClient) Search(ctx context.Context, query string) ([]YTMusicTrack, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {

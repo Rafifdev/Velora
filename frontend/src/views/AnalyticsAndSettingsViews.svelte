@@ -466,6 +466,8 @@
       if (res.hasUpdate) {
         updateStatusText = `${tr(lang, 'nav.updateAvailableBadge')} v${res.latestVersion}`;
         showUpdateModal = true;
+      } else if (res.releaseUrl?.startsWith('ms-windows-store://')) {
+        updateStatusText = `Microsoft Store (v${res.currentVersion})`;
       } else {
         updateStatusText = `${tr(lang, 'nav.upToDate')} (v${res.currentVersion})`;
       }

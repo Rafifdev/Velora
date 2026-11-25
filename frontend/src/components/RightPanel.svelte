@@ -4,18 +4,15 @@
   import { cubicOut } from 'svelte/easing';
   import { fade, fly, slide } from 'svelte/transition';
   import { isYTVideoThumb, resolveCoverUrl } from '../lib/api';
-  import {
-    computeLineSweepProgress,
-    computeWordProgressList,
-    wordSweepBackground
-  } from '../lib/lyricsSweep';
+  import { veloraMarquee } from '../lib/marquee';
   import { svelteMotionEnter } from '../lib/motion';
-  import { getPrefBool, getPrefValue } from '../lib/preferences';
+  import { getPrefValue } from '../lib/preferences';
   import { getPrefLang, tr } from '../lib/i18n';
   import type { AudioOutputDevice, Track, TrackLyrics } from '../lib/types';
   import EmptyState from './EmptyState.svelte';
   import EqIndicator from './EqIndicator.svelte';
   import Icon from './Icon.svelte';
+  import LyricsPreviewCard from './LyricsPreviewCard.svelte';
 
   interface Props {
     width: number;
@@ -91,7 +88,6 @@
   let panelScrollEl: HTMLElement | undefined = $state();
   let albumCardEl: HTMLElement | undefined = $state();
   let lyricsCardEl: HTMLElement | undefined = $state();
-  let lyricsScrollEl: HTMLElement | undefined = $state();
   let queueCardEl: HTMLElement | undefined = $state();
   let collapseIconEl: HTMLElement | undefined = $state();
   let prevCollapsed: boolean | undefined;
@@ -99,73 +95,6 @@
   let isResizing = $state(false);
   let lyricsExpanded = $state(false);
   let queueExpanded = $state(false);
-  let lyricsTall = $state(false);
-  let titleWrapEl: HTMLElement | undefined = $state();
-  let titleTextEl: HTMLElement | undefined = $state();
-  let titleMarqueeAnim: Animation | null = null;
-
-  $effect(() => {
-    const _title = currentTrack?.title ?? '';
-    const isCollapsed = collapsed;
-    const wrap = titleWrapEl;
-    const text = titleTextEl;
-    titleMarqueeAnim?.cancel();
-    titleMarqueeAnim = null;
-    if (!wrap || !text || isCollapsed) return;
-
-    const reducedMotion =
-      typeof window !== 'undefined' &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reducedMotion) return;
-
-    const startOrUpdate = () => {
-      titleMarqueeAnim?.cancel();
-      titleMarqueeAnim = null;
-      const overflow = Math.ceil(text.scrollWidth - wrap.clientWidth);
-      if (overflow <= 2) return;
-
-      // Samakan persis dengan animasi marquee Dynamic Island (dynamic_island_windows.go)
-      const shift = overflow + 4;
-      const scrollDur = Math.max(1.4, shift / 28.0);
-      const pauseStart = 2.2;
-      const pauseEnd = 2.0;
-      const fadeOutDur = 0.24;
-      const fadeInDur = 0.24;
-      const cycle = pauseStart + scrollDur + pauseEnd + fadeOutDur + fadeInDur;
-
-      const t1 = pauseStart / cycle;
-      const t2 = (pauseStart + scrollDur) / cycle;
-      const t3 = (pauseStart + scrollDur + pauseEnd) / cycle;
-      const t4 = (pauseStart + scrollDur + pauseEnd + fadeOutDur) / cycle;
-
-      titleMarqueeAnim = text.animate(
-        [
-          { offset: 0, transform: 'translateX(0px)', opacity: 1, easing: 'linear' },
-          { offset: t1, transform: 'translateX(0px)', opacity: 1, easing: 'linear' },
-          { offset: t2, transform: `translateX(-${shift}px)`, opacity: 1, easing: 'linear' },
-          { offset: t3, transform: `translateX(-${shift}px)`, opacity: 1, easing: 'ease' },
-          { offset: Math.max(t3 + 0.0001, t4 - 0.0001), transform: `translateX(-${shift}px)`, opacity: 0 },
-          { offset: t4, transform: 'translateX(0px)', opacity: 0, easing: 'ease' },
-          { offset: 1, transform: 'translateX(0px)', opacity: 1 }
-        ],
-        {
-          duration: cycle * 1000,
-          iterations: Infinity
-        }
-      );
-    };
-
-    startOrUpdate();
-    const rafId = requestAnimationFrame(startOrUpdate);
-    const ro = new ResizeObserver(startOrUpdate);
-    ro.observe(wrap);
-    return () => {
-      cancelAnimationFrame(rafId);
-      ro.disconnect();
-      titleMarqueeAnim?.cancel();
-      titleMarqueeAnim = null;
-    };
-  });
 
   const MIN_WIDTH = 280;
   const MAX_WIDTH = 520;
@@ -174,108 +103,6 @@
   let collapsedHover = $state(false);
 
   const lang = $derived(getPrefLang(preferences));
-  const lyricsAutoScroll = $derived(getPrefBool(preferences, 'lyrics.autoScroll'));
-  const lyricsTextSize = $derived(Number(getPrefValue(preferences, 'lyrics.textSize') || '0'));
-  const lyricsSweep = $derived(getPrefBool(preferences, 'lyrics.sweep'));
-  const lyricsBlurOthers = $derived(
-    getPrefBool(preferences, 'lyrics.blurOthers') && getPrefValue(preferences, 'appearance.performance') !== 'lite'
-  );
-  const lyricsMiniLyrics = $derived(getPrefBool(preferences, 'lyrics.miniLyrics'));
-  const lyricsPlainFallback = $derived(getPrefBool(preferences, 'lyrics.plainFallback'));
-
-  const lyricsExpandedSizeClass = $derived(
-    lyricsTextSize <= 0
-      ? 'text-[15px] leading-[1.35]'
-      : lyricsTextSize >= 2
-        ? 'text-[20px] leading-[1.35]'
-        : 'text-[18px] leading-[1.35]'
-  );
-
-  interface DisplayLyricLine {
-    text: string;
-    timeSec: number | null;
-    isSynced: boolean;
-  }
-
-  const lyricLines = $derived.by((): DisplayLyricLine[] => {
-    if (lyrics?.syncedLyrics && lyrics.syncedLyrics.length > 0) {
-      return lyrics.syncedLyrics.map((l) => ({
-        text: l.text,
-        timeSec: l.timeSec,
-        isSynced: true
-      }));
-    }
-    if (lyricsPlainFallback && lyrics?.plainLyrics) {
-      return lyrics.plainLyrics
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0)
-        .map((text) => ({ text, timeSec: null, isSynced: false }));
-    }
-    return [];
-  });
-
-  let smoothPosSec = $state(0);
-  let anchorPos = 0;
-  let anchorAt = 0;
-
-  $effect(() => {
-    anchorPos = positionSec;
-    anchorAt = performance.now();
-    smoothPosSec = positionSec;
-  });
-
-  $effect(() => {
-    if (collapsed || !isPlaying || !lyricsSweep || (lyrics?.syncedLyrics?.length ?? 0) === 0) {
-      smoothPosSec = positionSec;
-      return;
-    }
-    let rafId = 0;
-    const step = (now: number) => {
-      if (typeof document !== 'undefined' && document.hidden) {
-        rafId = 0;
-        return;
-      }
-      const dtSec = Math.max(0, Math.min(0.35, (now - anchorAt) / 1000));
-      smoothPosSec = anchorPos + dtSec;
-      rafId = requestAnimationFrame(step);
-    };
-    const onVisibility = () => {
-      if (!document.hidden && !rafId) {
-        rafId = requestAnimationFrame(step);
-      }
-    };
-    if (typeof document === 'undefined' || !document.hidden) {
-      rafId = requestAnimationFrame(step);
-    }
-    document?.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      cancelAnimationFrame(rafId);
-      document?.removeEventListener('visibilitychange', onVisibility);
-    };
-  });
-
-  const activeSyncedIndex = $derived.by(() => {
-    if (!lyrics?.syncedLyrics || lyrics.syncedLyrics.length === 0) return -1;
-    let active = -1;
-    const eff = smoothPosSec + 0.05 + lyricOffsetSec;
-    for (let i = 0; i < lyrics.syncedLyrics.length; i++) {
-      if (eff >= lyrics.syncedLyrics[i].timeSec) {
-        active = i;
-      } else {
-        break;
-      }
-    }
-    return active;
-  });
-
-  function getRightLineSweepProgress(idx: number): number {
-    if (!lyricsSweep || idx !== activeSyncedIndex || !lyrics?.syncedLyrics) return 1;
-    const cur = lyrics.syncedLyrics[idx];
-    const next = lyrics.syncedLyrics[idx + 1];
-    if (!cur) return 1;
-    return computeLineSweepProgress(cur.text || '♪', cur.timeSec, next?.timeSec, smoothPosSec + lyricOffsetSec);
-  }
 
   function outputDeviceIcon(connType: string): string {
     if (connType === 'bluetooth' || connType === 'wired') return 'headphones';
@@ -288,12 +115,6 @@
   const otherOutputDevs = $derived(
     audioOutputs.filter((d) => !d.isActive && (!activeOutputDev || d.id !== activeOutputDev.id))
   );
-
-  const previewLines = $derived.by(() => {
-    if (lyricLines.length === 0) return [];
-    const start = activeSyncedIndex >= 0 ? activeSyncedIndex : 0;
-    return lyricLines.slice(start, start + 3);
-  });
 
   const upcomingQueue = $derived.by(() => {
     if (queue.length === 0) return [];
@@ -340,31 +161,6 @@
     lastFocusSeq = sig.seq;
     untrack(() => focusSection(sig.card));
   });
-
-  $effect(() => {
-    const _expanded = lyricsExpanded;
-    if (!lyricsAutoScroll || activeSyncedIndex < 0 || !lyricsScrollEl) return;
-    const activeEl = lyricsScrollEl.querySelector(`[data-lyric-idx="${activeSyncedIndex}"]`) as HTMLElement | null;
-    if (activeEl) {
-      const targetTop = Math.max(
-        0,
-        activeEl.offsetTop - lyricsScrollEl.clientHeight / 2 + activeEl.clientHeight / 2
-      );
-      lyricsScrollEl.scrollTo({ top: targetTop, behavior: 'smooth' });
-    }
-  });
-
-  function scrollLyricsToActive() {
-    if (!lyricsScrollEl || activeSyncedIndex < 0) return;
-    const activeEl = lyricsScrollEl.querySelector(`[data-lyric-idx="${activeSyncedIndex}"]`) as HTMLElement | null;
-    if (activeEl) {
-      const targetTop = Math.max(
-        0,
-        activeEl.offsetTop - lyricsScrollEl.clientHeight / 2 + activeEl.clientHeight / 2
-      );
-      lyricsScrollEl.scrollTo({ top: targetTop, behavior: 'smooth' });
-    }
-  }
 
   function focusSection(card: 'album' | 'lyrics' | 'queue') {
     if (collapsed) {
@@ -788,27 +584,25 @@
             <div class="min-w-0 flex-1">
               <button
                 type="button"
-                bind:this={titleWrapEl}
                 onclick={() => onOpenTrackDetail?.(currentTrack)}
-                onmouseenter={() => titleMarqueeAnim?.pause()}
-                onmouseleave={() => titleMarqueeAnim?.play()}
+                use:veloraMarquee={{ text: currentTrack.title, disabled: collapsed }}
                 class="w-full overflow-hidden text-left text-[16px] font-bold leading-snug hover:underline cursor-pointer"
                 title={tr(lang, 'nav.viewTrackDetails')}
               >
-                <span
-                  bind:this={titleTextEl}
-                  class="inline-block whitespace-nowrap"
-                >
+                <span class="inline-block whitespace-nowrap">
                   {currentTrack.title}
                 </span>
               </button>
               <button
                 type="button"
                 onclick={() => onOpenArtistDetail?.(currentTrack)}
-                class="w-full truncate text-left text-[13px] font-medium text-[var(--md-sys-color-on-surface-variant)] mt-0.5 hover:underline cursor-pointer"
+                use:veloraMarquee={{ text: currentTrack.artistName, disabled: collapsed }}
+                class="w-full overflow-hidden text-left text-[13px] font-medium text-[var(--md-sys-color-on-surface-variant)] mt-0.5 hover:underline cursor-pointer"
                 title={tr(lang, 'nav.viewArtistPage')}
               >
-                {currentTrack.artistName}
+                <span class="inline-block whitespace-nowrap">
+                  {currentTrack.artistName}
+                </span>
               </button>
             </div>
 
@@ -836,91 +630,20 @@
         {/if}
       </section>
 
-      <section
-        bind:this={lyricsCardEl}
-        class="group/lyrics rounded-lg p-4 relative overflow-hidden"
-        style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
-      >
-        <div class="flex items-center justify-between gap-2 mb-3">
-          <span class="text-[15px] font-bold">{tr(lang, 'nav.lyrics')}</span>
-
-          <button
-            type="button"
-            onclick={() => onOpenLyrics?.()}
-            title={tr(lang, 'nav.expandLyrics')}
-            aria-label={tr(lang, 'nav.expandLyrics')}
-            class="w-7 h-7 rounded-full flex items-center justify-center opacity-75 hover:opacity-100 hover:bg-[var(--md-sys-color-state-hover)] transition-colors cursor-pointer"
-          >
-            <Icon name="arrows-out-simple" size={16} />
-          </button>
-        </div>
-
-        <div class="relative">
-          <div
-            bind:this={lyricsScrollEl}
-            class="overflow-hidden pr-1 space-y-2.5 pb-12"
-            style="max-height: {lyricsExpanded ? '420px' : '152px'}; transition: max-height 380ms cubic-bezier(0.22, 1, 0.36, 1);"
-          >
-            {#if !currentTrack}
-              <p class="text-[14px] font-semibold opacity-80 py-3">
-                {tr(lang, 'nav.playSongForLyrics')}
-              </p>
-            {:else if lyricsLoading}
-              <div class="py-6 flex items-center justify-center" aria-label={tr(lang, 'nav.loadingLyrics')}>
-                <EqIndicator variant="loader" color="var(--md-sys-color-on-primary-container)" />
-              </div>
-            {:else if !lyricsExpanded && !lyricsMiniLyrics}
-              <p class="text-[13px] font-medium opacity-75 py-2">
-                {tr(lang, 'nav.clickExpandLyrics')}
-              </p>
-            {:else if lyricLines.length > 0}
-              {#each lyricLines as line, idx (idx + '-' + line.text)}
-                {@const active = idx === activeSyncedIndex}
-                <button
-                  type="button"
-                  data-lyric-idx={idx}
-                  onclick={() => line.isSynced && line.timeSec !== null && onSeek(line.timeSec)}
-                  class="w-full text-left font-bold {lyricsExpandedSizeClass} origin-left transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer {active
-                    ? 'opacity-100 scale-[1.02]'
-                    : lyricsBlurOthers && line.isSynced
-                      ? 'opacity-35 scale-[0.93] blur-[1.2px] hover:opacity-100 hover:blur-none'
-                      : 'opacity-35 scale-[0.93] hover:opacity-100'}"
-                >
-                  {#if active && line.isSynced && lyricsSweep}
-                    {@const words = computeWordProgressList(line.text || '♪', getRightLineSweepProgress(idx))}
-                    {#each words as item, wIdx (wIdx)}
-                      <span
-                        class="inline-block will-change-transform"
-                        style="background-image: {wordSweepBackground(item.prog, 'var(--md-sys-color-on-primary-container)', 'color-mix(in srgb, var(--md-sys-color-on-primary-container) 34%, transparent)')}; -webkit-background-clip: text; background-clip: text; color: transparent; transform: translate3d(0, {(-1.0 * item.prog).toFixed(2)}px, 0);"
-                      >{item.word}</span>{wIdx < words.length - 1 ? ' ' : ''}
-                    {/each}
-                  {:else}
-                    {line.text}
-                  {/if}
-                </button>
-              {/each}
-            {:else}
-              <p class="text-[14px] font-semibold text-[var(--md-sys-color-on-primary-container)] opacity-75 py-4">
-                {tr(lang, 'nav.noLyricsFor')} "{currentTrack.title}".
-              </p>
-            {/if}
-          </div>
-
-          <div
-            class="pointer-events-none absolute inset-x-0 bottom-0 h-14 flex items-end justify-end"
-            style="background: linear-gradient(to bottom, transparent 0%, var(--md-sys-color-primary-container) 88%);"
-          >
-            <button
-              type="button"
-              onclick={() => (lyricsExpanded = !lyricsExpanded)}
-              style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
-              class="text-[12px] font-bold px-4 py-1.5 rounded-full cursor-pointer opacity-0 translate-y-3 pointer-events-none group-hover/lyrics:opacity-100 group-hover/lyrics:translate-y-0 group-hover/lyrics:pointer-events-auto transition-all duration-300 ease-out hover:scale-[1.03] active:scale-[0.98]"
-            >
-              {lyricsExpanded ? tr(lang, 'nav.seeLess') : tr(lang, 'nav.seeMore')}
-            </button>
-          </div>
-        </div>
-      </section>
+      <LyricsPreviewCard
+        bind:cardEl={lyricsCardEl}
+        bind:lyricsExpanded={lyricsExpanded}
+        {currentTrack}
+        {isPlaying}
+        {positionSec}
+        {lyricOffsetSec}
+        {lyrics}
+        {lyricsLoading}
+        {preferences}
+        {collapsed}
+        {onSeek}
+        {onOpenLyrics}
+      />
 
       <section
         bind:this={queueCardEl}

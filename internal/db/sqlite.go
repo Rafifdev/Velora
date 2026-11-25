@@ -440,6 +440,40 @@ func (s *Store) UpdateTrackDuration(trackID int64, durationSec int) error {
 	return err
 }
 
+// UpgradeTrackToStudio switches a track row to its official studio ATV external_id,
+// updates duration/cover if provided, and clears stale cached lyrics.
+func (s *Store) UpgradeTrackToStudio(trackID int64, externalID, coverURL string, durationSec int) (Track, error) {
+	ext := strings.TrimSpace(externalID)
+	if trackID <= 0 || ext == "" {
+		return Track{}, fmt.Errorf("invalid upgrade track arguments")
+	}
+
+	var otherID int64
+	_ = s.db.QueryRow(`SELECT id FROM tracks WHERE external_id = ? AND id != ? LIMIT 1`, ext, trackID).Scan(&otherID)
+	if otherID > 0 {
+		if durationSec > 0 || strings.TrimSpace(coverURL) != "" {
+			_, _ = s.db.Exec(
+				`UPDATE tracks SET duration_sec = CASE WHEN ? > 0 THEN ? ELSE duration_sec END, cover_url = CASE WHEN ? != '' THEN ? ELSE cover_url END WHERE id = ?`,
+				durationSec, durationSec, strings.TrimSpace(coverURL), strings.TrimSpace(coverURL), otherID,
+			)
+		}
+		if durationSec > 0 {
+			s.DeleteCachedLyrics(otherID)
+		}
+		return s.GetTrackByID(otherID)
+	}
+
+	cov := strings.TrimSpace(coverURL)
+	if _, err := s.db.Exec(
+		`UPDATE tracks SET external_id = ?, duration_sec = CASE WHEN ? > 0 THEN ? ELSE duration_sec END, cover_url = CASE WHEN ? != '' THEN ? ELSE cover_url END WHERE id = ?`,
+		ext, durationSec, durationSec, cov, cov, trackID,
+	); err != nil {
+		return Track{}, err
+	}
+	s.DeleteCachedLyrics(trackID)
+	return s.GetTrackByID(trackID)
+}
+
 func (s *Store) GetTracks(filter, query string) ([]Track, error) {
 	base := `SELECT id, title, artist_id, artist_name, album_id, album_title, duration_sec, format, bitrate, source_type, file_path, external_id, cover_url, is_favorite, play_count, is_downloaded, downloaded_at, created_at FROM tracks`
 	var where []string

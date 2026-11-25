@@ -1,6 +1,7 @@
 <script lang="ts">
   import { fade, fly } from 'svelte/transition';
   import { api, formatDuration, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
+  import { veloraMarquee } from '../lib/marquee';
   import type { AudioOutputDevice, Track } from '../lib/types';
   import { tr, type LangCode } from '../lib/i18n';
   import Icon from './Icon.svelte';
@@ -156,21 +157,46 @@
           {/if}
         </div>
         <div class="min-w-0 flex-1">
-          <div class="text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
-            {currentTrack?.title || tr(lang, 'nav.noSongPlaying')}
+          <div
+            use:veloraMarquee={{ text: currentTrack?.title ?? '' }}
+            class="overflow-hidden text-xs font-bold"
+            style="color: var(--md-sys-color-on-surface);"
+          >
+            <span class="inline-block whitespace-nowrap">
+              {currentTrack?.title || tr(lang, 'nav.noSongPlaying')}
+            </span>
           </div>
-          <div class="text-[11px] truncate" style="color: var(--md-sys-color-on-surface-variant);">
-            {currentTrack?.artistName || 'Velora'}
+          <div
+            use:veloraMarquee={{ text: currentTrack?.artistName ?? '' }}
+            class="overflow-hidden text-[11px]"
+            style="color: var(--md-sys-color-on-surface-variant);"
+          >
+            <span class="inline-block whitespace-nowrap">
+              {currentTrack?.artistName || 'Velora'}
+            </span>
           </div>
         </div>
       </button>
 
-      <div class="flex items-center gap-1 shrink-0">
+      <div class="flex items-center gap-0.5 shrink-0">
+        {#if onToggleFavorite}
+          <button
+            type="button"
+            disabled={!currentTrack}
+            onclick={() => currentTrack && onToggleFavorite(currentTrack.id)}
+            aria-label={tr(lang, 'nav.likeSong')}
+            class="min-w-11 min-h-11 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)] disabled:opacity-40 velora-heart-btn {currentTrack?.isFavorite ? 'is-loved' : ''}"
+            style={currentTrack?.isFavorite ? 'color: var(--md-sys-color-tertiary);' : 'color: var(--md-sys-color-on-surface-variant);'}
+          >
+            <Icon name="heart" weight={currentTrack?.isFavorite ? 'fill' : 'regular'} size={20} />
+          </button>
+        {/if}
+
         <button
           type="button"
           onclick={onTogglePlay}
           aria-label={isPlaying ? tr(lang, 'nav.pause') : tr(lang, 'nav.play')}
-          class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+          class="min-w-11 min-h-11 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
           style="color: var(--md-sys-color-on-surface);"
         >
           {#if trackLoading}
@@ -178,6 +204,17 @@
           {:else}
             <Icon name={isPlaying ? 'pause' : 'play'} weight="fill" size={20} />
           {/if}
+        </button>
+
+        <button
+          type="button"
+          disabled={!currentTrack}
+          onclick={onNext}
+          aria-label={tr(lang, 'nav.next')}
+          class="min-w-11 min-h-11 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)] disabled:opacity-40"
+          style="color: var(--md-sys-color-on-surface);"
+        >
+          <Icon name="skip-forward" weight="fill" size={20} />
         </button>
       </div>
     </div>
@@ -307,20 +344,22 @@
           <button
             type="button"
             onclick={() => onOpenTrackDetail?.(currentTrack)}
-            class="text-left text-[14px] font-bold leading-snug truncate hover:underline cursor-pointer"
+            use:veloraMarquee={{ text: currentTrack.title }}
+            class="w-full overflow-hidden text-left text-[14px] font-bold leading-snug hover:underline cursor-pointer"
             style="color: var(--md-sys-color-on-surface);"
             title={tr(lang, 'nav.viewTrackDetails')}
           >
-            {currentTrack.title}
+            <span class="inline-block whitespace-nowrap">{currentTrack.title}</span>
           </button>
           <button
             type="button"
             onclick={() => onOpenArtistDetail?.(currentTrack)}
-            class="text-left text-[12px] font-normal leading-snug truncate mt-0.5 hover:underline cursor-pointer"
+            use:veloraMarquee={{ text: currentTrack.artistName }}
+            class="w-full overflow-hidden text-left text-[12px] font-normal leading-snug mt-0.5 hover:underline cursor-pointer"
             style="color: var(--md-sys-color-on-surface-variant);"
             title={tr(lang, 'nav.viewArtistPage')}
           >
-            {currentTrack.artistName}
+            <span class="inline-block whitespace-nowrap">{currentTrack.artistName}</span>
           </button>
         </div>
       {:else}

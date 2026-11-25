@@ -44,6 +44,13 @@ func getCurrentPackageFamilyName() (string, bool) {
 	return pfn, pfn != ""
 }
 
+func getMicrosoftStoreURL() string {
+	if pfn, ok := getCurrentPackageFamilyName(); ok {
+		return "ms-windows-store://pdp/?PFN=" + pfn
+	}
+	return "ms-windows-store://updates"
+}
+
 func getDesktopDir() string {
 	var ppszPath uintptr
 	ret, _, _ := procSHGetKnownFolderPath.Call(

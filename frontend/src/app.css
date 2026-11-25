@@ -387,9 +387,27 @@ select.m3-input option:checked {
   gap: 0.75rem;
 }
 
+.velora-more-songs-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  align-items: start;
+  gap: 0.75rem;
+}
+
+@media (max-width: 1023px) {
+  .velora-more-songs-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 767px) {
   .velora-playlist-grid-7 {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .velora-more-songs-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
   }
 }
 
@@ -416,6 +434,7 @@ select.m3-input option:checked {
 
 .velora-card-grid-7 .velora-card-artwork,
 .velora-playlist-grid-7 .velora-card-artwork,
+.velora-more-songs-grid .velora-card-artwork,
 .velora-card-grid-large .velora-card-artwork,
 .velora-card-grid-small .velora-card-artwork {
   width: 100%;
@@ -826,7 +845,7 @@ input[type='search']::-webkit-search-cancel-button {
 @media (max-width: 767px) {
   .velora-card-grid,
   .velora-card-grid-7 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 0.5rem;
   }
   .velora-card-grid > *,
@@ -893,6 +912,65 @@ html[data-shade="strong"] {
 
 .velora-heart-btn {
   transition: transform 180ms cubic-bezier(0.34, 1.56, 0.64, 1), color 180ms ease, background-color 180ms ease, opacity 180ms ease;
+}
+
+progress.velora-chrome-progress {
+  appearance: none;
+  border: 0 solid;
+  overflow: clip;
+  display: block;
+  width: 100%;
+  height: 4px;
+  container-type: inline-size;
+  background: color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent);
+  --progress-bar-indeterminate-size: 32%;
+  --progress-bar-indeterminate-animation-duration: 1.4s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  progress.velora-chrome-progress {
+    --progress-bar-indeterminate-animation-duration: 10s;
+  }
+}
+
+progress.velora-chrome-progress:indeterminate {
+  --progress-bar-animation: var(
+    --progress-bar-indeterminate-animation,
+    velora-progress-indeterminate var(--progress-bar-indeterminate-animation-duration) infinite linear
+  );
+}
+
+progress.velora-chrome-progress:dir(rtl) {
+  --progress-bar-indeterminate-animation: velora-progress-indeterminate var(--progress-bar-indeterminate-animation-duration) infinite linear reverse;
+}
+
+progress.velora-chrome-progress::-webkit-progress-bar {
+  background: transparent;
+}
+
+progress.velora-chrome-progress::-webkit-progress-value {
+  background: var(--md-sys-color-primary);
+  transition: inline-size 0.3s ease;
+  animation: var(--progress-bar-animation, revert-rule);
+}
+
+progress.velora-chrome-progress::-moz-progress-bar {
+  background: var(--md-sys-color-primary);
+  transition: inline-size 0.3s ease;
+  animation: var(--progress-bar-animation, revert-rule);
+}
+
+@keyframes velora-progress-indeterminate {
+  from, to {
+    inline-size: var(--progress-bar-indeterminate-size);
+    margin-right: auto;
+  }
+  from {
+    translate: -100%;
+  }
+  to {
+    translate: 100cqi;
+  }
 }
 
 .velora-heart-btn:not(:disabled):hover i {

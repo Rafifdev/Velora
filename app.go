@@ -323,9 +323,41 @@ func (a *App) invalidateHomeCache() {
 	a.ytHomeMu.Unlock()
 }
 
+var atvUpgradeCache sync.Map
+
 func (a *App) ensureTrackPlayableExternalID(ctx context.Context, tr db.Track) (db.Track, error) {
 	extID := strings.TrimSpace(tr.ExternalID)
 	if !isHybridTrackID(extID) {
+		if tr.SourceType == "ytmusic" && !tr.IsDownloaded && extID != "" && a.ytClient != nil && sources.ShouldPreferStudioATV(tr.Title, tr.CoverURL, "") {
+			var atv sources.YTMusicTrack
+			if cached, ok := atvUpgradeCache.Load(extID); ok {
+				if c, okType := cached.(sources.YTMusicTrack); okType {
+					atv = c
+				}
+			} else {
+				atvCtx, cancel := context.WithTimeout(ctx, 4500*time.Millisecond)
+				found, okFound := a.ytClient.FindStudioATVTrack(atvCtx, tr.Title, tr.ArtistName)
+				cancel()
+				if okFound {
+					atv = found
+				}
+				atvUpgradeCache.Store(extID, atv)
+			}
+			if atv.VideoID != "" && atv.VideoID != extID {
+				if a.store != nil && tr.ID > 0 {
+					if upgraded, uErr := a.store.UpgradeTrackToStudio(tr.ID, atv.VideoID, atv.CoverURL, atv.DurationSec); uErr == nil {
+						return upgraded, nil
+					}
+				}
+				tr.ExternalID = atv.VideoID
+				if atv.DurationSec > 0 {
+					tr.DurationSec = atv.DurationSec
+				}
+				if atv.CoverURL != "" {
+					tr.CoverURL = atv.CoverURL
+				}
+			}
+		}
 		return tr, nil
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -1560,7 +1592,7 @@ func (a *App) GetDataDir() string {
 
 func (a *App) OpenExternalURL(rawURL string) error {
 	trimmed := strings.TrimSpace(rawURL)
-	if !strings.HasPrefix(trimmed, "https://") && !strings.HasPrefix(trimmed, "http://") {
+	if !strings.HasPrefix(trimmed, "https://") && !strings.HasPrefix(trimmed, "http://") && !strings.HasPrefix(trimmed, "ms-windows-store://") {
 		return fmt.Errorf("invalid url")
 	}
 	if a.ctx != nil {
@@ -1586,8 +1618,6 @@ type UpdateCheckResult struct {
 
 const (
 	veloraAppVersion         = "1.1.2"
-	veloraReleasesLatestAPI  = "https://api.github.com/repos/Rafifdev/Velora/releases/latest"
-	veloraReleasesPageURL    = "https://github.com/Rafifdev/Velora/releases"
 	veloraFeedbackWebhookURL = "https://script.google.com/macros/s/AKfycbwhnfjZ_CFzPRc-3Yw6rtz39IKqbjRlc7CIz2OOUhe8tk64sDR1y5oMWa4zxgx66j9Cxw/exec"
 )
 
@@ -1678,77 +1708,17 @@ func isNewerVersion(latest, current string) bool {
 }
 
 func (a *App) CheckForUpdates() (UpdateCheckResult, error) {
+	storeURL := getMicrosoftStoreURL()
 	res := UpdateCheckResult{
 		CurrentVersion: veloraAppVersion,
 		LatestVersion:  veloraAppVersion,
-		ReleaseURL:     veloraReleasesPageURL,
+		ReleaseURL:     storeURL,
+		DownloadURL:    storeURL,
 	}
-	reqCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if a.ctx != nil {
-		reqCtx, cancel = context.WithTimeout(a.ctx, 10*time.Second)
-		defer cancel()
-	}
-
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, veloraReleasesLatestAPI, nil)
-	if err != nil {
-		return res, err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "Velora/"+veloraAppVersion)
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return res, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotFound {
-		return res, nil
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return res, fmt.Errorf("github api status %d", resp.StatusCode)
-	}
-
-	var payload struct {
-		TagName     string `json:"tag_name"`
-		HTMLURL     string `json:"html_url"`
-		Body        string `json:"body"`
-		PublishedAt string `json:"published_at"`
-		Assets      []struct {
-			Name               string `json:"name"`
-			BrowserDownloadURL string `json:"browser_download_url"`
-		} `json:"assets"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return res, err
-	}
-
-	latest := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(payload.TagName, "v"), "V"))
-	if latest == "" {
-		return res, nil
-	}
-	res.LatestVersion = latest
-	if payload.HTMLURL != "" {
-		res.ReleaseURL = payload.HTMLURL
-	}
-	res.ReleaseNotes = strings.TrimSpace(payload.Body)
-	res.PublishedAt = strings.TrimSpace(payload.PublishedAt)
-	res.HasUpdate = isNewerVersion(latest, veloraAppVersion)
-
-	for _, asset := range payload.Assets {
-		low := strings.ToLower(asset.Name)
-		if strings.HasSuffix(low, ".exe") || strings.HasSuffix(low, ".msi") {
-			res.DownloadURL = asset.BrowserDownloadURL
-			break
+	if storeURL != "" {
+		if err := a.OpenExternalURL(storeURL); err != nil {
+			return res, err
 		}
-		if res.DownloadURL == "" && strings.HasSuffix(low, ".zip") {
-			res.DownloadURL = asset.BrowserDownloadURL
-		}
-	}
-	if res.DownloadURL == "" {
-		res.DownloadURL = res.ReleaseURL
 	}
 	return res, nil
 }

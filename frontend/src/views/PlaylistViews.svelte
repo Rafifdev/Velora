@@ -1,11 +1,12 @@
 <script lang="ts">
   import { extractDominantColor, formatDuration, formatTotalMinutes, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
-  import type { Playlist, PlaylistDetail, Track, YTMusicTrack } from '../lib/types';
+  import type { Playlist, PlaylistDetail, Track, ViewRoute, YTMusicTrack } from '../lib/types';
   import { tr, type LangCode } from '../lib/i18n';
   import CoverImage from '../components/CoverImage.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import EqIndicator from '../components/EqIndicator.svelte';
   import Icon from '../components/Icon.svelte';
+  import MobileTopHeader from '../components/MobileTopHeader.svelte';
   import ModalDialog from '../components/ModalDialog.svelte';
   import TrackActionMenu from '../components/TrackActionMenu.svelte';
 
@@ -50,6 +51,9 @@
     onExportM3U: (playlistId: number) => void;
     onImportM3U: () => void;
     onImportSpotify?: (url: string) => Promise<void>;
+    activeDownloadsCount?: number;
+    onNavigate?: (route: ViewRoute) => void;
+    onBack?: () => void;
     lang?: LangCode;
   }
 
@@ -94,6 +98,9 @@
     onExportM3U,
     onImportM3U,
     onImportSpotify,
+    activeDownloadsCount = 0,
+    onNavigate,
+    onBack,
     lang = 'en'
   }: Props = $props();
 
@@ -102,6 +109,8 @@
   let editDesc = $state('');
   let dragIndex = $state<number | null>(null);
   let tabFilter = $state<'all' | 'local' | 'ytmusic'>('all');
+  let playlistQuery = $state('');
+  let mobileGridMode = $state(false);
   let recSeed = $state(Math.floor(Math.random() * 100000));
   let openActionTrackId = $state<number | null>(null);
   let failedRecCovers = $state<Record<string, boolean>>({});
@@ -206,6 +215,10 @@
       if (mode === 'local-playlists' || tabFilter === 'local') {
         if (!p.isLocal) return false;
       } else if (tabFilter === 'ytmusic' && p.isLocal) {
+        return false;
+      }
+      const q = playlistQuery.trim().toLowerCase();
+      if (q && !p.name.toLowerCase().includes(q) && !(p.description || '').toLowerCase().includes(q)) {
         return false;
       }
       return true;
@@ -357,7 +370,7 @@
     }}
     role="presentation"
   >
-    <section class="relative shrink-0 overflow-hidden px-6 sm:px-10 pt-8 pb-8">
+    <section class="relative shrink-0 overflow-hidden px-4 sm:px-10 pt-3 sm:pt-8 pb-6 sm:pb-8">
       {#if plCover}
         <img
           src={plCover}
@@ -371,12 +384,41 @@
         style="background: linear-gradient(180deg, color-mix(in srgb, {heroTint} 22%, rgba(11, 12, 14, 0.35)) 0%, var(--md-sys-color-surface-container-low) 100%);"
       ></div>
 
-      <div class="relative z-10 flex flex-col sm:flex-row sm:items-end gap-6">
+      {#if onBack}
+        <div class="relative z-10 sm:hidden flex items-center justify-between gap-2 mb-3">
+          <button
+            type="button"
+            onclick={onBack}
+            aria-label="Kembali"
+            class="min-w-11 min-h-11 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+            style="color: var(--md-sys-color-on-surface);"
+          >
+            <Icon name="arrow-left" size={22} />
+          </button>
+          <span
+            class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold"
+            style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
+          >
+            {pl.isLocal ? tr(lang, 'nav.localPlaylist') : tr(lang, 'nav.savedPlaylist')}
+          </span>
+          <button
+            type="button"
+            onclick={startEdit}
+            aria-label={tr(lang, 'nav.editDetails')}
+            class="min-w-11 min-h-11 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+            style="color: var(--md-sys-color-on-surface);"
+          >
+            <Icon name="pencil-simple" size={20} />
+          </button>
+        </div>
+      {/if}
+
+      <div class="relative z-10 flex flex-col sm:flex-row sm:items-end gap-4 sm:gap-6">
         <button
           type="button"
           onclick={startEdit}
           aria-label="Edit detail playlist"
-          class="w-44 h-44 sm:w-52 sm:h-52 rounded-2xl overflow-hidden shrink-0 shadow-2xl flex items-center justify-center cursor-pointer transition-transform hover:scale-[1.02]"
+          class="w-44 h-44 sm:w-52 sm:h-52 mx-auto sm:mx-0 rounded-2xl overflow-hidden shrink-0 shadow-2xl flex items-center justify-center cursor-pointer transition-transform hover:scale-[1.02]"
           style={plCover
             ? 'background-color: var(--md-sys-color-surface-container-highest);'
             : `background: linear-gradient(135deg, color-mix(in srgb, ${heroTint} 55%, var(--md-sys-color-primary-container)) 0%, color-mix(in srgb, ${heroTint} 85%, var(--md-sys-color-surface-container-highest)) 100%);`}
@@ -394,8 +436,8 @@
           {/if}
         </button>
 
-        <div class="min-w-0 flex-1 space-y-2">
-          <div class="flex flex-wrap items-center gap-2 text-xs font-semibold">
+        <div class="min-w-0 flex-1 space-y-2 text-center sm:text-left">
+          <div class="hidden sm:flex flex-wrap items-center gap-2 text-xs font-semibold">
             <span
               class="px-2.5 py-0.5 rounded-full"
               style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
@@ -418,7 +460,7 @@
           </button>
 
           <div
-            class="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm"
+            class="flex flex-wrap items-center justify-center sm:justify-start gap-x-2.5 gap-y-1 text-sm"
             style="color: var(--md-sys-color-on-surface-variant);"
           >
             {#if pl.description}
@@ -430,7 +472,7 @@
             <span class="tabular-nums">{formatTotalMinutes(pl.totalSec)}</span>
           </div>
 
-          <div class="pt-1 flex flex-wrap items-center gap-3">
+          <div class="pt-1 flex flex-wrap items-center justify-center sm:justify-start gap-3">
             <button
               type="button"
               disabled={detail.tracks.length === 0}
@@ -493,13 +535,13 @@
     </section>
 
     <div
-      class="relative z-10 px-6 sm:px-10 pt-2 pb-10 flex-1 flex flex-col gap-6"
+      class="relative z-10 px-4 sm:px-10 pt-2 pb-10 flex-1 flex flex-col gap-6"
       style="background-color: var(--md-sys-color-surface-container-low);"
     >
       {#if detail.tracks.length > 0}
         <div class="space-y-1">
           <div
-            class="-mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] items-center gap-4 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider"
+            class="-mx-2 hidden sm:grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] items-center gap-4 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider"
             style="color: var(--md-sys-color-on-surface-variant);"
           >
             <span class="text-center">#</span>
@@ -523,7 +565,7 @@
                 ondragstart={() => (dragIndex = idx)}
                 ondragover={(e) => e.preventDefault()}
                 ondrop={() => handleDrop(idx)}
-                class="group relative -mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] items-center gap-4 px-3 py-2 rounded-lg transition-colors duration-150 {active
+                class="group relative -mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] items-center gap-3 sm:gap-4 px-3 py-2.5 sm:py-2 min-h-14 sm:min-h-0 rounded-lg transition-colors duration-150 {active
                   ? 'bg-[var(--md-sys-color-state-active)]'
                   : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
                 style="color: var(--md-sys-color-on-surface);"
@@ -780,11 +822,74 @@
   </ModalDialog>
 {:else}
   <div
-    class="relative h-full w-full overflow-y-auto rounded-xl select-none flex flex-col"
+    class="relative h-full w-full overflow-y-auto rounded-none sm:rounded-xl select-none flex flex-col"
     style="background-color: var(--md-sys-color-surface-container-low);"
   >
+    {#if onNavigate}
+      <MobileTopHeader
+        title={tr(lang, 'nav.playlists')}
+        {lang}
+        {activeDownloadsCount}
+        {onNavigate}
+      />
+    {/if}
+
+    <div class="sm:hidden px-4 pt-2 pb-1 space-y-2.5">
+      <div class="flex items-center gap-2">
+        <div
+          class="flex-1 min-w-0 h-11 px-3.5 rounded-xl flex items-center gap-2 border"
+          style="background-color: var(--md-sys-color-surface-container); border-color: color-mix(in srgb, var(--md-sys-color-outline-variant) 45%, transparent);"
+        >
+          <Icon name="magnifying-glass" size={17} style="color: var(--md-sys-color-on-surface-variant);" />
+          <input
+            type="search"
+            bind:value={playlistQuery}
+            placeholder={lang === 'id' ? 'Cari playlist...' : 'Search playlists...'}
+            aria-label={lang === 'id' ? 'Cari playlist' : 'Search playlists'}
+            class="w-full bg-transparent text-sm outline-none"
+            style="color: var(--md-sys-color-on-surface);"
+          />
+        </div>
+
+        <button
+          type="button"
+          onclick={() => (mobileGridMode = !mobileGridMode)}
+          aria-label={mobileGridMode ? 'List view' : 'Grid view'}
+          class="min-w-11 min-h-11 rounded-xl flex items-center justify-center shrink-0 cursor-pointer transition-colors"
+          style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+        >
+          <Icon name={mobileGridMode ? 'list-bullets' : 'squares-four'} size={20} />
+        </button>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          onclick={onCreatePlaylist}
+          class="flex-1 min-h-11 px-4 rounded-full text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+          style="background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);"
+        >
+          <Icon name="plus" weight="bold" size={15} />
+          <span>{tr(lang, 'nav.createPlaylist')}</span>
+        </button>
+        <button
+          type="button"
+          onclick={() => {
+            spotifyError = '';
+            spotifyUrl = '';
+            importModalOpen = true;
+          }}
+          class="min-h-11 px-4 rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+          style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
+        >
+          <Icon name="upload-simple" size={15} />
+          <span>{tr(lang, 'nav.importPlaylist')}</span>
+        </button>
+      </div>
+    </div>
+
     <section
-      class="relative z-10 shrink-0 px-6 sm:px-7 pt-7 pb-7"
+      class="hidden sm:block relative z-10 shrink-0 px-6 sm:px-7 pt-7 pb-7"
       style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-primary) 30%, var(--md-sys-color-primary-container)) 0%, color-mix(in srgb, var(--md-sys-color-primary-container) 74%, var(--md-sys-color-surface-container-low)) 100%);"
     >
       <div class="flex flex-wrap items-end justify-between gap-5">
@@ -833,10 +938,10 @@
     </section>
 
     <div
-      class="relative z-10 px-6 sm:px-8 pt-5 pb-10 flex-1 flex flex-col gap-5"
-      style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-primary-container) 48%, var(--md-sys-color-surface-container-low)) 0%, color-mix(in srgb, var(--md-sys-color-primary-container) 28%, var(--md-sys-color-surface-container-low)) 120px, color-mix(in srgb, var(--md-sys-color-primary-container) 11%, var(--md-sys-color-surface-container-low)) 240px, var(--md-sys-color-surface-container-low) 340px);"
+      class="relative z-10 px-4 sm:px-8 pt-2.5 sm:pt-5 pb-10 flex-1 flex flex-col gap-4 sm:gap-5"
+      style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-primary-container) 26%, var(--md-sys-color-surface-container-low)) 0%, var(--md-sys-color-surface-container-low) 220px);"
     >
-      <div class="flex flex-wrap items-center gap-2">
+      <div class="flex flex-nowrap items-center gap-2 overflow-x-auto no-scrollbar">
         {#each [
           { id: 'all', label: tr(lang, 'nav.all') },
           { id: 'ytmusic', label: tr(lang, 'nav.savedPlaylists') },
@@ -844,8 +949,11 @@
         ] as tab (tab.id)}
           <button
             type="button"
-            onclick={() => (tabFilter = tab.id as 'all' | 'local' | 'ytmusic')}
-            class="px-4 py-1.5 rounded-full text-xs font-semibold cursor-pointer transition-all hover:brightness-110"
+            onclick={(e) => {
+              (e.currentTarget as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+              tabFilter = tab.id as 'all' | 'local' | 'ytmusic';
+            }}
+            class="shrink-0 whitespace-nowrap min-h-9 px-4 py-1.5 rounded-full text-xs font-semibold cursor-pointer transition-all hover:brightness-110"
             style={tabFilter === tab.id
               ? 'background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);'
               : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);'}
@@ -876,62 +984,119 @@
           <button
             type="button"
             onclick={() => onCreatePlaylist()}
-            class="mt-6 h-10 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
+            class="mt-6 min-h-11 px-6 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
             style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
           >
             {tr(lang, 'nav.createPlaylist')}
           </button>
         </EmptyState>
       {:else}
-      <div class="velora-playlist-grid-7">
-        {#each visiblePlaylists as pl (pl.id)}
-          {@const cover = resolveCoverUrl(pl.coverUrl, mediaBaseUrl)}
-          {@const cardTint = pl.coverColor || 'var(--md-sys-color-primary)'}
-          <div class="group w-full min-w-0 flex flex-col justify-start items-stretch self-start p-2.5 rounded-lg transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]">
-            <div
-              class="velora-card-artwork mb-2.5 flex items-center justify-center"
-              style={cover
-                ? 'background-color: var(--md-sys-color-surface-container-high);'
-                : `background: linear-gradient(135deg, color-mix(in srgb, ${cardTint} 55%, var(--md-sys-color-primary-container)) 0%, color-mix(in srgb, ${cardTint} 85%, var(--md-sys-color-surface-container-highest)) 100%);`}
-            >
-              <button
-                type="button"
-                onclick={() => onOpenPlaylist(pl.id)}
-                aria-label="Buka {pl.name}"
-                class="velora-card-artwork-hit flex items-center justify-center cursor-pointer"
+        {#if !mobileGridMode}
+          <div class="sm:hidden space-y-2">
+            {#each visiblePlaylists as pl (pl.id)}
+              {@const cover = resolveCoverUrl(pl.coverUrl, mediaBaseUrl, 128)}
+              {@const cardTint = pl.coverColor || 'var(--md-sys-color-primary)'}
+              <article
+                class="min-h-[68px] p-2 rounded-2xl flex items-center gap-3.5 transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+                style="background-color: var(--md-sys-color-surface-container);"
               >
-                {#if cover}
-                  <CoverImage
-                    src={cover}
-                    fallbackIcon="playlist"
-                    iconSize={44}
-                    isVideoThumb={isYTVideoThumb(cover)}
-                  />
-                {:else}
-                  <Icon name="playlist" weight="fill" size={44} class="text-white/95 drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]" />
-                {/if}
-              </button>
-              <button
-                type="button"
-                onclick={() => (onPlayPlaylist ? onPlayPlaylist(pl.id) : onOpenPlaylist(pl.id))}
-                aria-label="Putar {pl.name}"
-                class="absolute bottom-2 right-2 w-10 h-10 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 hover:scale-105"
+                <button
+                  type="button"
+                  onclick={() => onOpenPlaylist(pl.id)}
+                  class="min-w-0 flex-1 flex items-center gap-3.5 text-left cursor-pointer"
+                >
+                  <div
+                    class="w-14 h-14 rounded-xl overflow-hidden shrink-0 flex items-center justify-center shadow-sm"
+                    style={cover
+                      ? 'background-color: var(--md-sys-color-surface-container-high);'
+                      : `background: linear-gradient(135deg, color-mix(in srgb, ${cardTint} 55%, var(--md-sys-color-primary-container)) 0%, color-mix(in srgb, ${cardTint} 85%, var(--md-sys-color-surface-container-highest)) 100%);`}
+                  >
+                    {#if cover}
+                      <CoverImage src={cover} fallbackIcon="playlist" iconSize={24} isVideoThumb={isYTVideoThumb(cover)} />
+                    {:else}
+                      <Icon name="playlist" weight="fill" size={24} class="text-white/95" />
+                    {/if}
+                  </div>
+
+                  <div class="min-w-0 flex-1">
+                    <div class="text-sm font-bold truncate" style="color: var(--md-sys-color-on-surface);">
+                      {pl.name}
+                    </div>
+                    <div class="flex items-center gap-1.5 text-xs truncate mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
+                      <span
+                        class="w-1.5 h-1.5 rounded-full shrink-0"
+                        style="background-color: {pl.isLocal ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-tertiary)'};"
+                      ></span>
+                      <span class="truncate">
+                        {pl.isLocal ? tr(lang, 'nav.localPlaylist') : tr(lang, 'nav.savedPlaylist')} • {pl.trackCount} {tr(lang, 'nav.songs').toLowerCase()}
+                      </span>
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onclick={() => (onPlayPlaylist ? onPlayPlaylist(pl.id) : onOpenPlaylist(pl.id))}
+                  aria-label="Putar {pl.name}"
+                  class="min-w-11 min-h-11 rounded-full flex items-center justify-center shrink-0 cursor-pointer shadow-sm"
+                  style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
+                >
+                  <Icon name="play" weight="fill" size={18} />
+                </button>
+              </article>
+            {/each}
+          </div>
+        {/if}
+
+        <div class="{mobileGridMode ? 'velora-card-grid-7 sm:velora-playlist-grid-7' : 'hidden sm:grid velora-playlist-grid-7'}">
+          {#each visiblePlaylists as pl (pl.id)}
+            {@const cover = resolveCoverUrl(pl.coverUrl, mediaBaseUrl)}
+            {@const cardTint = pl.coverColor || 'var(--md-sys-color-primary)'}
+            <div class="group w-full min-w-0 flex flex-col justify-start items-stretch self-start p-1.5 sm:p-2.5 rounded-lg transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]">
+              <div
+                class="velora-card-artwork mb-1.5 sm:mb-2.5 flex items-center justify-center"
+                style={cover
+                  ? 'background-color: var(--md-sys-color-surface-container-high);'
+                  : `background: linear-gradient(135deg, color-mix(in srgb, ${cardTint} 55%, var(--md-sys-color-primary-container)) 0%, color-mix(in srgb, ${cardTint} 85%, var(--md-sys-color-surface-container-highest)) 100%);`}
               >
-                <Icon name="play" weight="fill" size={18} />
+                <button
+                  type="button"
+                  onclick={() => onOpenPlaylist(pl.id)}
+                  aria-label="Buka {pl.name}"
+                  class="velora-card-artwork-hit flex items-center justify-center cursor-pointer"
+                >
+                  {#if cover}
+                    <CoverImage
+                      src={cover}
+                      fallbackIcon="playlist"
+                      iconSize={44}
+                      isVideoThumb={isYTVideoThumb(cover)}
+                    />
+                  {:else}
+                    <Icon name="playlist" weight="fill" size={44} class="text-white/95 drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]" />
+                  {/if}
+                </button>
+                <button
+                  type="button"
+                  onclick={() => (onPlayPlaylist ? onPlayPlaylist(pl.id) : onOpenPlaylist(pl.id))}
+                  aria-label="Putar {pl.name}"
+                  class="absolute bottom-1.5 right-1.5 sm:bottom-2 sm:right-2 w-8 h-8 sm:w-10 sm:h-10 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 hover:scale-105"
+                >
+                  <Icon name="play" weight="fill" size={18} />
+                </button>
+              </div>
+              <button type="button" onclick={() => onOpenPlaylist(pl.id)} class="w-full flex flex-col justify-start items-stretch text-left cursor-pointer">
+                <div class="text-[11px] sm:text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
+                  {pl.name}
+                </div>
+                <div class="text-[10px] sm:text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
+                  {pl.description || `${pl.isLocal ? tr(lang, 'nav.localPlaylists') : tr(lang, 'nav.savedPlaylist')} • ${pl.trackCount} ${tr(lang, 'nav.songs').toLowerCase()}`}
+                </div>
               </button>
             </div>
-            <button type="button" onclick={() => onOpenPlaylist(pl.id)} class="w-full flex flex-col justify-start items-stretch text-left cursor-pointer">
-              <div class="text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
-                {pl.name}
-              </div>
-              <div class="text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-                {pl.description || `${pl.isLocal ? tr(lang, 'nav.localPlaylists') : tr(lang, 'nav.savedPlaylist')} • ${pl.trackCount} ${tr(lang, 'nav.songs').toLowerCase()}`}
-              </div>
-            </button>
-          </div>
-        {/each}
-      </div>
-    {/if}
+          {/each}
+        </div>
+      {/if}
     </div>
   </div>
 {/if}

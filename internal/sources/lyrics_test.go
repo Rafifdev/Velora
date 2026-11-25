@@ -65,6 +65,26 @@ func TestAlignIntroOffset(t *testing.T) {
 	if alignedMV[0].TimeSec != 66.04 || alignedMV[1].TimeSec != 332.33 {
 		t.Fatalf("expected +61s MV intro alignment, got %+v", alignedMV)
 	}
+
+	// Studio ballad with 17.93s instrumental intro played over 288s OMV (+33s)
+	balladLines := []LyricLine{
+		{TimeSec: 17.93, Text: "Cinta memang misteri"},
+		{TimeSec: 232.86, Text: "Hatimu libatkan yang lain"},
+	}
+	alignedBallad := alignIntroOffset(balladLines, 255.0, 288)
+	if alignedBallad[0].TimeSec < 50.92 || alignedBallad[0].TimeSec > 50.94 {
+		t.Fatalf("expected +33s alignment for 17.93s studio intro to ~50.93s, got %.2f", alignedBallad[0].TimeSec)
+	}
+
+	// Already-shifted lines must not double-shift if last line would exceed trackDuration + 2.5
+	alreadyShifted := []LyricLine{
+		{TimeSec: 38.0, Text: "Already shifted"},
+		{TimeSec: 265.0, Text: "Near end"},
+	}
+	noDouble := alignIntroOffset(alreadyShifted, 255.0, 288)
+	if noDouble[0].TimeSec != 38.0 {
+		t.Fatalf("expected no double-shift, got %.2f", noDouble[0].TimeSec)
+	}
 }
 
 func TestCleanLyricMetadataAndTrackPicker(t *testing.T) {
@@ -145,5 +165,28 @@ func TestParseYTMusicSubtitleAndATVPreference(t *testing.T) {
 	best, ok := PickBestYTMusicTrack(hits, "Mama", "Jonas Blue", 184)
 	if !ok || best.VideoID != "vidATV" {
 		t.Fatalf("expected ATV hit vidATV over OMV, got ok=%v hit=%+v", ok, best)
+	}
+}
+
+func TestShouldPreferAndMatchStudioATV(t *testing.T) {
+	if !ShouldPreferStudioATV("Terbelah Jadi Dua", "https://i.ytimg.com/vi/ks27-0q-Hrc/hqdefault.jpg", "") {
+		t.Fatal("expected ytimg track without MV title marker to prefer studio ATV")
+	}
+	if ShouldPreferStudioATV("Terbelah Jadi Dua (Official MV)", "https://i.ytimg.com/vi/ks27-0q-Hrc/hqdefault.jpg", "MUSIC_VIDEO_TYPE_OMV") {
+		t.Fatal("expected explicit MV title to keep video version")
+	}
+	if ShouldPreferStudioATV("Terbelah Jadi Dua", "https://lh3.googleusercontent.com/abc", "MUSIC_VIDEO_TYPE_ATV") {
+		t.Fatal("expected existing ATV track not to trigger upgrade")
+	}
+
+	hits := []YTMusicTrack{
+		{VideoID: "ks27-0q-Hrc", Title: "Terbelah Jadi Dua", Artist: "Gloria Jessica Gultom dan Ade Govinda", Album: "YouTube Music", DurationSec: 288, VideoType: "MUSIC_VIDEO_TYPE_OMV"},
+		{VideoID: "iLat8Ly2O1M", Title: "Terbelah Jadi Dua", Artist: "Jeyma Monica", Album: "Terbelah Jadi Dua", DurationSec: 370, VideoType: "MUSIC_VIDEO_TYPE_ATV"},
+		{VideoID: "5EvdNxL-Z8Q", Title: "Terbelah Jadi Dua (Dangdut Version)", Artist: "Happy Asmara", Album: "Terbelah Jadi Dua", DurationSec: 291, VideoType: "MUSIC_VIDEO_TYPE_ATV"},
+		{VideoID: "pA8puuLjw4U", Title: "Terbelah Jadi Dua", Artist: "Ade Govinda dan Gloria Jessica", Album: "Terbelah Jadi Dua", DurationSec: 255, VideoType: "MUSIC_VIDEO_TYPE_ATV"},
+	}
+	best, ok := MatchStudioATVTrack(hits, "Terbelah Jadi Dua", "Gloria Jessica & Ade Govinda")
+	if !ok || best.VideoID != "pA8puuLjw4U" {
+		t.Fatalf("expected studio ATV pA8puuLjw4U, got ok=%v hit=%+v", ok, best)
 	}
 }

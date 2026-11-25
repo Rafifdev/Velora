@@ -17,9 +17,10 @@
     onClose: () => void;
     onPlayNext?: (track: Track) => void;
     onAddToQueue?: (track: Track) => void;
-    onAddToPlaylist?: (playlistId: number, trackId: number) => void;
+    onAddToPlaylist?: (playlistId: number, trackId: number, track?: Track) => void;
+    onCreatePlaylist?: (track?: Track) => void;
     onRemoveFromPlaylist?: (trackId: number) => void;
-    onToggleFavorite?: (trackId: number) => void;
+    onToggleFavorite?: (trackId: number, track?: Track) => void;
     onDownloadTrack?: (track: Track) => void;
     onRemoveDownload?: (trackId: number) => void;
     onOpenArtist?: (artistId: number) => void;
@@ -39,6 +40,7 @@
     onPlayNext,
     onAddToQueue,
     onAddToPlaylist,
+    onCreatePlaylist,
     onRemoveFromPlaylist,
     onToggleFavorite,
     onDownloadTrack,
@@ -74,14 +76,15 @@
     let items = 1; // Copy link always shown
     if (onPlayNext) items++;
     if (onAddToQueue) items++;
-    if (onAddToPlaylist && availablePlaylists.length > 0) items++;
+    if ((onAddToPlaylist && availablePlaylists.length > 0) || onCreatePlaylist) items++;
     if (onRemoveFromPlaylist) items++;
     if (onToggleFavorite) items++;
     if ((track.isDownloaded && onRemoveDownload) || onDownloadTrack) items++;
     if (onOpenArtist && track.artistId > 0) items++;
     if (onOpenTrackAlbum) items++;
+    const submenuCount = availablePlaylists.length + (onCreatePlaylist ? 1 : 0);
     const submenuExtra = showPlaylistSubmenu
-      ? Math.min(availablePlaylists.length, 5) * 28 + 10
+      ? Math.min(submenuCount, 5) * 32 + 10
       : 0;
     return 24 + items * 34 + submenuExtra;
   });
@@ -251,7 +254,7 @@
             onPlayNext(track);
             onClose();
           }}
-          class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
+          class="w-full min-h-10 sm:min-h-0 flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
         >
           <Icon name="skip-forward" size={15} />
           <span>{tr(lang, 'nav.playNext')}</span>
@@ -265,19 +268,19 @@
             onAddToQueue(track);
             onClose();
           }}
-          class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
+          class="w-full min-h-10 sm:min-h-0 flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
         >
           <Icon name="queue" size={15} />
           <span>{tr(lang, 'nav.addToQueue')}</span>
         </button>
       {/if}
 
-      {#if onAddToPlaylist && availablePlaylists.length > 0}
+      {#if (onAddToPlaylist && availablePlaylists.length > 0) || onCreatePlaylist}
         <div class="relative">
           <button
             type="button"
             onclick={() => (showPlaylistSubmenu = !showPlaylistSubmenu)}
-            class="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] transition-colors duration-150 cursor-pointer text-left"
+            class="w-full min-h-10 sm:min-h-0 flex items-center justify-between gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] transition-colors duration-150 cursor-pointer text-left"
           >
             <span class="flex items-center gap-2.5">
               <Icon name="list-plus" size={15} />
@@ -290,19 +293,34 @@
             />
           </button>
           {#if showPlaylistSubmenu}
-            <div transition:slide={{ duration: 140, easing: cubicOut }} class="mt-0.5 mb-1 pl-3 space-y-0.5 max-h-36 overflow-y-auto">
-              {#each availablePlaylists as otherPl (otherPl.id)}
+            <div transition:slide={{ duration: 140, easing: cubicOut }} class="mt-0.5 mb-1 pl-3 space-y-0.5 max-h-40 overflow-y-auto">
+              {#if onCreatePlaylist}
                 <button
                   type="button"
                   onclick={() => {
-                    onAddToPlaylist(otherPl.id, track.id);
+                    onCreatePlaylist(track);
                     onClose();
                   }}
-                  class="w-full text-left px-3 py-1.5 rounded-md hover:bg-[var(--md-sys-color-state-hover)] transition-colors duration-150 truncate cursor-pointer opacity-90"
+                  class="w-full min-h-10 sm:min-h-0 flex items-center gap-2 text-left px-3 py-1.5 rounded-md hover:bg-[var(--md-sys-color-state-hover)] transition-colors duration-150 cursor-pointer font-semibold text-[var(--md-sys-color-primary)]"
                 >
-                  {otherPl.name} {otherPl.isLocal ? `(${tr(lang, 'nav.localSource')})` : ''}
+                  <Icon name="plus" size={13} />
+                  <span class="truncate">{tr(lang, 'nav.createPlaylist')}</span>
                 </button>
-              {/each}
+              {/if}
+              {#if onAddToPlaylist}
+                {#each availablePlaylists as otherPl (otherPl.id)}
+                  <button
+                    type="button"
+                    onclick={() => {
+                      onAddToPlaylist(otherPl.id, track.id, track);
+                      onClose();
+                    }}
+                    class="w-full min-h-10 sm:min-h-0 text-left px-3 py-1.5 rounded-md hover:bg-[var(--md-sys-color-state-hover)] transition-colors duration-150 truncate cursor-pointer opacity-90"
+                  >
+                    {otherPl.name} {otherPl.isLocal ? `(${tr(lang, 'nav.localSource')})` : ''}
+                  </button>
+                {/each}
+              {/if}
             </div>
           {/if}
         </div>
@@ -315,7 +333,7 @@
             onRemoveFromPlaylist(track.id);
             onClose();
           }}
-          class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
+          class="w-full min-h-10 sm:min-h-0 flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
         >
           <Icon name="minus-circle" size={15} />
           <span>{tr(lang, 'nav.removeFromThisPlaylist')}</span>
@@ -326,10 +344,10 @@
         <button
           type="button"
           onclick={() => {
-            onToggleFavorite(track.id);
+            onToggleFavorite(track.id, track);
             onClose();
           }}
-          class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
+          class="w-full min-h-10 sm:min-h-0 flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
         >
           <Icon
             name="heart"
@@ -348,7 +366,7 @@
             onRemoveDownload(track.id);
             onClose();
           }}
-          class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
+          class="w-full min-h-10 sm:min-h-0 flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
         >
           <Icon name="check-circle" weight="fill" size={15} class="text-[var(--md-sys-color-primary)]" />
           <span>{tr(lang, 'nav.removeDownload')}</span>
@@ -360,7 +378,7 @@
             onDownloadTrack(track);
             onClose();
           }}
-          class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
+          class="w-full min-h-10 sm:min-h-0 flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
         >
           <Icon name="download" size={15} />
           <span>{tr(lang, 'nav.downloadOffline')}</span>
@@ -378,7 +396,7 @@
             onOpenArtist(track.artistId);
             onClose();
           }}
-          class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
+          class="w-full min-h-10 sm:min-h-0 flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
         >
           <Icon name="user" size={15} />
           <span>{tr(lang, 'nav.openArtist')}</span>
@@ -392,7 +410,7 @@
             onOpenTrackAlbum(track);
             onClose();
           }}
-          class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
+          class="w-full min-h-10 sm:min-h-0 flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
         >
           <Icon name="vinyl-record" size={15} />
           <span>{tr(lang, 'nav.goToAlbum')}</span>
@@ -402,7 +420,7 @@
       <button
         type="button"
         onclick={copyTrackLink}
-        class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] transition-colors duration-150 cursor-pointer text-left"
+        class="w-full min-h-10 sm:min-h-0 flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] transition-colors duration-150 cursor-pointer text-left"
       >
         <Icon name="link" size={15} />
         <span>{tr(lang, 'nav.copyLink')}</span>

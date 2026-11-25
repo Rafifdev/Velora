@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import { fade, fly } from 'svelte/transition';
   import { cubicIn, cubicOut } from 'svelte/easing';
-  import { api, isJamRemote, resolveCoverUrl, safeEventsOn, sendJamCommand } from './lib/api';
+  import { api, isJamRemote, isYTVideoThumb, resolveCoverUrl, safeEventsOn, sendJamCommand } from './lib/api';
   import { VeloraAudioEngine } from './lib/audioEngine';
   import { getPrefBool, getPrefValue } from './lib/preferences';
   import { getPrefLang, tr } from './lib/i18n';
@@ -78,7 +78,52 @@
   let ytArtistReqSeq = 0;
   let homeFilter = $state<HomeFilter>('semua');
   let ytLoadingMorePopularArtists = $state(false);
-  let showSplash = $state(true);
+  const mobileNavTab = $derived.by(() => {
+    if (mobileShowQueue) return 'queue';
+    if (currentRoute.name === 'home') return 'home';
+    if (currentRoute.name === 'search') return 'search';
+    if (
+      currentRoute.name === 'library' ||
+      currentRoute.name === 'liked-songs' ||
+      currentRoute.name === 'downloaded' ||
+      currentRoute.name === 'favorite-albums' ||
+      currentRoute.name === 'favorite-artists'
+    ) {
+      return 'library';
+    }
+    if (
+      currentRoute.name === 'playlists' ||
+      currentRoute.name === 'local-playlists' ||
+      currentRoute.name === 'playlist-detail'
+    ) {
+      return 'playlists';
+    }
+    return '';
+  });
+
+  const SPLASH_SEEN_KEY = 'velora.splashShownOnce';
+  let showSplash = $state(
+    typeof localStorage !== 'undefined' ? localStorage.getItem(SPLASH_SEEN_KEY) !== '1' : false
+  );
+  let showDevDummyDownload = $state(true);
+  const devDummyDownload: DownloadProgress = {
+    trackId: -99901,
+    externalId: 'dev-dummy-download',
+    title: 'Midnight City (Velora Lossless)',
+    artist: 'M83',
+    status: 'downloading',
+    progress: 64
+  };
+  let sessionDeletedDownloadTracks = $state<Track[]>([]);
+  const activeDownloadsList = $derived.by(() => {
+    const real = Object.values(downloadStates).filter(
+      (d) => d.status === 'queued' || d.status === 'downloading' || d.status === 'failed'
+    );
+    return showDevDummyDownload ? [devDummyDownload, ...real] : real;
+  });
+  const activeDownloadsCount = $derived(
+    activeDownloadsList.filter((d) => d.status === 'queued' || d.status === 'downloading').length
+  );
   let albums = $state<Album[]>([]);
   let artists = $state<Artist[]>([]);
   let playlists = $state<Playlist[]>([]);
@@ -900,10 +945,39 @@
     }
   }
 
+  async function syncRemoteDownloadStates() {
+    try {
+      const list = await api.getDownloadStates();
+      const next: Record<number, DownloadProgress> = {};
+      for (const item of list || []) {
+        if (item && item.trackId && item.status !== 'completed' && item.status !== 'cancelled') {
+          next[item.trackId] = item;
+        }
+      }
+      downloadStates = next;
+    } catch {
+    }
+  }
+
+  $effect(() => {
+    if (!isJamRemote) return;
+    const hasRealActive = Object.values(downloadStates).some(
+      (d) => d.status === 'queued' || d.status === 'downloading'
+    );
+    const shouldPoll = currentRoute.name === 'downloads' || hasRealActive;
+    void syncRemoteDownloadStates();
+    if (!shouldPoll) return;
+    const timer = setInterval(() => {
+      void syncRemoteDownloadStates();
+    }, 1500);
+    return () => clearInterval(timer);
+  });
+
   async function handleDownloadTrack(tr: Track) {
     if (!tr) return;
     if (tr.id > 0) {
       await api.downloadTrack(tr.id);
+      if (isJamRemote) void syncRemoteDownloadStates();
       return;
     }
     if (tr.externalId) {
@@ -916,16 +990,22 @@
         coverUrl: tr.coverUrl,
         format: tr.format || 'OPUS'
       });
+      if (isJamRemote) void syncRemoteDownloadStates();
     }
   }
 
   async function handleDownloadYTMusicTrack(yt: YTMusicTrack) {
     if (!yt?.videoId) return;
     await api.downloadYTMusicTrack(yt);
+    if (isJamRemote) void syncRemoteDownloadStates();
   }
 
   async function handleRemoveDownload(trackId: number) {
+    const existing = tracks.find((t) => t.id === trackId);
     const updated = await api.removeDownloadedTrack(trackId);
+    if (existing && !sessionDeletedDownloadTracks.some((d) => d.id === trackId)) {
+      sessionDeletedDownloadTracks = [existing, ...sessionDeletedDownloadTracks];
+    }
     tracks = tracks.map((t) => (t.id === trackId ? updated : t));
     detailTracks = detailTracks.map((t) => (t.id === trackId ? updated : t));
     if (selectedPlaylistDetail) {
@@ -937,6 +1017,10 @@
   }
 
   async function handleCancelDownload(trackId: number) {
+    if (trackId === devDummyDownload.trackId) {
+      showDevDummyDownload = false;
+      return;
+    }
     await api.cancelDownload(trackId);
     const next = { ...downloadStates };
     delete next[trackId];
@@ -1367,6 +1451,24 @@
         }
         break;
       }
+      case 'play-next': {
+        let tr: Track | undefined = cmd.trackId && cmd.trackId > 0 ? tracks.find((t) => t.id === cmd.trackId) : undefined;
+        if (!tr && cmd.externalId) {
+          tr = await api.saveYTMusicTrack({
+            videoId: cmd.externalId,
+            title: cmd.title || 'Untitled',
+            artist: cmd.artist || 'Unknown Artist',
+            album: cmd.album || 'Single',
+            durationSec: cmd.durationSec || 180,
+            coverUrl: cmd.coverUrl || '',
+            format: 'OPUS'
+          });
+        }
+        if (tr) {
+          handleQueuePlayNext(tr);
+        }
+        break;
+      }
       case 'add-track': {
         let tr: Track | undefined = cmd.trackId && cmd.trackId > 0 ? tracks.find((t) => t.id === cmd.trackId) : undefined;
         if (!tr && cmd.externalId) {
@@ -1452,11 +1554,18 @@
   }
 
   async function navigate(route: ViewRoute) {
+    let resolvedRoute = route;
+    if (isMobile) {
+      if (route.name === 'liked-songs') resolvedRoute = { name: 'library', filter: 'music' };
+      else if (route.name === 'downloaded') resolvedRoute = { name: 'library', filter: 'downloaded' };
+      else if (route.name === 'favorite-albums') resolvedRoute = { name: 'library', filter: 'albums' };
+      else if (route.name === 'favorite-artists') resolvedRoute = { name: 'library', filter: 'artists' };
+    }
     const nextStack = navStack.slice(0, navIndex + 1);
-    nextStack.push(route);
+    nextStack.push(resolvedRoute);
     navStack = nextStack;
     navIndex = nextStack.length - 1;
-    await loadRouteData(route);
+    await loadRouteData(resolvedRoute);
   }
 
   async function goBack() {
@@ -2242,12 +2351,31 @@
     }
   }
 
+  const atvCheckedTrackIds = new Set<number>();
+
+  function shouldUpgradeVideoTrackToATV(tr: Track): boolean {
+    if (tr.sourceType !== 'ytmusic' || tr.isDownloaded || tr.id <= 0) return false;
+    if (!isYTVideoThumb(tr.coverUrl)) return false;
+    const low = (tr.title || '').toLowerCase();
+    for (const marker of [
+      'official video', 'music video', 'lyric video', ' mv', '(mv', '[mv', 'm/v',
+      'live', 'session', 'cover', 'karaoke', 'remix', 'acoustic', 'dangdut', 'koplo',
+      'slowed', 'sped up', 'nightcore', 'instrumental'
+    ]) {
+      if (low.includes(marker)) return false;
+    }
+    return true;
+  }
+
   function resolveDirectStreamUrl(tr: Track): string {
     if (!mediaBaseUrl) return '';
     if (tr.sourceType === 'local' && tr.id > 0) {
       return `${mediaBaseUrl}/media/local?id=${tr.id}`;
     }
     if (tr.externalId && !tr.externalId.startsWith('dz:') && !tr.externalId.startsWith('sp:')) {
+      if (shouldUpgradeVideoTrackToATV(tr) && !atvCheckedTrackIds.has(tr.id)) {
+        return '';
+      }
       const q = encodeURIComponent(getPrefValue(preferences, 'stream_quality') || 'high');
       return `${mediaBaseUrl}/media/yt?v=${encodeURIComponent(tr.externalId)}&q=${q}`;
     }
@@ -2797,6 +2925,30 @@
     } else {
       try {
         streamUrl = await api.getStreamUrl(tr.id);
+        if (tr.id > 0) atvCheckedTrackIds.add(tr.id);
+        let resolvedVid = '';
+        try {
+          resolvedVid = new URL(streamUrl, window.location.origin).searchParams.get('v') || '';
+        } catch {
+        }
+        if (seq === playRequestSeq && resolvedVid && resolvedVid !== tr.externalId) {
+          const refreshedList = await api.getTracks('all', '');
+          tracks = refreshedList;
+          const upgraded =
+            refreshedList.find((item) => item.id === tr.id || item.externalId === resolvedVid) ??
+            { ...tr, externalId: resolvedVid };
+          tr = upgraded;
+          if (seq === playRequestSeq) {
+            currentTrack = upgraded;
+            if (upgraded.durationSec > 0) durationSec = upgraded.durationSec;
+            queue = queue.map((q) => (q.id === upgraded.id || q.externalId === tr.externalId ? upgraded : q));
+            void loadLyricsForTrack(
+              upgraded,
+              upgraded.durationSec > 0 ? upgraded.durationSec : undefined,
+              true
+            );
+          }
+        }
       } catch {
         if (seq === playRequestSeq) {
           trackLoading = false;
@@ -2943,9 +3095,20 @@
   }
 
   function handleQueuePlayNext(tr: Track) {
+    if (isJamRemote) {
+      void sendJamCommand('play-next', {
+        trackId: tr.id,
+        externalId: tr.externalId,
+        title: tr.title,
+        artist: tr.artistName,
+        album: tr.albumTitle,
+        durationSec: tr.durationSec,
+        coverUrl: tr.coverUrl
+      });
+    }
     if (!currentTrack) {
       queue = [tr];
-      void playTrack(tr, [tr]);
+      if (!isJamRemote) void playTrack(tr, [tr]);
       return;
     }
     const curKey = trackQueueKey(currentTrack);
@@ -2958,6 +3121,17 @@
   }
 
   function handleAddToQueue(tr: Track) {
+    if (isJamRemote) {
+      void sendJamCommand('add-track', {
+        trackId: tr.id,
+        externalId: tr.externalId,
+        title: tr.title,
+        artist: tr.artistName,
+        album: tr.albumTitle,
+        durationSec: tr.durationSec,
+        coverUrl: tr.coverUrl
+      });
+    }
     const targetKey = trackQueueKey(tr);
     if (!queue.some((q) => trackQueueKey(q) === targetKey)) {
       queue = [...queue, tr];
@@ -3222,18 +3396,65 @@
     api.playerControl('mute');
   }
 
-  async function handleToggleFavoriteTrack(id: number) {
-    const fav = await api.toggleFavoriteTrack(id);
-    tracks = tracks.map((t) => (t.id === id ? { ...t, isFavorite: fav } : t));
-    queue = queue.map((t) => (t.id === id ? { ...t, isFavorite: fav } : t));
-    if (currentTrack && currentTrack.id === id) {
-      currentTrack = { ...currentTrack, isFavorite: fav };
+  let pendingCreatePlaylistTrack = $state<Track | null>(null);
+
+  async function ensurePersistedTrack(track?: Track | null): Promise<Track | null> {
+    if (!track) return null;
+    if (track.id > 0) return track;
+    if (!track.externalId) return null;
+    const existing = tracks.find((t) => t.externalId === track.externalId);
+    if (existing) return existing;
+    const saved = await api.saveYTMusicTrack({
+      videoId: track.externalId,
+      title: track.title || 'Untitled',
+      artist: track.artistName || 'Unknown Artist',
+      album: track.albumTitle || 'Single',
+      durationSec: track.durationSec || 0,
+      coverUrl: track.coverUrl || '',
+      format: track.format || 'OPUS'
+    });
+    if (saved) {
+      tracks = tracks.some((t) => t.id === saved.id)
+        ? tracks.map((t) => (t.id === saved.id ? saved : t))
+        : [saved, ...tracks];
+    }
+    return saved ?? null;
+  }
+
+  async function handleToggleFavoriteTrack(id: number, track?: Track) {
+    let targetId = id;
+    if (targetId <= 0) {
+      const candidate = track ?? (currentTrack && currentTrack.id === id ? currentTrack : undefined);
+      const saved = await ensurePersistedTrack(candidate);
+      if (!saved) return;
+      targetId = saved.id;
+    }
+    const fav = await api.toggleFavoriteTrack(targetId);
+    tracks = tracks.map((t) => (t.id === targetId ? { ...t, isFavorite: fav } : t));
+    queue = queue.map((t) => (t.id === targetId || (track?.externalId && t.externalId === track.externalId) ? { ...t, id: targetId, isFavorite: fav } : t));
+    if (currentTrack && (currentTrack.id === targetId || (track?.externalId && currentTrack.externalId === track.externalId))) {
+      currentTrack = { ...currentTrack, id: targetId, isFavorite: fav };
     }
     if (selectedPlaylistDetail) {
       selectedPlaylistDetail = {
         ...selectedPlaylistDetail,
-        tracks: selectedPlaylistDetail.tracks.map((t) => (t.id === id ? { ...t, isFavorite: fav } : t))
+        tracks: selectedPlaylistDetail.tracks.map((t) => (t.id === targetId ? { ...t, isFavorite: fav } : t))
       };
+    }
+  }
+
+  async function handleAddTrackToPlaylist(playlistId: number, trackId: number, track?: Track) {
+    let targetId = trackId;
+    if (targetId <= 0 && track) {
+      const saved = await ensurePersistedTrack(track);
+      if (!saved) return;
+      targetId = saved.id;
+    }
+    if (targetId <= 0) return;
+    await api.addTrackToPlaylist(playlistId, targetId);
+    playlists = await api.getPlaylists(false);
+    if (selectedPlaylistDetail && selectedPlaylistDetail.playlist.id === playlistId) {
+      selectedPlaylistDetail = await api.getPlaylistDetail(playlistId);
     }
   }
 
@@ -3302,7 +3523,13 @@
 
   async function handleCreatePlaylist(name: string, desc: string, isLocal: boolean, color: string) {
     const created = await api.createPlaylist(name, desc, isLocal, color);
-    playlists = await api.getPlaylists(false);
+    if (pendingCreatePlaylistTrack) {
+      const pending = pendingCreatePlaylistTrack;
+      pendingCreatePlaylistTrack = null;
+      await handleAddTrackToPlaylist(created.id, pending.id, pending);
+    } else {
+      playlists = await api.getPlaylists(false);
+    }
     await navigate({ name: 'playlist-detail', playlistId: created.id });
   }
 
@@ -3373,7 +3600,15 @@
   style="zoom: {zoomLevel}; width: {100 / zoomLevel}vw; height: {100 / zoomLevel}dvh; background-color: var(--md-sys-color-surface-container-lowest); color: var(--md-sys-color-on-surface);"
 >
   {#if showSplash}
-    <SplashScreen onComplete={() => (showSplash = false)} />
+    <SplashScreen
+      onComplete={() => {
+        try {
+          localStorage.setItem(SPLASH_SEEN_KEY, '1');
+        } catch {
+        }
+        showSplash = false;
+      }}
+    />
   {/if}
 
   <Titlebar
@@ -3535,8 +3770,83 @@
           onLoadMoreYTMusic={handleLoadMoreYTMusic}
           onLoadMorePopularArtists={handleLoadMorePopularArtists}
           onCreatePlaylist={() => (showCreatePlaylistModal = true)}
+          onPlayNext={handleQueuePlayNext}
+          onAddToQueue={handleAddToQueue}
+          onAddToPlaylist={handleAddTrackToPlaylist}
+          onCreatePlaylistTrack={(tr) => {
+            pendingCreatePlaylistTrack = tr ?? null;
+            showCreatePlaylistModal = true;
+          }}
+          onToggleFavoriteTrack={handleToggleFavoriteTrack}
+          onDownloadTrack={handleDownloadTrack}
+          onRemoveDownload={handleRemoveDownload}
+          onOpenTrackAlbum={(tr) => void openTrackAlbumDetail(tr)}
+          {activeDownloadsCount}
           onNavigate={navigate}
         />
+      {:else if currentRoute.name === 'downloads'}
+        {#await import('./views/MobileDownloadsView.svelte') then { default: MobileDownloadsView }}
+        <MobileDownloadsView
+          lang={appLang}
+          activeDownloads={activeDownloadsList}
+          downloadedTracks={tracks.filter((t) => t.isDownloaded)}
+          deletedTracks={sessionDeletedDownloadTracks}
+          allTracks={tracks}
+          {mediaBaseUrl}
+          isDummyActive={showDevDummyDownload}
+          onBack={goBack}
+          onPlayTrack={playTrack}
+          onOpenTrackAlbum={openTrackAlbumDetail}
+          onCancelDownload={handleCancelDownload}
+          onRemoveDownload={handleRemoveDownload}
+          onToggleDummy={() => (showDevDummyDownload = !showDevDummyDownload)}
+        />
+        {/await}
+      {:else if currentRoute.name === 'library' || (isMobile && (currentRoute.name === 'liked-songs' || currentRoute.name === 'downloaded' || currentRoute.name === 'favorite-albums' || currentRoute.name === 'favorite-artists'))}
+        {#await import('./views/MobileLibraryView.svelte') then { default: MobileLibraryView }}
+        <MobileLibraryView
+          lang={appLang}
+          {tracks}
+          {albums}
+          {artists}
+          {playlists}
+          initialFilter={currentRoute.name === 'library'
+            ? (currentRoute.filter ?? 'all')
+            : currentRoute.name === 'liked-songs'
+              ? 'music'
+              : currentRoute.name === 'downloaded'
+                ? 'downloaded'
+                : currentRoute.name === 'favorite-albums'
+                  ? 'albums'
+                  : 'artists'}
+          currentTrackId={currentTrack?.id ?? null}
+          currentExternalId={currentTrack?.externalId ?? null}
+          {isPlaying}
+          {shuffle}
+          {mediaBaseUrl}
+          {activeDownloadsCount}
+          onPlayTrack={playTrack}
+          onTogglePlay={togglePlay}
+          onPlayShuffled={playShuffledList}
+          onPlayNext={handleQueuePlayNext}
+          onAddToQueue={handleAddToQueue}
+          onAddToPlaylist={handleAddTrackToPlaylist}
+          onCreatePlaylistTrack={(tr) => {
+            pendingCreatePlaylistTrack = tr ?? null;
+            showCreatePlaylistModal = true;
+          }}
+          onToggleFavoriteTrack={handleToggleFavoriteTrack}
+          onToggleFavoriteAlbum={handleToggleFavoriteAlbum}
+          onToggleFavoriteArtist={handleToggleFavoriteArtist}
+          onDownloadTrack={handleDownloadTrack}
+          onRemoveDownload={handleRemoveDownload}
+          onOpenAlbum={handleOpenAlbum}
+          onPlayAlbum={handlePlayAlbum}
+          onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
+          onOpenTrackAlbum={openTrackAlbumDetail}
+          onNavigate={navigate}
+        />
+        {/await}
       {:else if currentRoute.name === 'search' || currentRoute.name === 'liked-songs' || currentRoute.name === 'downloaded' || currentRoute.name === 'favorite-albums' || currentRoute.name === 'favorite-artists' || currentRoute.name === 'artist-detail'}
         {#await import('./views/LibraryViews.svelte') then { default: LibraryViews }}
         <LibraryViews
@@ -3696,6 +4006,9 @@
           onRemoveDownload={handleRemoveDownload}
           onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
           onOpenTrackAlbum={openTrackAlbumDetail}
+          {activeDownloadsCount}
+          onNavigate={navigate}
+          onBack={goBack}
           onExportM3U={(pid) => api.exportLocalPlaylistM3U(pid)}
           onImportM3U={async () => {
             const pl = await api.importLocalPlaylistM3U();
@@ -4048,67 +4361,9 @@
   {/if}
 
   {#if isMobile}
-    {#if mobileMenuOpen}
-      <div
-        role="presentation"
-        transition:fade={{ duration: 160 }}
-        onclick={() => (mobileMenuOpen = false)}
-        class="fixed inset-0 z-50 bg-black/50 flex items-end"
-      >
-        <div
-          role="dialog"
-          aria-label="Menu Navigasi"
-          in:fly={{ y: 260, duration: 240, easing: cubicOut }}
-          out:fly={{ y: 260, duration: 180, easing: cubicIn }}
-          onclick={(e) => e.stopPropagation()}
-          class="w-full rounded-t-2xl p-4 pb-6 space-y-2 border-t"
-          style="background-color: var(--md-sys-color-surface-container-high); border-color: var(--md-sys-color-outline-variant);"
-        >
-          <div class="flex items-center justify-between px-2 pb-2">
-            <span class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
-              Menu Velora
-            </span>
-            <button
-              type="button"
-              onclick={() => (mobileMenuOpen = false)}
-              class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer"
-            >
-              <Icon name="x" size={15} />
-            </button>
-          </div>
-          <div class="grid grid-cols-2 gap-2">
-            {#each [
-              { label: tr(appLang, 'nav.favoriteAlbums'), icon: 'vinyl-record', route: { name: 'favorite-albums' } as ViewRoute },
-              { label: tr(appLang, 'nav.favoriteMusic'), icon: 'music-note', route: { name: 'liked-songs' } as ViewRoute },
-              { label: tr(appLang, 'nav.favoriteArtists'), icon: 'user', route: { name: 'favorite-artists' } as ViewRoute },
-              { label: tr(appLang, 'nav.playlists'), icon: 'playlist', route: { name: 'playlists' } as ViewRoute },
-              { label: tr(appLang, 'nav.downloaded'), icon: 'download', route: { name: 'downloaded' } as ViewRoute },
-              { label: tr(appLang, 'nav.history'), icon: 'clock-counter-clockwise', route: { name: 'history' } as ViewRoute },
-              { label: tr(appLang, 'nav.stats'), icon: 'chart-bar', route: { name: 'listening-stats' } as ViewRoute },
-              { label: tr(appLang, 'nav.settings'), icon: 'gear', route: { name: 'preferences' } as ViewRoute }
-            ] as entry (entry.icon)}
-              <button
-                type="button"
-                onclick={() => {
-                  mobileMenuOpen = false;
-                  mobileShowQueue = false;
-                  void navigate(entry.route);
-                }}
-                class="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold cursor-pointer text-left transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
-                style="background-color: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface);"
-              >
-                <Icon name={entry.icon} size={17} />
-                <span class="truncate">{entry.label}</span>
-              </button>
-            {/each}
-          </div>
-        </div>
-      </div>
-    {/if}
-
     <nav
       aria-label="Mobile Navigation"
-      class="w-full shrink-0 min-h-14 pb-[env(safe-area-inset-bottom)] px-2 grid grid-cols-4 items-center border-t"
+      class="w-full shrink-0 min-h-[68px] pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] px-2 grid grid-cols-4 gap-1 items-center border-t"
       style="background-color: var(--md-sys-color-surface-container-lowest); border-color: var(--md-sys-color-outline-variant);"
     >
       <button
@@ -4118,17 +4373,18 @@
           mobileShowQueue = false;
           void navigate({ name: 'home' });
         }}
-        class="flex flex-col items-center justify-center gap-0.5 py-1 rounded-lg cursor-pointer transition-all duration-150 hover:bg-[var(--md-sys-color-state-hover)] active:scale-95"
-        style="color: {!mobileShowQueue && !mobileMenuOpen && currentRoute.name === 'home'
+        aria-current={mobileNavTab === 'home' ? 'page' : undefined}
+        class="min-h-[52px] min-w-[56px] w-full flex flex-col items-center justify-center gap-1 py-1.5 rounded-xl cursor-pointer transition-all duration-150 hover:bg-[var(--md-sys-color-state-hover)] active:scale-95"
+        style="color: {mobileNavTab === 'home'
           ? 'var(--md-sys-color-on-surface)'
           : 'var(--md-sys-color-on-surface-variant)'};"
       >
         <Icon
           name="house"
-          weight={!mobileShowQueue && !mobileMenuOpen && currentRoute.name === 'home' ? 'fill' : 'regular'}
-          size={20}
+          weight={mobileNavTab === 'home' ? 'fill' : 'regular'}
+          size={23}
         />
-        <span class="text-[10px] font-semibold">{tr(appLang, 'nav.home')}</span>
+        <span class="text-[11px] font-semibold truncate max-w-full">{tr(appLang, 'nav.home')}</span>
       </button>
 
       <button
@@ -4140,44 +4396,56 @@
             requestAnimationFrame(() => (document.getElementById('mobile-search-input') as HTMLInputElement | null)?.focus())
           );
         }}
-        class="flex flex-col items-center justify-center gap-0.5 py-1 rounded-lg cursor-pointer transition-all duration-150 hover:bg-[var(--md-sys-color-state-hover)] active:scale-95"
-        style="color: {!mobileShowQueue && !mobileMenuOpen && currentRoute.name === 'search'
+        aria-current={mobileNavTab === 'search' ? 'page' : undefined}
+        class="min-h-[52px] min-w-[56px] w-full flex flex-col items-center justify-center gap-1 py-1.5 rounded-xl cursor-pointer transition-all duration-150 hover:bg-[var(--md-sys-color-state-hover)] active:scale-95"
+        style="color: {mobileNavTab === 'search'
           ? 'var(--md-sys-color-on-surface)'
           : 'var(--md-sys-color-on-surface-variant)'};"
       >
         <Icon
           name="magnifying-glass"
-          weight={!mobileShowQueue && !mobileMenuOpen && currentRoute.name === 'search' ? 'bold' : 'regular'}
-          size={20}
+          weight={mobileNavTab === 'search' ? 'bold' : 'regular'}
+          size={23}
         />
-        <span class="text-[10px] font-semibold">{tr(appLang, 'nav.search')}</span>
-      </button>
-
-      <button
-        type="button"
-        onclick={() => (mobileMenuOpen = !mobileMenuOpen)}
-        class="flex flex-col items-center justify-center gap-0.5 py-1 rounded-lg cursor-pointer transition-all duration-150 hover:bg-[var(--md-sys-color-state-hover)] active:scale-95"
-        style="color: {mobileMenuOpen
-          ? 'var(--md-sys-color-on-surface)'
-          : 'var(--md-sys-color-on-surface-variant)'};"
-      >
-        <Icon name="books" weight={mobileMenuOpen ? 'fill' : 'regular'} size={20} />
-        <span class="text-[10px] font-semibold">{tr(appLang, 'nav.library')}</span>
+        <span class="text-[11px] font-semibold truncate max-w-full">{tr(appLang, 'nav.search')}</span>
       </button>
 
       <button
         type="button"
         onclick={() => {
           mobileMenuOpen = false;
-          mobileShowQueue = !mobileShowQueue;
+          mobileShowQueue = false;
+          void navigate({ name: 'library' });
         }}
-        class="flex flex-col items-center justify-center gap-0.5 py-1 rounded-lg cursor-pointer transition-all duration-150 hover:bg-[var(--md-sys-color-state-hover)] active:scale-95"
-        style="color: {mobileShowQueue
+        aria-current={mobileNavTab === 'library' ? 'page' : undefined}
+        class="min-h-[52px] min-w-[56px] w-full flex flex-col items-center justify-center gap-1 py-1.5 rounded-xl cursor-pointer transition-all duration-150 hover:bg-[var(--md-sys-color-state-hover)] active:scale-95"
+        style="color: {mobileNavTab === 'library'
           ? 'var(--md-sys-color-on-surface)'
           : 'var(--md-sys-color-on-surface-variant)'};"
       >
-        <Icon name="queue" weight={mobileShowQueue ? 'fill' : 'regular'} size={20} />
-        <span class="text-[10px] font-semibold">{tr(appLang, 'nav.queue')}</span>
+        <Icon name="books" weight={mobileNavTab === 'library' ? 'fill' : 'regular'} size={23} />
+        <span class="text-[11px] font-semibold truncate max-w-full">{tr(appLang, 'nav.library')}</span>
+      </button>
+
+      <button
+        type="button"
+        onclick={() => {
+          mobileMenuOpen = false;
+          mobileShowQueue = false;
+          void navigate({ name: 'playlists' });
+        }}
+        aria-current={mobileNavTab === 'playlists' ? 'page' : undefined}
+        class="min-h-[52px] min-w-[56px] w-full flex flex-col items-center justify-center gap-1 py-1.5 rounded-xl cursor-pointer transition-all duration-150 hover:bg-[var(--md-sys-color-state-hover)] active:scale-95"
+        style="color: {mobileNavTab === 'playlists'
+          ? 'var(--md-sys-color-on-surface)'
+          : 'var(--md-sys-color-on-surface-variant)'};"
+      >
+        <Icon
+          name="playlist"
+          weight={mobileNavTab === 'playlists' ? 'fill' : 'regular'}
+          size={23}
+        />
+        <span class="text-[11px] font-semibold truncate max-w-full">{tr(appLang, 'nav.playlists')}</span>
       </button>
     </nav>
 
@@ -4188,16 +4456,18 @@
           lang={appLang}
           {currentTrack}
           lyrics={currentLyrics}
+          {lyricsLoading}
+          lyricOffsetSec={currentLyricOffsetSec}
           {queue}
           queueIndex={resolveActiveQueueIndex()}
+          {playlists}
+          {preferences}
           {isPlaying}
           {positionSec}
           {durationSec}
           {shuffle}
           {repeatMode}
           {mediaBaseUrl}
-          showMiniLyrics={getPrefBool(preferences, 'lyrics.miniLyrics')}
-          plainFallback={getPrefBool(preferences, 'lyrics.plainFallback')}
           onClose={() => (mobileNowPlayingOpen = false)}
           onTogglePlay={togglePlay}
           onPrev={playPrev}
@@ -4211,6 +4481,19 @@
           }}
           onToggleFavorite={handleToggleFavoriteTrack}
           onPlayTrack={playTrack}
+          onPlayNext={handleQueuePlayNext}
+          onAddToQueue={handleAddToQueue}
+          onAddToPlaylist={handleAddTrackToPlaylist}
+          onCreatePlaylist={(tr) => {
+            pendingCreatePlaylistTrack = tr ?? null;
+            showCreatePlaylistModal = true;
+          }}
+          onDownloadTrack={handleDownloadTrack}
+          onRemoveDownload={handleRemoveDownload}
+          onOpenArtist={(artistId) => void navigate({ name: 'artist-detail', artistId })}
+          onOpenArtistDetail={(tr) => void openTrackArtistDetail(tr)}
+          onOpenTrackDetail={(tr) => void openTrackAlbumDetail(tr)}
+          onOpenTrackAlbum={(tr) => void openTrackAlbumDetail(tr)}
           onOpenLyrics={() => {
             mobileShowQueue = false;
             void navigate({ name: 'lyrics' });
