@@ -108,22 +108,12 @@
   let showSplash = $state(
     typeof localStorage !== 'undefined' ? localStorage.getItem(SPLASH_SEEN_KEY) !== '1' : false
   );
-  let showDevDummyDownload = $state(true);
-  const devDummyDownload: DownloadProgress = {
-    trackId: -99901,
-    externalId: '5F28ye50-Kc',
-    title: 'Teh Hijau',
-    artist: 'Tulus',
-    status: 'downloading',
-    progress: 64
-  };
   let sessionDeletedDownloadTracks = $state<Track[]>([]);
-  const activeDownloadsList = $derived.by(() => {
-    const real = Object.values(downloadStates).filter(
+  const activeDownloadsList = $derived(
+    Object.values(downloadStates).filter(
       (d) => d.status === 'queued' || d.status === 'downloading' || d.status === 'failed'
-    );
-    return showDevDummyDownload ? [devDummyDownload, ...real] : real;
-  });
+    )
+  );
   const activeDownloadsCount = $derived(
     activeDownloadsList.filter((d) => d.status === 'queued' || d.status === 'downloading').length
   );
@@ -1026,10 +1016,6 @@
   }
 
   async function handleCancelDownload(trackId: number) {
-    if (trackId === devDummyDownload.trackId) {
-      showDevDummyDownload = false;
-      return;
-    }
     await api.cancelDownload(trackId);
     const next = { ...downloadStates };
     delete next[trackId];
