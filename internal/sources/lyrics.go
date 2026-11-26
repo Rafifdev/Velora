@@ -1,6 +1,7 @@
 package sources
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -16,11 +17,19 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
+type LyricWord struct {
+	TimeSec     float64 `json:"timeSec"`
+	DurationSec float64 `json:"durationSec"`
+	Text        string  `json:"text"`
+}
+
 type LyricLine struct {
-	TimeSec float64 `json:"timeSec"`
-	Text    string  `json:"text"`
+	TimeSec float64     `json:"timeSec"`
+	Text    string      `json:"text"`
+	Words   []LyricWord `json:"words,omitempty"`
 }
 
 type TrackLyrics struct {
@@ -63,6 +72,9 @@ type lrclibResponse struct {
 
 var (
 	lrcTagRegex            = regexp.MustCompile(`\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]`)
+	elrcTagRegex           = regexp.MustCompile(`<(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?>`)
+	yrcLineRegex           = regexp.MustCompile(`^\[(\d+),(\d+)\](.*)$`)
+	yrcWordRegex           = regexp.MustCompile(`\((\d+),(\d+),\d+\)([^(\r\n]*)`)
 	lrcOffsetRegex         = regexp.MustCompile(`(?i)\[offset:([+-]?\d+)\]`)
 	titleParenRegex        = regexp.MustCompile(`(?i)\s*[\(\[](?:official\s*(?:music\s*)?(?:video|audio)|lyrics?|lyric\s*video|visualizer|audio|explicit|hd|4k|remaster(?:ed)?(?:\s+\d+)?|live(?:\s+at\s+[^\)\]]+)?|(?:feat\.|ft\.|with)\s+[^\)\]]+)[\)\]]`)
 	titleDashSuffixRegex   = regexp.MustCompile(`(?i)\s+-\s+(?:remaster(?:ed)?(?:\s+\d{4})?|\d{4}\s+remaster(?:ed)?|single\s+version|radio\s+edit|album\s+version|acoustic(?:\s+version)?|live(?:\s+.*)?|bonus\s+track|from\s+.*|explicit|mono|stereo)$`)
@@ -95,6 +107,147 @@ func isLyricCreditLine(text string, timeSec float64) bool {
 	return false
 }
 
+func parseLRCTimestampMatch(sub []string) (float64, bool) {
+	if len(sub) != 4 {
+		return 0, false
+	}
+	mins, _ := strconv.Atoi(sub[1])
+	secs, _ := strconv.Atoi(sub[2])
+	ms := 0
+	if sub[3] != "" {
+		msVal, _ := strconv.Atoi(sub[3])
+		switch len(sub[3]) {
+		case 1:
+			ms = msVal * 100
+		case 2:
+			ms = msVal * 10
+		default:
+			ms = msVal
+		}
+	}
+	return float64(mins*60+secs) + float64(ms)/1000.0, true
+}
+
+func parseEnhancedWords(rawText string, offsetSec float64) (string, []LyricWord) {
+	locs := elrcTagRegex.FindAllStringSubmatchIndex(rawText, -1)
+	if len(locs) == 0 {
+		return strings.TrimSpace(rawText), nil
+	}
+	type rawWord struct {
+		t    float64
+		text string
+	}
+	var rw []rawWord
+	var cleanParts []string
+	for i, loc := range locs {
+		sub := elrcTagRegex.FindStringSubmatch(rawText[loc[0]:loc[1]])
+		tSec, ok := parseLRCTimestampMatch(sub)
+		if !ok {
+			continue
+		}
+		tSec = math.Max(0, tSec+offsetSec)
+		segEnd := len(rawText)
+		if i+1 < len(locs) {
+			segEnd = locs[i+1][0]
+		}
+		seg := strings.TrimSpace(rawText[loc[1]:segEnd])
+		if seg == "" {
+			continue
+		}
+		for _, tok := range strings.Fields(seg) {
+			cleanParts = append(cleanParts, tok)
+			rw = append(rw, rawWord{t: tSec, text: tok})
+		}
+	}
+	if len(rw) == 0 {
+		return strings.TrimSpace(elrcTagRegex.ReplaceAllString(rawText, "")), nil
+	}
+	words := make([]LyricWord, len(rw))
+	for i, w := range rw {
+		dur := 0.45
+		if i+1 < len(rw) {
+			d := rw[i+1].t - w.t
+			if d > 0.08 {
+				dur = d
+			} else {
+				dur = 0.25
+			}
+		}
+		words[i] = LyricWord{
+			TimeSec:     w.t,
+			DurationSec: dur,
+			Text:        w.text,
+		}
+	}
+	return strings.Join(cleanParts, " "), words
+}
+
+func parseNetEaseYRC(raw string) []LyricLine {
+	var lines []LyricLine
+	for _, row := range strings.Split(raw, "\n") {
+		row = strings.TrimSpace(row)
+		if row == "" {
+			continue
+		}
+		lm := yrcLineRegex.FindStringSubmatch(row)
+		if len(lm) != 4 {
+			continue
+		}
+		lineStartMs, err1 := strconv.Atoi(lm[1])
+		if err1 != nil {
+			continue
+		}
+		lineStartSec := float64(lineStartMs) / 1000.0
+		body := lm[3]
+		wMatches := yrcWordRegex.FindAllStringSubmatch(body, -1)
+		if len(wMatches) == 0 {
+			continue
+		}
+		var words []LyricWord
+		var textBuilder strings.Builder
+		for _, wm := range wMatches {
+			wStartMs, _ := strconv.Atoi(wm[1])
+			wDurMs, _ := strconv.Atoi(wm[2])
+			wRaw := wm[3]
+			wTrim := strings.TrimSpace(wRaw)
+			if wTrim == "" {
+				continue
+			}
+			wStartSec := float64(wStartMs) / 1000.0
+			wDurSec := math.Max(0.08, float64(wDurMs)/1000.0)
+			if textBuilder.Len() > 0 {
+				textBuilder.WriteByte(' ')
+			}
+			textBuilder.WriteString(wTrim)
+			words = append(words, LyricWord{
+				TimeSec:     wStartSec,
+				DurationSec: wDurSec,
+				Text:        wTrim,
+			})
+		}
+		fullText := strings.TrimSpace(textBuilder.String())
+		if fullText == "" || isLyricCreditLine(fullText, lineStartSec) {
+			continue
+		}
+		lines = append(lines, LyricLine{
+			TimeSec: lineStartSec,
+			Text:    fullText,
+			Words:   words,
+		})
+	}
+	sort.SliceStable(lines, func(i, j int) bool {
+		return lines[i].TimeSec < lines[j].TimeSec
+	})
+	return lines
+}
+
+func shiftLyricLine(line *LyricLine, delta float64) {
+	line.TimeSec = math.Max(0, line.TimeSec+delta)
+	for j := range line.Words {
+		line.Words[j].TimeSec = math.Max(0, line.Words[j].TimeSec+delta)
+	}
+}
+
 func parseLRC(raw string) []LyricLine {
 	offsetSec := 0.0
 	rows := strings.Split(raw, "\n")
@@ -117,33 +270,23 @@ func parseLRC(raw string) []LyricLine {
 			continue
 		}
 		lastEnd := matches[len(matches)-1][1]
-		text := strings.TrimSpace(row[lastEnd:])
+		rawBody := strings.TrimSpace(row[lastEnd:])
+		cleanText, words := parseEnhancedWords(rawBody, offsetSec)
 		for _, loc := range matches {
 			sub := lrcTagRegex.FindStringSubmatch(row[loc[0]:loc[1]])
-			if len(sub) != 4 {
+			baseSec, ok := parseLRCTimestampMatch(sub)
+			if !ok {
 				continue
 			}
-			mins, _ := strconv.Atoi(sub[1])
-			secs, _ := strconv.Atoi(sub[2])
-			ms := 0
-			if sub[3] != "" {
-				msVal, _ := strconv.Atoi(sub[3])
-				switch len(sub[3]) {
-				case 1:
-					ms = msVal * 100
-				case 2:
-					ms = msVal * 10
-				default:
-					ms = msVal
-				}
-			}
-			totalSec := float64(mins*60+secs) + float64(ms)/1000.0 + offsetSec
-			if totalSec < 0 {
-				totalSec = 0
+			totalSec := math.Max(0, baseSec+offsetSec)
+			var clonedWords []LyricWord
+			if len(words) > 0 && len(matches) == 1 {
+				clonedWords = words
 			}
 			rawLines = append(rawLines, LyricLine{
 				TimeSec: totalSec,
-				Text:    text,
+				Text:    cleanText,
+				Words:   clonedWords,
 			})
 		}
 	}
@@ -182,7 +325,7 @@ func alignIntroOffset(lines []LyricLine, lrcDurationSec float64, trackDurationSe
 	delta := float64(trackDurationSec) - lrcDurationSec
 	if delta >= 2.5 && delta <= 90.0 && lines[0].TimeSec < 45.0 && lines[len(lines)-1].TimeSec+delta <= float64(trackDurationSec)+2.5 {
 		for i := range lines {
-			lines[i].TimeSec += delta
+			shiftLyricLine(&lines[i], delta)
 		}
 	}
 	return lines
@@ -400,7 +543,7 @@ func AlignLyricsTimeline(lines []LyricLine, lrcDurationSec float64, trackDuratio
 			}
 			for i := range shifted {
 				if shifted[i].TimeSec >= iv.Start-0.35 {
-					shifted[i].TimeSec += segDur
+					shiftLyricLine(&shifted[i], segDur)
 				}
 			}
 		}
@@ -411,27 +554,504 @@ func AlignLyricsTimeline(lines []LyricLine, lrcDurationSec float64, trackDuratio
 	return aligned, heuristicUsed
 }
 
-// AlignLyricsWithVideo aligns lyrics using SponsorBlock intervals for the given videoID if available.
+// AlignLyricsWithVideo aligns lyrics using YouTube Captions/ASR first, then SponsorBlock, then intro offset.
 func AlignLyricsWithVideo(ctx context.Context, videoID string, lines []LyricLine, lrcDurationSec float64, trackDurationSec int) []LyricLine {
-	if len(lines) == 0 || trackDurationSec <= 0 {
+	if len(lines) == 0 {
 		return lines
 	}
-	if strings.TrimSpace(videoID) != "" {
-		client := &http.Client{Timeout: 1800 * time.Millisecond}
-		if ivs, ok := FetchSponsorBlockMusicOfftopic(ctx, client, videoID); ok {
-			aligned, _ := AlignLyricsTimeline(lines, lrcDurationSec, trackDurationSec, ivs, true)
-			return aligned
+	vid := strings.TrimSpace(videoID)
+	if vid != "" && !isHybridVideoID(vid) {
+		client := &http.Client{Timeout: 3200 * time.Millisecond}
+		if cueTracks, ok := FetchYouTubeCaptionCues(ctx, client, vid); ok {
+			if aligned, okCap := AlignLyricsWithCaptions(lines, cueTracks, trackDurationSec); okCap {
+				return aligned
+			}
 		}
+		if trackDurationSec > 0 {
+			if ivs, ok := FetchSponsorBlockMusicOfftopic(ctx, client, vid); ok {
+				aligned, _ := AlignLyricsTimeline(lines, lrcDurationSec, trackDurationSec, ivs, true)
+				return aligned
+			}
+		}
+	}
+	if trackDurationSec <= 0 {
+		return lines
 	}
 	aligned, _ := AlignLyricsTimeline(lines, lrcDurationSec, trackDurationSec, nil, false)
 	return aligned
 }
 
+type CaptionCue struct {
+	StartSec float64
+	Text     string
+	Words    []string
+}
+
+type captionCacheEntry struct {
+	cueTracks [][]CaptionCue
+	found     bool
+	expiresAt time.Time
+}
+
+var (
+	captionCacheMu sync.Mutex
+	captionCache   = map[string]captionCacheEntry{}
+	bracketTagRe   = regexp.MustCompile(`\[[^\]]*\]`)
+)
+
+const captionCacheMaxEntries = 128
+
+func tokenizeLyricWords(text string) []string {
+	cleaned := bracketTagRe.ReplaceAllString(text, " ")
+	cleaned = strings.ToLower(cleaned)
+	var words []string
+	var cur strings.Builder
+	flush := func() {
+		if cur.Len() > 0 {
+			w := cur.String()
+			if len([]rune(w)) >= 2 {
+				words = append(words, w)
+			}
+			cur.Reset()
+		}
+	}
+	for _, r := range cleaned {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			cur.WriteRune(r)
+		} else {
+			flush()
+		}
+	}
+	flush()
+	return words
+}
+
+// FetchYouTubeCaptionCues retrieves normalized manual/ASR caption tracks from YouTube's IOS player endpoint.
+func FetchYouTubeCaptionCues(ctx context.Context, client *http.Client, videoID string) ([][]CaptionCue, bool) {
+	vid := strings.TrimSpace(videoID)
+	if vid == "" || isHybridVideoID(vid) {
+		return nil, false
+	}
+
+	now := time.Now()
+	captionCacheMu.Lock()
+	if ent, ok := captionCache[vid]; ok && now.Before(ent.expiresAt) {
+		captionCacheMu.Unlock()
+		return ent.cueTracks, ent.found
+	}
+	captionCacheMu.Unlock()
+
+	if client == nil {
+		client = &http.Client{Timeout: 3200 * time.Millisecond}
+	}
+	pCtx, cancel := context.WithTimeout(ctx, 3200*time.Millisecond)
+	defer cancel()
+
+	bodyBytes, err := json.Marshal(map[string]any{
+		"context": map[string]any{
+			"client": map[string]any{
+				"clientName":    "IOS",
+				"clientVersion": "20.10.4",
+				"hl":            "id",
+				"gl":            "ID",
+			},
+		},
+		"videoId": vid,
+	})
+	if err != nil {
+		return nil, false
+	}
+	req, err := http.NewRequestWithContext(pCtx, http.MethodPost, "https://www.youtube.com/youtubei/v1/player", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, false
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)")
+
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		return nil, false
+	}
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	resp.Body.Close()
+	if err != nil {
+		return nil, false
+	}
+
+	var playerResp struct {
+		Captions struct {
+			PlayerCaptionsTracklistRenderer struct {
+				CaptionTracks []struct {
+					BaseURL      string `json:"baseUrl"`
+					LanguageCode string `json:"languageCode"`
+					Kind         string `json:"kind"`
+				} `json:"captionTracks"`
+			} `json:"playerCaptionsTracklistRenderer"`
+		} `json:"captions"`
+	}
+	if json.Unmarshal(raw, &playerResp) != nil {
+		return nil, false
+	}
+
+	tracks := playerResp.Captions.PlayerCaptionsTracklistRenderer.CaptionTracks
+	if len(tracks) == 0 {
+		captionCacheMu.Lock()
+		if len(captionCache) >= captionCacheMaxEntries {
+			for k := range captionCache {
+				delete(captionCache, k)
+				break
+			}
+		}
+		captionCache[vid] = captionCacheEntry{found: false, expiresAt: now.Add(2 * time.Hour)}
+		captionCacheMu.Unlock()
+		return nil, false
+	}
+
+	type capTrack struct {
+		url  string
+		lang string
+		kind string
+	}
+	var manualNonEn, manualEn, asrTracks []capTrack
+	for _, t := range tracks {
+		if strings.TrimSpace(t.BaseURL) == "" {
+			continue
+		}
+		ct := capTrack{
+			url:  t.BaseURL,
+			lang: strings.ToLower(strings.TrimSpace(t.LanguageCode)),
+			kind: strings.ToLower(strings.TrimSpace(t.Kind)),
+		}
+		if ct.kind == "asr" {
+			asrTracks = append(asrTracks, ct)
+		} else if !strings.HasPrefix(ct.lang, "en") {
+			manualNonEn = append(manualNonEn, ct)
+		} else {
+			manualEn = append(manualEn, ct)
+		}
+	}
+
+	var chosen []capTrack
+	if len(manualNonEn) > 0 {
+		chosen = append(chosen, manualNonEn[0])
+	} else if len(manualEn) > 0 {
+		chosen = append(chosen, manualEn[0])
+	}
+	if len(asrTracks) > 0 {
+		chosen = append(chosen, asrTracks[0])
+	}
+
+	var cueTracks [][]CaptionCue
+	for _, ct := range chosen {
+		cURL := ct.url
+		if !strings.Contains(cURL, "fmt=") {
+			if strings.Contains(cURL, "?") {
+				cURL += "&fmt=json3"
+			} else {
+				cURL += "?fmt=json3"
+			}
+		}
+		cCtx, cCancel := context.WithTimeout(ctx, 2500*time.Millisecond)
+		creq, err := http.NewRequestWithContext(cCtx, http.MethodGet, cURL, nil)
+		if err != nil {
+			cCancel()
+			continue
+		}
+		creq.Header.Set("User-Agent", "Mozilla/5.0")
+		cresp, err := client.Do(creq)
+		if err != nil || cresp.StatusCode != http.StatusOK {
+			if cresp != nil {
+				cresp.Body.Close()
+			}
+			cCancel()
+			continue
+		}
+		craw, err := io.ReadAll(io.LimitReader(cresp.Body, 2<<20))
+		cresp.Body.Close()
+		cCancel()
+		if err != nil {
+			continue
+		}
+
+		var json3 struct {
+			Events []struct {
+				TStartMs int `json:"tStartMs"`
+				Segs     []struct {
+					UTF8      string `json:"utf8"`
+					TOffsetMs int    `json:"tOffsetMs"`
+				} `json:"segs"`
+			} `json:"events"`
+		}
+		if json.Unmarshal(craw, &json3) != nil {
+			continue
+		}
+
+		var cues []CaptionCue
+		for _, ev := range json3.Events {
+			if len(ev.Segs) == 0 {
+				continue
+			}
+			var sb strings.Builder
+			firstOffsetMs := -1
+			for _, seg := range ev.Segs {
+				txt := strings.ReplaceAll(seg.UTF8, "\n", " ")
+				sb.WriteString(txt)
+				if firstOffsetMs < 0 && len(tokenizeLyricWords(txt)) > 0 {
+					firstOffsetMs = seg.TOffsetMs
+				}
+			}
+			fullText := strings.TrimSpace(sb.String())
+			words := tokenizeLyricWords(fullText)
+			if len(words) == 0 {
+				continue
+			}
+			startMs := ev.TStartMs
+			if firstOffsetMs > 0 {
+				startMs += firstOffsetMs
+			}
+			cues = append(cues, CaptionCue{
+				StartSec: float64(startMs) / 1000.0,
+				Text:     fullText,
+				Words:    words,
+			})
+		}
+		if len(cues) > 0 {
+			cueTracks = append(cueTracks, cues)
+		}
+	}
+
+	found := len(cueTracks) > 0
+	captionCacheMu.Lock()
+	if len(captionCache) >= captionCacheMaxEntries {
+		for k := range captionCache {
+			delete(captionCache, k)
+			break
+		}
+	}
+	captionCache[vid] = captionCacheEntry{
+		cueTracks: cueTracks,
+		found:     found,
+		expiresAt: now.Add(2 * time.Hour),
+	}
+	captionCacheMu.Unlock()
+
+	return cueTracks, found
+}
+
+type captionAnchor struct {
+	lineIdx int
+	lrcSec  float64
+	capSec  float64
+	delta   float64
+}
+
+func countWordMatches(lineWords, cueWords []string) (matched int, longMatched int) {
+	if len(lineWords) == 0 || len(cueWords) == 0 {
+		return 0, 0
+	}
+	cueSet := make(map[string]struct{}, len(cueWords))
+	for _, cw := range cueWords {
+		cueSet[cw] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(lineWords))
+	for _, lw := range lineWords {
+		if _, dup := seen[lw]; dup {
+			continue
+		}
+		seen[lw] = struct{}{}
+		if _, ok := cueSet[lw]; ok {
+			matched++
+			if len([]rune(lw)) >= 4 {
+				longMatched++
+			}
+		}
+	}
+	return matched, longMatched
+}
+
+func medianDelta(anchors []captionAnchor) float64 {
+	if len(anchors) == 0 {
+		return 0
+	}
+	vals := make([]float64, len(anchors))
+	for i, a := range anchors {
+		vals[i] = a.delta
+	}
+	sort.Float64s(vals)
+	return vals[len(vals)/2]
+}
+
+// AlignLyricsWithCaptions matches LRC lyric lines against YouTube manual/ASR captions
+// to automatically shift timestamps for MV intros, outros, and mid-video skits.
+func AlignLyricsWithCaptions(lines []LyricLine, cueTracks [][]CaptionCue, trackDurationSec int) ([]LyricLine, bool) {
+	if len(lines) == 0 || len(cueTracks) == 0 {
+		return lines, false
+	}
+
+	var bestAnchors []captionAnchor
+	for _, cues := range cueTracks {
+		if len(cues) < 2 {
+			continue
+		}
+		var anchors []captionAnchor
+		lastCueTime := -10.0
+		for i, line := range lines {
+			lw := tokenizeLyricWords(line.Text)
+			if len(lw) < 2 {
+				continue
+			}
+			bestScore := 0.0
+			bestCapSec := 0.0
+			matchedCue := false
+			for k := 0; k < len(cues); k++ {
+				if cues[k].StartSec < lastCueTime-1.0 {
+					continue
+				}
+				if math.Abs(cues[k].StartSec-line.TimeSec) > 120.0 {
+					continue
+				}
+				m1, lm1 := countWordMatches(lw, cues[k].Words)
+				ratio1 := float64(m1) / float64(len(lw))
+				if m1 >= 2 && (ratio1 >= 0.5 || lm1 >= 2) {
+					sc := float64(m1)*10.0 + ratio1*5.0
+					if sc > bestScore {
+						bestScore = sc
+						bestCapSec = cues[k].StartSec
+						matchedCue = true
+					}
+				}
+				if k+1 < len(cues) && cues[k+1].StartSec-cues[k].StartSec <= 4.5 {
+					merged := make([]string, 0, len(cues[k].Words)+len(cues[k+1].Words))
+					merged = append(merged, cues[k].Words...)
+					merged = append(merged, cues[k+1].Words...)
+					m2, lm2 := countWordMatches(lw, merged)
+					ratio2 := float64(m2) / float64(len(lw))
+					if m2 > m1 && m2 >= 2 && (ratio2 >= 0.5 || lm2 >= 2) {
+						sc := float64(m2)*10.0 + ratio2*5.0 - 0.5
+						if sc > bestScore {
+							bestScore = sc
+							bestCapSec = cues[k].StartSec
+							matchedCue = true
+						}
+					}
+				}
+			}
+			if matchedCue {
+				anchors = append(anchors, captionAnchor{
+					lineIdx: i,
+					lrcSec:  line.TimeSec,
+					capSec:  bestCapSec,
+					delta:   bestCapSec - line.TimeSec,
+				})
+				lastCueTime = bestCapSec
+			}
+		}
+		if len(anchors) > len(bestAnchors) {
+			bestAnchors = anchors
+		}
+	}
+
+	if len(bestAnchors) < 2 {
+		return lines, false
+	}
+
+	// Keep anchors that belong to consistent (>= 2 anchors within 2.2s delta) clusters
+	var consistent []captionAnchor
+	for i, a := range bestAnchors {
+		peers := 0
+		for j, b := range bestAnchors {
+			if i != j && math.Abs(a.delta-b.delta) <= 2.2 {
+				peers++
+			}
+		}
+		if peers >= 1 {
+			consistent = append(consistent, a)
+		}
+	}
+	if len(consistent) < 2 {
+		return lines, false
+	}
+
+	// Detect piecewise mid-video skit split if early & late clusters diverge by >= 3.0s
+	splitIdx := -1
+	var earlyDelta, lateDelta float64
+	for k := 2; k <= len(consistent)-2; k++ {
+		d1 := medianDelta(consistent[:k])
+		d2 := medianDelta(consistent[k:])
+		if d2-d1 >= 3.0 {
+			earlyConsistent := true
+			for _, a := range consistent[:k] {
+				if math.Abs(a.delta-d1) > 2.2 {
+					earlyConsistent = false
+					break
+				}
+			}
+			lateConsistent := true
+			for _, a := range consistent[k:] {
+				if math.Abs(a.delta-d2) > 2.2 {
+					lateConsistent = false
+					break
+				}
+			}
+			if earlyConsistent && lateConsistent {
+				splitIdx = consistent[k].lineIdx
+				earlyDelta = d1
+				lateDelta = d2
+				break
+			}
+		}
+	}
+
+	if splitIdx >= 0 {
+		shifted := make([]LyricLine, len(lines))
+		copy(shifted, lines)
+		for i := range shifted {
+			if len(shifted[i].Words) > 0 {
+				cpW := make([]LyricWord, len(shifted[i].Words))
+				copy(cpW, shifted[i].Words)
+				shifted[i].Words = cpW
+			}
+			d := earlyDelta
+			if i >= splitIdx {
+				d = lateDelta
+			}
+			shiftLyricLine(&shifted[i], d)
+		}
+		return shifted, true
+	}
+
+	deltaMed := medianDelta(consistent)
+	if math.Abs(deltaMed) < 0.8 {
+		return lines, true
+	}
+	if trackDurationSec > 0 && lines[len(lines)-1].TimeSec+deltaMed > float64(trackDurationSec)+8.0 {
+		return lines, false
+	}
+	shifted := make([]LyricLine, len(lines))
+	copy(shifted, lines)
+	for i := range shifted {
+		if len(shifted[i].Words) > 0 {
+			cpW := make([]LyricWord, len(shifted[i].Words))
+			copy(cpW, shifted[i].Words)
+			shifted[i].Words = cpW
+		}
+		shiftLyricLine(&shifted[i], deltaMed)
+	}
+	return shifted, true
+}
+
 func FetchLyrics(ctx context.Context, trackID int64, title, artist, album string, durationSec int) TrackLyrics {
-	return FetchLyricsWithVideo(ctx, trackID, "", title, artist, album, durationSec)
+	return FetchLyricsWithVideoOpts(ctx, trackID, "", title, artist, album, durationSec, false)
 }
 
 func FetchLyricsWithVideo(ctx context.Context, trackID int64, videoID, title, artist, album string, durationSec int) TrackLyrics {
+	return FetchLyricsWithVideoOpts(ctx, trackID, videoID, title, artist, album, durationSec, false)
+}
+
+func FetchLyricsWithVideoOpts(ctx context.Context, trackID int64, videoID, title, artist, album string, durationSec int, forceCaptionAlign bool) TrackLyrics {
 	out := TrackLyrics{
 		TrackID:      trackID,
 		Title:        title,
@@ -468,9 +1088,26 @@ func FetchLyricsWithVideo(ctx context.Context, trackID int64, videoID, title, ar
 		sbCh <- sbResult{}
 	}
 
+	type capResult struct {
+		cueTracks [][]CaptionCue
+		ok        bool
+	}
+	capCh := make(chan capResult, 1)
+	if strings.TrimSpace(videoID) != "" && !isHybridVideoID(videoID) {
+		go func() {
+			cues, ok := FetchYouTubeCaptionCues(reqCtx, client, videoID)
+			capCh <- capResult{cueTracks: cues, ok: ok}
+		}()
+	} else {
+		capCh <- capResult{}
+	}
+
 	var sbOnce sync.Once
 	var sbIntervals []SponsorBlockInterval
 	var hasSB bool
+	var capOnce sync.Once
+	var capCueTracks [][]CaptionCue
+	var hasCap bool
 	musicDurSec := durationSec
 	ensureSB := func() {
 		sbOnce.Do(func() {
@@ -489,6 +1126,35 @@ func FetchLyricsWithVideo(ctx context.Context, trackID int64, videoID, title, ar
 				}
 			}
 		})
+	}
+	ensureCap := func() {
+		capOnce.Do(func() {
+			res := <-capCh
+			capCueTracks = res.cueTracks
+			hasCap = res.ok
+		})
+	}
+
+	alignPopulated := func(res lrclibResponse, srcName string) (TrackLyrics, bool) {
+		ensureSB()
+		populated := populateLyricsWithSB(out, res, durationSec, sbIntervals, hasSB)
+		populated.Source = srcName
+		if populated.Source == "instrumental" {
+			return populated, true
+		}
+		rawLines := parseLRC(res.SyncedLyrics)
+		durMismatch := durationSec <= 0 || res.Duration <= 0 || math.Abs(float64(durationSec)-res.Duration) >= 1.5
+		if len(rawLines) > 0 && (forceCaptionAlign || durMismatch) {
+			ensureCap()
+			if hasCap {
+				if aligned, okCap := AlignLyricsWithCaptions(rawLines, capCueTracks, durationSec); okCap {
+					populated.SyncedLyrics = aligned
+					populated.NeedsVideoVerify = false
+					return populated, true
+				}
+			}
+		}
+		return populated, false
 	}
 
 	matchesTargetDur := func(lrcDur float64) bool {
@@ -532,9 +1198,8 @@ func FetchLyricsWithVideo(ctx context.Context, trackID int64, videoID, title, ar
 		params.Set("duration", strconv.Itoa(durationSec))
 	}
 	if res, ok := queryLRCLIBGet(reqCtx, client, "https://lrclib.net/api/get?"+params.Encode()); ok {
-		ensureSB()
-		populated := populateLyricsWithSB(out, res, durationSec, sbIntervals, hasSB)
-		if populated.Source == "instrumental" || (len(populated.SyncedLyrics) > 0 && matchesTargetDur(res.Duration)) {
+		populated, capAligned := alignPopulated(res, "lrclib")
+		if populated.Source == "instrumental" || (len(populated.SyncedLyrics) > 0 && (capAligned || matchesTargetDur(res.Duration))) {
 			return populated
 		}
 		saveSynced(populated)
@@ -569,9 +1234,8 @@ func FetchLyricsWithVideo(ctx context.Context, trackID int64, videoID, title, ar
 	for _, searchURL := range searchURLs {
 		if list, ok := queryLRCLIBSearch(reqCtx, client, searchURL); ok && len(list) > 0 {
 			best := pickBestLRCLIB(list, cleanTitle, cleanArtist, musicDurSec)
-			populated := populateLyricsWithSB(out, best, durationSec, sbIntervals, hasSB)
-			populated.Source = "lrclib-search"
-			if populated.Source == "instrumental" || (len(populated.SyncedLyrics) > 0 && matchesTargetDur(best.Duration)) {
+			populated, capAligned := alignPopulated(best, "lrclib-search")
+			if populated.Source == "instrumental" || (len(populated.SyncedLyrics) > 0 && (capAligned || matchesTargetDur(best.Duration))) {
 				return populated
 			}
 			saveSynced(populated)
@@ -581,6 +1245,14 @@ func FetchLyricsWithVideo(ctx context.Context, trackID int64, videoID, title, ar
 
 	if qq, ok := queryQQMusicLyrics(reqCtx, client, out, shortTitle, shortArtist, musicDurSec); ok {
 		if len(qq.SyncedLyrics) > 0 {
+			ensureCap()
+			if hasCap {
+				if aligned, okCap := AlignLyricsWithCaptions(qq.SyncedLyrics, capCueTracks, durationSec); okCap {
+					qq.SyncedLyrics = aligned
+					qq.NeedsVideoVerify = false
+					return qq
+				}
+			}
 			aligned, heuristic := AlignLyricsTimeline(qq.SyncedLyrics, qq.MatchedDurationSec, durationSec, sbIntervals, hasSB)
 			qq.SyncedLyrics = aligned
 			qq.NeedsVideoVerify = heuristic
@@ -591,6 +1263,14 @@ func FetchLyricsWithVideo(ctx context.Context, trackID int64, videoID, title, ar
 
 	if ne, ok := queryNetEaseLyrics(reqCtx, client, out, shortTitle, shortArtist, musicDurSec); ok {
 		if len(ne.SyncedLyrics) > 0 {
+			ensureCap()
+			if hasCap {
+				if aligned, okCap := AlignLyricsWithCaptions(ne.SyncedLyrics, capCueTracks, durationSec); okCap {
+					ne.SyncedLyrics = aligned
+					ne.NeedsVideoVerify = false
+					return ne
+				}
+			}
 			aligned, heuristic := AlignLyricsTimeline(ne.SyncedLyrics, ne.MatchedDurationSec, durationSec, sbIntervals, hasSB)
 			ne.SyncedLyrics = aligned
 			ne.NeedsVideoVerify = heuristic
@@ -601,6 +1281,14 @@ func FetchLyricsWithVideo(ctx context.Context, trackID int64, videoID, title, ar
 
 	if kg, ok := queryKuGouLyrics(reqCtx, client, out, shortTitle, shortArtist, musicDurSec); ok {
 		if len(kg.SyncedLyrics) > 0 {
+			ensureCap()
+			if hasCap {
+				if aligned, okCap := AlignLyricsWithCaptions(kg.SyncedLyrics, capCueTracks, durationSec); okCap {
+					kg.SyncedLyrics = aligned
+					kg.NeedsVideoVerify = false
+					return kg
+				}
+			}
 			aligned, heuristic := AlignLyricsTimeline(kg.SyncedLyrics, kg.MatchedDurationSec, durationSec, sbIntervals, hasSB)
 			kg.SyncedLyrics = aligned
 			kg.NeedsVideoVerify = heuristic
@@ -628,12 +1316,42 @@ func FetchLyricsWithVideo(ctx context.Context, trackID int64, videoID, title, ar
 	return out
 }
 
+func lyricArtistMatches(expectedArtist, candidateArtist string) bool {
+	exp := strings.ToLower(strings.TrimSpace(cleanLyricArtist(expectedArtist)))
+	cand := strings.ToLower(strings.TrimSpace(cleanLyricArtist(candidateArtist)))
+	if exp == "" || cand == "" {
+		return true
+	}
+	if strings.Contains(cand, exp) || strings.Contains(exp, cand) {
+		return true
+	}
+	for _, tok := range artistSplitRegex.Split(exp, -1) {
+		t := strings.TrimSpace(tok)
+		if len([]rune(t)) >= 3 && strings.Contains(cand, t) {
+			return true
+		}
+	}
+	return false
+}
+
+func lyricTitleMatches(expectedTitle, candidateTitle string) bool {
+	exp := strings.ToLower(strings.TrimSpace(cleanLyricTitle(expectedTitle)))
+	cand := strings.ToLower(strings.TrimSpace(cleanLyricTitle(candidateTitle)))
+	if exp == "" || cand == "" {
+		return true
+	}
+	return cand == exp || strings.Contains(cand, exp) || strings.Contains(exp, cand)
+}
+
 func pickBestLRCLIB(list []lrclibResponse, title, artist string, durationSec int) lrclibResponse {
-	best := list[0]
+	best := lrclibResponse{}
 	bestScore := -1e9
 	lowTitle := strings.ToLower(strings.TrimSpace(cleanLyricTitle(title)))
 	lowArtist := strings.ToLower(strings.TrimSpace(primaryLyricArtist(artist)))
 	for _, item := range list {
+		if lowArtist != "" && strings.TrimSpace(item.ArtistName) != "" && !lyricArtistMatches(artist, item.ArtistName) {
+			continue
+		}
 		score := 0.0
 		if strings.TrimSpace(item.SyncedLyrics) != "" {
 			score += 1000.0
@@ -744,6 +1462,21 @@ func queryQQMusicLyrics(ctx context.Context, client *http.Client, base TrackLyri
 		if strings.TrimSpace(c.SongMID) == "" {
 			continue
 		}
+		if !lyricTitleMatches(title, c.SongName) {
+			continue
+		}
+		if lowArtist != "" && len(c.Singer) > 0 {
+			singerMatched := false
+			for _, sg := range c.Singer {
+				if lyricArtistMatches(artist, sg.Name) {
+					singerMatched = true
+					break
+				}
+			}
+			if !singerMatched {
+				continue
+			}
+		}
 		if durationSec > 0 && c.Interval > 0 && math.Abs(float64(c.Interval-durationSec)) > 18.0 {
 			continue
 		}
@@ -817,8 +1550,12 @@ func queryNetEaseLyrics(ctx context.Context, client *http.Client, base TrackLyri
 	var sr struct {
 		Result struct {
 			Songs []struct {
-				ID       int64 `json:"id"`
-				Duration int   `json:"duration"`
+				ID       int64  `json:"id"`
+				Name     string `json:"name"`
+				Duration int    `json:"duration"`
+				Artists  []struct {
+					Name string `json:"name"`
+				} `json:"artists"`
 			} `json:"songs"`
 		} `json:"result"`
 	}
@@ -836,7 +1573,22 @@ func queryNetEaseLyrics(ctx context.Context, client *http.Client, base TrackLyri
 	}
 
 	for _, s := range sr.Result.Songs {
-		lyricURL := fmt.Sprintf("https://music.163.com/api/song/lyric?id=%d&lv=1&tv=-1", s.ID)
+		if !lyricTitleMatches(title, s.Name) {
+			continue
+		}
+		if strings.TrimSpace(artist) != "" && len(s.Artists) > 0 {
+			artOk := false
+			for _, a := range s.Artists {
+				if lyricArtistMatches(artist, a.Name) {
+					artOk = true
+					break
+				}
+			}
+			if !artOk {
+				continue
+			}
+		}
+		lyricURL := fmt.Sprintf("https://music.163.com/api/song/lyric?id=%d&lv=1&yv=1&tv=-1", s.ID)
 		lreq, err := http.NewRequestWithContext(ctx, http.MethodGet, lyricURL, nil)
 		if err != nil {
 			continue
@@ -859,11 +1611,20 @@ func queryNetEaseLyrics(ctx context.Context, client *http.Client, base TrackLyri
 			LRC struct {
 				Lyric string `json:"lyric"`
 			} `json:"lrc"`
+			YRC struct {
+				Lyric string `json:"lyric"`
+			} `json:"yrc"`
 		}
-		if json.Unmarshal(lraw, &lr) != nil || strings.TrimSpace(lr.LRC.Lyric) == "" {
+		if json.Unmarshal(lraw, &lr) != nil {
 			continue
 		}
-		parsed := parseLRC(lr.LRC.Lyric)
+		var parsed []LyricLine
+		if strings.TrimSpace(lr.YRC.Lyric) != "" {
+			parsed = parseNetEaseYRC(lr.YRC.Lyric)
+		}
+		if len(parsed) == 0 && strings.TrimSpace(lr.LRC.Lyric) != "" {
+			parsed = parseLRC(lr.LRC.Lyric)
+		}
 		if len(parsed) > 0 {
 			base.Source = "netease"
 			base.MatchedDurationSec = float64(s.Duration) / 1000.0

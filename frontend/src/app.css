@@ -973,6 +973,36 @@ progress.velora-chrome-progress::-moz-progress-bar {
   }
 }
 
+.velora-download-wave {
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    color-mix(in srgb, var(--md-sys-color-primary) 35%, transparent) 55%,
+    color-mix(in srgb, var(--md-sys-color-primary) 72%, transparent) 100%
+  );
+  animation: velora-dl-wave 1.8s ease-in-out infinite alternate;
+}
+
+@keyframes velora-dl-wave {
+  0% {
+    transform: translateY(22%);
+    opacity: 0.72;
+  }
+  100% {
+    transform: translateY(-6%);
+    opacity: 1;
+  }
+}
+
+.velora-press {
+  transition: transform 140ms cubic-bezier(0.22, 1, 0.36, 1), filter 140ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.velora-press:active {
+  transform: scale(0.97);
+  filter: brightness(0.84);
+}
+
 .velora-heart-btn:not(:disabled):hover i {
   transform: scale(1.18);
   transition: transform 180ms cubic-bezier(0.34, 1.56, 0.64, 1);

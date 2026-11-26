@@ -154,6 +154,8 @@ export function SetDynamicIslandLanguage(arg1:string):Promise<void>;
 
 export function SetDynamicIslandLyricOffset(arg1:number):Promise<void>;
 
+export function SetDynamicIslandLyricSweep(arg1:boolean):Promise<void>;
+
 export function SetDynamicIslandOnlyPlaying(arg1:boolean):Promise<void>;
 
 export function SetDynamicIslandOpenTrigger(arg1:string):Promise<void>;

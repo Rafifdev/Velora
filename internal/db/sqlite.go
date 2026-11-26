@@ -208,6 +208,25 @@ func (s *Store) healLegacyMetadata() {
 	// Purge legacy track_lyrics rows created before synced_duration_sec tracking (may hold +16s/200s offsets).
 	_, _ = s.db.Exec(`DELETE FROM track_lyrics WHERE synced_duration_sec = 0;`)
 	_, _ = s.db.Exec(`UPDATE tracks SET duration_sec = 0 WHERE source_type = 'ytmusic' AND duration_sec = 200;`)
+	var v2Done int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM preferences WHERE key = 'internal.lyricsAutoAlignV2' AND value = '1'`).Scan(&v2Done)
+	if v2Done == 0 {
+		_, _ = s.db.Exec(`DELETE FROM track_lyrics;`)
+		_, _ = s.db.Exec(`INSERT OR REPLACE INTO preferences (key, value) VALUES ('internal.lyricsAutoAlignV2', '1');`)
+	}
+
+	var sweepDefaultV1 int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM preferences WHERE key = 'internal.lyricsSweepDefaultV1' AND value = '1'`).Scan(&sweepDefaultV1)
+	if sweepDefaultV1 == 0 {
+		_, _ = s.db.Exec(`UPDATE preferences SET value = 'true' WHERE key = 'lyrics.sweep' AND value = 'false';`)
+		_, _ = s.db.Exec(`INSERT OR REPLACE INTO preferences (key, value) VALUES ('internal.lyricsSweepDefaultV1', '1');`)
+	}
+	var wordSyncV1 int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM preferences WHERE key = 'internal.lyricsWordSyncV1' AND value = '1'`).Scan(&wordSyncV1)
+	if wordSyncV1 == 0 {
+		_, _ = s.db.Exec(`DELETE FROM track_lyrics WHERE source IN ('qqmusic', 'netease', 'kugou', 'lrclib', 'lrclib-search');`)
+		_, _ = s.db.Exec(`INSERT OR REPLACE INTO preferences (key, value) VALUES ('internal.lyricsWordSyncV1', '1');`)
+	}
 
 	rows, err := s.db.Query(`SELECT id, artist_name, album_title, duration_sec, cover_url, source_type, external_id FROM tracks WHERE source_type = 'ytmusic' AND (artist_name LIKE '%•%' OR artist_name LIKE '%·%')`)
 	if err != nil {
@@ -1208,9 +1227,10 @@ func (s *Store) SeedDefaults() error {
 		"playback.waveBar":         "false",
 		"playback.prevRestartSec":  "0",
 		"lyrics.textSize":          "0",
-		"lyrics.sweep":             "false",
+		"lyrics.sweep":             "true",
 		"lyrics.blurOthers":        "false",
 		"lyrics.nudgeMs":           "250",
+		"dynamicIsland.lyricSweep": "true",
 		"storage.cacheLimit":       "40",
 		"layout.rightCollapsed":    "false",
 	}

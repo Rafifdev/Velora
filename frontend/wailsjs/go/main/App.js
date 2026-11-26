@@ -294,6 +294,10 @@ export function SetDynamicIslandLyricOffset(arg1) {
   return window['go']['main']['App']['SetDynamicIslandLyricOffset'](arg1);
 }
 
+export function SetDynamicIslandLyricSweep(arg1) {
+  return window['go']['main']['App']['SetDynamicIslandLyricSweep'](arg1);
+}
+
 export function SetDynamicIslandOnlyPlaying(arg1) {
   return window['go']['main']['App']['SetDynamicIslandOnlyPlaying'](arg1);
 }

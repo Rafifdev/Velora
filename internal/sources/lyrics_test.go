@@ -190,3 +190,108 @@ func TestShouldPreferAndMatchStudioATV(t *testing.T) {
 		t.Fatalf("expected studio ATV pA8puuLjw4U, got ok=%v hit=%+v", ok, best)
 	}
 }
+
+func TestAlignLyricsWithCaptions(t *testing.T) {
+	// Case 1: Terbelah Jadi Dua MV (288s) with +23.66s intro dialogue and ~9.3s end credits
+	lrc := []LyricLine{
+		{TimeSec: 17.93, Text: "Cinta memang misteri"},
+		{TimeSec: 25.38, Text: "Terkadang ingkar janji"},
+		{TimeSec: 32.43, Text: "Buktinya kualami"},
+		{TimeSec: 232.86, Text: "Hatimu libatkan yang lain"},
+	}
+	asrCues := [][]CaptionCue{
+		{
+			{StartSec: 4.58, Text: "Halo yuk masuk", Words: tokenizeLyricWords("Halo yuk masuk")},
+			{StartSec: 41.59, Text: "Cinta memang misteri", Words: tokenizeLyricWords("Cinta memang misteri")},
+			{StartSec: 48.95, Text: "Terkadang ingkar janji", Words: tokenizeLyricWords("Terkadang ingkar janji")},
+			{StartSec: 55.96, Text: "Buktinya kualami", Words: tokenizeLyricWords("Buktinya kualami")},
+		},
+	}
+	aligned, ok := AlignLyricsWithCaptions(lrc, asrCues, 288)
+	if !ok {
+		t.Fatal("expected AlignLyricsWithCaptions to match Terbelah Jadi Dua MV cues")
+	}
+	if aligned[0].TimeSec < 41.45 || aligned[0].TimeSec > 41.70 {
+		t.Fatalf("expected line 0 shifted to ~41.59s (not +33s), got %.2f", aligned[0].TimeSec)
+	}
+
+	// Case 2: Translated English manual track ignored in favor of matching Indonesian ASR track
+	multiTracks := [][]CaptionCue{
+		{
+			{StartSec: 41.59, Text: "Love is such a mystery", Words: tokenizeLyricWords("Love is such a mystery")},
+			{StartSec: 48.95, Text: "Sometimes it breaks its promises", Words: tokenizeLyricWords("Sometimes it breaks its promises")},
+		},
+		{
+			{StartSec: 41.72, Text: "Cinta memang misteri", Words: tokenizeLyricWords("Cinta memang misteri")},
+			{StartSec: 48.95, Text: "Terkadang ingkar janji", Words: tokenizeLyricWords("Terkadang ingkar janji")},
+		},
+	}
+	aligned2, ok2 := AlignLyricsWithCaptions(lrc, multiTracks, 288)
+	if !ok2 || aligned2[0].TimeSec < 41.45 || aligned2[0].TimeSec > 41.80 {
+		t.Fatalf("expected ASR fallback track to align line 0 to ~41.6s, got ok=%v t=%.2f", ok2, aligned2[0].TimeSec)
+	}
+
+	// Case 3: Piecewise mid-video skit (+10s early, +35s after skit)
+	skitLrc := []LyricLine{
+		{TimeSec: 5.0, Text: "First verse line one"},
+		{TimeSec: 12.0, Text: "First verse line two"},
+		{TimeSec: 90.0, Text: "Second verse line one"},
+		{TimeSec: 98.0, Text: "Second verse line two"},
+	}
+	skitCues := [][]CaptionCue{
+		{
+			{StartSec: 15.0, Text: "First verse line one", Words: tokenizeLyricWords("First verse line one")},
+			{StartSec: 22.0, Text: "First verse line two", Words: tokenizeLyricWords("First verse line two")},
+			{StartSec: 125.0, Text: "Second verse line one", Words: tokenizeLyricWords("Second verse line one")},
+			{StartSec: 133.0, Text: "Second verse line two", Words: tokenizeLyricWords("Second verse line two")},
+		},
+	}
+	aligned3, ok3 := AlignLyricsWithCaptions(skitLrc, skitCues, 240)
+	if !ok3 {
+		t.Fatal("expected piecewise skit alignment to succeed")
+	}
+	if aligned3[0].TimeSec != 15.0 || aligned3[2].TimeSec != 125.0 {
+		t.Fatalf("expected piecewise +10s / +35s shift, got %.2f and %.2f", aligned3[0].TimeSec, aligned3[2].TimeSec)
+	}
+}
+
+func TestPickBestLRCLIBRejectsWrongArtist(t *testing.T) {
+	list := []lrclibResponse{
+		{
+			TrackName:    "Million Miles (VIP Mix)",
+			ArtistName:   "Inpetto",
+			Duration:     183,
+			SyncedLyrics: "[00:08.00] Wrong artist song",
+		},
+		{
+			TrackName:   "Million Miles",
+			ArtistName:  "Keenan Te",
+			Duration:    181,
+			PlainLyrics: "Right artist plain lyrics",
+		},
+	}
+	best := pickBestLRCLIB(list, "Million Miles", "Keenan Te", 183)
+	if best.ArtistName != "Keenan Te" {
+		t.Fatalf("expected Keenan Te, got %q", best.ArtistName)
+	}
+}
+
+func TestWordTimedLyricsParsers(t *testing.T) {
+	elrc := "[00:10.00] <00:10.00>Hello <00:10.60>world <00:11.40>today"
+	lines := parseLRC(elrc)
+	if len(lines) != 1 || lines[0].Text != "Hello world today" || len(lines[0].Words) != 3 {
+		t.Fatalf("unexpected Enhanced LRC parse result: %+v", lines)
+	}
+	if lines[0].Words[1].TimeSec != 10.60 || lines[0].Words[0].DurationSec < 0.59 {
+		t.Fatalf("unexpected Enhanced LRC word timing: %+v", lines[0].Words)
+	}
+
+	yrc := "[12000,2500](12000,450,0)Cinta (12450,800,0)memang (13250,1100,0)misteri"
+	yLines := parseNetEaseYRC(yrc)
+	if len(yLines) != 1 || yLines[0].Text != "Cinta memang misteri" || len(yLines[0].Words) != 3 {
+		t.Fatalf("unexpected NetEase YRC parse result: %+v", yLines)
+	}
+	if yLines[0].Words[1].TimeSec != 12.45 || yLines[0].Words[1].DurationSec != 0.80 {
+		t.Fatalf("unexpected YRC word timing: %+v", yLines[0].Words[1])
+	}
+}

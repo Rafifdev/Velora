@@ -203,7 +203,19 @@
       ? `https://music.youtube.com/watch?v=${track.externalId}`
       : `${track.title}${track.artistName ? ` — ${track.artistName}` : ''}`;
     if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-      void navigator.clipboard.writeText(link);
+      void navigator.clipboard.writeText(link).catch(() => {});
+    } else if (typeof document !== 'undefined') {
+      const ta = document.createElement('textarea');
+      ta.value = link;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+      } catch {}
+      ta.remove();
     }
     onClose();
   }

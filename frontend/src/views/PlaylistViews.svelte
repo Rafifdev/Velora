@@ -1,12 +1,12 @@
 <script lang="ts">
   import { extractDominantColor, formatDuration, formatTotalMinutes, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
+  import { veloraMarquee } from '../lib/marquee';
   import type { Playlist, PlaylistDetail, Track, ViewRoute, YTMusicTrack } from '../lib/types';
   import { tr, type LangCode } from '../lib/i18n';
   import CoverImage from '../components/CoverImage.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import EqIndicator from '../components/EqIndicator.svelte';
   import Icon from '../components/Icon.svelte';
-  import MobileTopHeader from '../components/MobileTopHeader.svelte';
   import ModalDialog from '../components/ModalDialog.svelte';
   import TrackActionMenu from '../components/TrackActionMenu.svelte';
 
@@ -52,6 +52,7 @@
     onImportM3U: () => void;
     onImportSpotify?: (url: string) => Promise<void>;
     activeDownloadsCount?: number;
+    downloadProgressPct?: number;
     onNavigate?: (route: ViewRoute) => void;
     onBack?: () => void;
     lang?: LangCode;
@@ -99,6 +100,7 @@
     onImportM3U,
     onImportSpotify,
     activeDownloadsCount = 0,
+    downloadProgressPct = 0,
     onNavigate,
     onBack,
     lang = 'en'
@@ -110,8 +112,28 @@
   let dragIndex = $state<number | null>(null);
   let tabFilter = $state<'all' | 'local' | 'ytmusic'>('all');
   let playlistQuery = $state('');
-  let mobileGridMode = $state(false);
+  let mobileSearchOpen = $state(false);
   let recSeed = $state(Math.floor(Math.random() * 100000));
+
+  function shelfEdgeFade(node: HTMLElement) {
+    const update = () => {
+      const hasOverflow = node.scrollWidth > node.clientWidth + 4;
+      const atStart = node.scrollLeft <= 4;
+      const atEnd = node.scrollLeft + node.clientWidth >= node.scrollWidth - 4;
+      node.dataset.fadeStart = hasOverflow && !atStart ? 'true' : 'false';
+      node.dataset.fadeEnd = hasOverflow && !atEnd ? 'true' : 'false';
+    };
+    update();
+    node.addEventListener('scroll', update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(node);
+    return {
+      destroy() {
+        node.removeEventListener('scroll', update);
+        ro.disconnect();
+      }
+    };
+  }
   let openActionTrackId = $state<number | null>(null);
   let failedRecCovers = $state<Record<string, boolean>>({});
   let importModalOpen = $state(false);
@@ -315,10 +337,9 @@
 
     <div class="relative z-10 px-6 sm:px-10 pt-4 pb-10 flex-1 flex flex-col gap-3">
       <div
-        class="-mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] gap-4 px-3 py-2 text-[11px] font-bold uppercase tracking-wider"
+        class="-mx-2 hidden sm:grid grid-cols-[minmax(0,1fr)_52px_32px] md:grid-cols-[minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] gap-4 px-3 py-2 text-[11px] font-bold uppercase tracking-wider"
         style="color: var(--md-sys-color-on-surface-variant);"
       >
-        <div class="text-center">#</div>
         <div>{tr(lang, 'nav.titleCol')}</div>
         <div class="hidden md:block">{tr(lang, 'nav.playsCol')}</div>
         <div class="hidden md:block">{tr(lang, 'nav.addedCol')}</div>
@@ -329,10 +350,7 @@
       </div>
       <div class="space-y-1.5">
         {#each [62, 48, 70, 54, 66, 44, 58] as titleW, idx (idx)}
-          <div class="-mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] gap-4 px-3 py-2 items-center rounded-lg">
-            <div class="flex justify-center">
-              <div class="w-4 h-3 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
-            </div>
+          <div class="-mx-2 grid grid-cols-[minmax(0,1fr)_52px_32px] md:grid-cols-[minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] gap-4 px-3 py-2 items-center rounded-lg">
             <div class="flex items-center gap-3 min-w-0">
               <div class="w-10 h-10 rounded-md bg-[var(--md-sys-color-surface-container-highest)] shrink-0"></div>
               <div class="space-y-1.5 min-w-0 flex-1">
@@ -396,8 +414,8 @@
             <Icon name="arrow-left" size={22} />
           </button>
           <span
-            class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold"
-            style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
+            class="text-[11px] font-semibold uppercase tracking-wider"
+            style="color: var(--md-sys-color-on-surface-variant);"
           >
             {pl.isLocal ? tr(lang, 'nav.localPlaylist') : tr(lang, 'nav.savedPlaylist')}
           </span>
@@ -413,78 +431,146 @@
         </div>
       {/if}
 
-      <div class="relative z-10 flex flex-col sm:flex-row sm:items-end gap-4 sm:gap-6">
-        <button
-          type="button"
-          onclick={startEdit}
-          aria-label="Edit detail playlist"
-          class="w-44 h-44 sm:w-52 sm:h-52 mx-auto sm:mx-0 rounded-2xl overflow-hidden shrink-0 shadow-2xl flex items-center justify-center cursor-pointer transition-transform hover:scale-[1.02]"
-          style={plCover
-            ? 'background-color: var(--md-sys-color-surface-container-highest);'
-            : `background: linear-gradient(135deg, color-mix(in srgb, ${heroTint} 55%, var(--md-sys-color-primary-container)) 0%, color-mix(in srgb, ${heroTint} 85%, var(--md-sys-color-surface-container-highest)) 100%);`}
-        >
-          {#if plCover}
-            <CoverImage
-              src={plCover}
-              fallbackIcon="playlist"
-              iconSize={56}
-              isVideoThumb={isYTVideoThumb(plCover)}
-              loading="eager"
-            />
-          {:else}
-            <Icon name="playlist" weight="fill" size={56} class="text-white drop-shadow-sm" />
-          {/if}
-        </button>
-
-        <div class="min-w-0 flex-1 space-y-2 text-center sm:text-left">
-          <div class="hidden sm:flex flex-wrap items-center gap-2 text-xs font-semibold">
-            <span
-              class="px-2.5 py-0.5 rounded-full"
-              style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
-            >
-              {pl.isLocal ? tr(lang, 'nav.localPlaylist') : tr(lang, 'nav.savedPlaylist')}
-            </span>
-          </div>
-
-          <button type="button" onclick={startEdit} class="block max-w-full text-left cursor-pointer group">
-            <h1
-              class="{pl.name.length > 44
-                ? 'text-lg sm:text-xl lg:text-[24px]'
-                : pl.name.length > 24
-                  ? 'text-xl sm:text-2xl lg:text-[28px]'
-                  : 'text-2xl sm:text-3xl lg:text-[38px]'} font-bold tracking-tight leading-[1.18] line-clamp-2 group-hover:underline decoration-2 underline-offset-4"
-              style="color: var(--md-sys-color-on-surface);"
-            >
-              {pl.name}
-            </h1>
+      <div class="relative z-10 flex flex-col gap-4 sm:gap-5">
+        <div class="flex flex-row items-center sm:items-end gap-4 sm:gap-6">
+          <button
+            type="button"
+            onclick={startEdit}
+            aria-label="Edit detail playlist"
+            class="w-28 h-28 sm:w-52 sm:h-52 rounded-xl sm:rounded-2xl overflow-hidden shrink-0 shadow-2xl flex items-center justify-center cursor-pointer transition-transform hover:scale-[1.02]"
+            style={plCover
+              ? 'background-color: var(--md-sys-color-surface-container-highest);'
+              : `background: linear-gradient(135deg, color-mix(in srgb, ${heroTint} 55%, var(--md-sys-color-primary-container)) 0%, color-mix(in srgb, ${heroTint} 85%, var(--md-sys-color-surface-container-highest)) 100%);`}
+          >
+            {#if plCover}
+              <CoverImage
+                src={plCover}
+                fallbackIcon="playlist"
+                iconSize={48}
+                isVideoThumb={isYTVideoThumb(plCover)}
+                loading="eager"
+              />
+            {:else}
+              <Icon name="playlist" weight="fill" size={48} class="text-white drop-shadow-sm" />
+            {/if}
           </button>
 
-          <div
-            class="flex flex-wrap items-center justify-center sm:justify-start gap-x-2.5 gap-y-1 text-sm"
-            style="color: var(--md-sys-color-on-surface-variant);"
-          >
-            {#if pl.description}
-              <span class="font-medium" style="color: var(--md-sys-color-on-surface);">{pl.description}</span>
-              <span>•</span>
-            {/if}
-            <span class="tabular-nums">{detail.tracks.length} {tr(lang, 'nav.songs').toLowerCase()}</span>
-            <span>•</span>
-            <span class="tabular-nums">{formatTotalMinutes(pl.totalSec)}</span>
-          </div>
+          <div class="min-w-0 flex-1 space-y-1.5 sm:space-y-2 text-left">
+            <div class="hidden sm:flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wider">
+              <span style="color: var(--md-sys-color-on-surface-variant);">
+                {pl.isLocal ? tr(lang, 'nav.localPlaylist') : tr(lang, 'nav.savedPlaylist')}
+              </span>
+            </div>
 
-          <div class="pt-1 flex flex-wrap items-center justify-center sm:justify-start gap-3">
-            <button
-              type="button"
-              disabled={detail.tracks.length === 0}
-              onclick={() => detail.tracks[0] && onPlayTrack(detail.tracks[0], detail.tracks)}
-              title={tr(lang, 'nav.playAll')}
-              aria-label={tr(lang, 'nav.playAll')}
-              class="w-11 h-11 rounded-full border-0 outline-none shadow-none inline-flex items-center justify-center cursor-pointer transition-transform duration-150 hover:scale-[1.04] active:scale-95 disabled:opacity-40"
-              style="background-color: {heroAccent}; color: var(--md-sys-color-on-primary);"
-            >
-              <Icon name="play" weight="fill" size={20} />
+            <button type="button" onclick={startEdit} class="block w-full min-w-0 text-left cursor-pointer group">
+              <h1
+                class="text-xl sm:text-3xl lg:text-[36px] font-bold tracking-tight leading-[1.2] line-clamp-2 break-words group-hover:underline decoration-2 underline-offset-4"
+                style="color: var(--md-sys-color-on-surface);"
+              >
+                {pl.name}
+              </h1>
             </button>
 
+            <div class="space-y-0.5 text-xs sm:text-sm" style="color: var(--md-sys-color-on-surface-variant);">
+              {#if pl.description}
+                <div class="font-medium truncate" style="color: var(--md-sys-color-on-surface);">
+                  {pl.description}
+                </div>
+              {/if}
+              <div class="tabular-nums truncate">
+                {detail.tracks.length} {tr(lang, 'nav.songs').toLowerCase()} • {formatTotalMinutes(pl.totalSec)}
+              </div>
+            </div>
+
+            <div class="hidden sm:flex pt-1 flex-wrap items-center justify-start gap-3">
+              <button
+                type="button"
+                disabled={detail.tracks.length === 0}
+                onclick={() => detail.tracks[0] && onPlayTrack(detail.tracks[0], detail.tracks)}
+                title={tr(lang, 'nav.playAll')}
+                aria-label={tr(lang, 'nav.playAll')}
+                class="w-11 h-11 rounded-full border-0 outline-none shadow-none inline-flex items-center justify-center cursor-pointer transition-transform duration-150 hover:scale-[1.04] active:scale-95 disabled:opacity-40"
+                style="background-color: {heroAccent}; color: var(--md-sys-color-on-primary);"
+              >
+                <Icon name="play" weight="fill" size={20} />
+              </button>
+
+              <button
+                type="button"
+                disabled={detail.tracks.length === 0}
+                onclick={() => playShuffledPlaylist(detail.tracks)}
+                title={tr(lang, 'nav.shuffle')}
+                aria-label={tr(lang, 'nav.shuffle')}
+                aria-pressed={shuffle}
+                class="w-11 h-11 rounded-full relative inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110 disabled:opacity-40"
+                style={shuffle
+                  ? `background-color: color-mix(in srgb, ${heroAccent} 24%, var(--md-sys-color-surface-container-high)); color: ${heroAccent};`
+                  : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);'}
+              >
+                <Icon name="shuffle" weight={shuffle ? 'bold' : 'regular'} size={18} />
+                {#if shuffle}
+                  <span
+                    class="absolute bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full"
+                    style="background-color: {heroAccent};"
+                  ></span>
+                {/if}
+              </button>
+
+              {#if pl.isLocal}
+                <button
+                  type="button"
+                  onclick={() => onExportM3U(pl.id)}
+                  title="Export .M3U"
+                  aria-label="Export .M3U"
+                  class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors"
+                  style="color: var(--md-sys-color-on-surface);"
+                >
+                  <Icon name="download" size={18} />
+                </button>
+              {/if}
+
+              <button
+                type="button"
+                onclick={() => (confirmDeleteOpen = true)}
+                title={tr(lang, 'nav.deletePlaylist')}
+                aria-label={tr(lang, 'nav.deletePlaylist')}
+                class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-rose-500/20 hover:text-rose-400 transition-colors"
+                style="color: var(--md-sys-color-on-surface);"
+              >
+                <Icon name="trash" size={18} />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="sm:hidden flex items-center justify-between gap-3">
+          <div class="flex items-center gap-3">
+            {#if pl.isLocal}
+              <button
+                type="button"
+                onclick={() => onExportM3U(pl.id)}
+                title="Export .M3U"
+                aria-label="Export .M3U"
+                class="min-w-11 min-h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors"
+                style="color: var(--md-sys-color-on-surface);"
+              >
+                <Icon name="download" size={18} />
+              </button>
+            {/if}
+
+            <button
+              type="button"
+              onclick={() => (confirmDeleteOpen = true)}
+              title={tr(lang, 'nav.deletePlaylist')}
+              aria-label={tr(lang, 'nav.deletePlaylist')}
+              class="min-w-11 min-h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-rose-500/20 hover:text-rose-400 transition-colors"
+              style="color: var(--md-sys-color-on-surface);"
+            >
+              <Icon name="trash" size={18} />
+            </button>
+          </div>
+
+          <div class="flex items-center gap-3">
             <button
               type="button"
               disabled={detail.tracks.length === 0}
@@ -492,7 +578,7 @@
               title={tr(lang, 'nav.shuffle')}
               aria-label={tr(lang, 'nav.shuffle')}
               aria-pressed={shuffle}
-              class="w-11 h-11 rounded-full relative inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110 disabled:opacity-40"
+              class="min-w-11 min-h-11 rounded-full relative inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110 disabled:opacity-40"
               style={shuffle
                 ? `background-color: color-mix(in srgb, ${heroAccent} 24%, var(--md-sys-color-surface-container-high)); color: ${heroAccent};`
                 : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);'}
@@ -506,28 +592,16 @@
               {/if}
             </button>
 
-            {#if pl.isLocal}
-              <button
-                type="button"
-                onclick={() => onExportM3U(pl.id)}
-                title="Export .M3U"
-                aria-label="Export .M3U"
-                class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors"
-                style="color: var(--md-sys-color-on-surface);"
-              >
-                <Icon name="download" size={18} />
-              </button>
-            {/if}
-
             <button
               type="button"
-              onclick={() => (confirmDeleteOpen = true)}
-              title={tr(lang, 'nav.deletePlaylist')}
-              aria-label={tr(lang, 'nav.deletePlaylist')}
-              class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-rose-500/20 hover:text-rose-400 transition-colors"
-              style="color: var(--md-sys-color-on-surface);"
+              disabled={detail.tracks.length === 0}
+              onclick={() => detail.tracks[0] && onPlayTrack(detail.tracks[0], detail.tracks)}
+              title={tr(lang, 'nav.playAll')}
+              aria-label={tr(lang, 'nav.playAll')}
+              class="min-w-11 min-h-11 rounded-full border-0 outline-none shadow-none inline-flex items-center justify-center cursor-pointer transition-transform duration-150 hover:scale-[1.04] active:scale-95 disabled:opacity-40"
+              style="background-color: {heroAccent}; color: var(--md-sys-color-on-primary);"
             >
-              <Icon name="trash" size={18} />
+              <Icon name="play" weight="fill" size={20} />
             </button>
           </div>
         </div>
@@ -541,10 +615,9 @@
       {#if detail.tracks.length > 0}
         <div class="space-y-1">
           <div
-            class="-mx-2 hidden sm:grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] items-center gap-4 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider"
+            class="-mx-2 hidden sm:grid grid-cols-[minmax(0,1fr)_52px_32px] md:grid-cols-[minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] items-center gap-4 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider"
             style="color: var(--md-sys-color-on-surface-variant);"
           >
-            <span class="text-center">#</span>
             <span>{tr(lang, 'nav.titleCol')}</span>
             <span class="hidden md:block">{tr(lang, 'nav.playsCol')}</span>
             <span class="hidden md:block">{tr(lang, 'nav.addedCol')}</span>
@@ -565,48 +638,11 @@
                 ondragstart={() => (dragIndex = idx)}
                 ondragover={(e) => e.preventDefault()}
                 ondrop={() => handleDrop(idx)}
-                class="group relative -mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] items-center gap-3 sm:gap-4 px-3 py-2.5 sm:py-2 min-h-14 sm:min-h-0 rounded-lg transition-colors duration-150 {active
+                class="velora-press group relative -mx-2 grid grid-cols-[minmax(0,1fr)_52px_32px] md:grid-cols-[minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] items-center gap-3 sm:gap-4 px-3 py-2.5 sm:py-2 min-h-14 sm:min-h-0 rounded-lg transition-colors duration-150 {active
                   ? 'bg-[var(--md-sys-color-state-active)]'
                   : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
                 style="color: var(--md-sys-color-on-surface);"
               >
-                <div class="flex items-center justify-center">
-                  {#if active && isPlaying}
-                    <EqIndicator color={heroAccent} class="group-hover:hidden" />
-                    <button
-                      type="button"
-                      onclick={() => (onTogglePlay ? onTogglePlay() : onPlayTrack(item, detail.tracks))}
-                      aria-label="{tr(lang, 'nav.pause')} {item.title}"
-                      class="hidden group-hover:flex items-center justify-center cursor-pointer"
-                      style="color: {heroAccent};"
-                    >
-                      <Icon name="pause" weight="fill" size={14} />
-                    </button>
-                  {:else if active && !isPlaying}
-                    <button
-                      type="button"
-                      onclick={() => (onTogglePlay ? onTogglePlay() : onPlayTrack(item, detail.tracks))}
-                      aria-label="{tr(lang, 'nav.play')} {item.title}"
-                      class="flex items-center justify-center cursor-pointer"
-                      style="color: {heroAccent};"
-                    >
-                      <Icon name="play" weight="fill" size={14} />
-                    </button>
-                  {:else}
-                    <span class="text-xs font-medium tabular-nums group-hover:hidden opacity-65">
-                      {idx + 1}
-                    </span>
-                    <button
-                      type="button"
-                      onclick={() => onPlayTrack(item, detail.tracks)}
-                      aria-label="{tr(lang, 'nav.play')} {item.title}"
-                      class="hidden group-hover:flex items-center justify-center cursor-pointer"
-                      style="color: {heroAccent};"
-                    >
-                      <Icon name="play" weight="fill" size={14} />
-                    </button>
-                  {/if}
-                </div>
 
                 <button
                   type="button"
@@ -802,20 +838,20 @@
         </div>
       </div>
 
-      <div class="flex items-center justify-end gap-2 pt-1">
-        <button
-          type="button"
-          onclick={() => (editing = false)}
-          class="h-10 px-5 rounded-full bg-[var(--md-sys-color-surface-container)] hover:bg-[var(--md-sys-color-surface-container-highest)] text-xs font-semibold cursor-pointer"
-        >
-          {tr(lang, 'nav.cancel')}
-        </button>
+      <div class="flex flex-col gap-2 pt-1">
         <button
           type="submit"
-          class="h-10 px-7 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.03] active:scale-95"
+          class="w-full min-h-11 rounded-full text-xs font-bold cursor-pointer transition-transform duration-150 hover:scale-[1.01] active:scale-95"
           style="background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);"
         >
           {tr(lang, 'nav.save')}
+        </button>
+        <button
+          type="button"
+          onclick={() => (editing = false)}
+          class="w-full min-h-11 rounded-full bg-[var(--md-sys-color-surface-container)] hover:bg-[var(--md-sys-color-surface-container-highest)] text-xs font-semibold cursor-pointer"
+        >
+          {tr(lang, 'nav.cancel')}
         </button>
       </div>
     </form>
@@ -825,19 +861,61 @@
     class="relative h-full w-full overflow-y-auto rounded-none sm:rounded-xl select-none flex flex-col"
     style="background-color: var(--md-sys-color-surface-container-low);"
   >
-    {#if onNavigate}
-      <MobileTopHeader
-        title={tr(lang, 'nav.playlists')}
-        {lang}
-        {activeDownloadsCount}
-        {onNavigate}
-      />
-    {/if}
+    <div class="sm:hidden px-4 pt-3 pb-1 space-y-2.5">
+      <div class="flex items-center justify-between gap-2">
+        <h1
+          class="text-2xl font-bold tracking-tight truncate min-w-0 flex-1"
+          style="color: var(--md-sys-color-on-surface);"
+        >
+          {tr(lang, 'nav.playlists')}
+        </h1>
 
-    <div class="sm:hidden px-4 pt-2 pb-1 space-y-2.5">
-      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-0.5 shrink-0">
+          <button
+            type="button"
+            onclick={() => {
+              mobileSearchOpen = !mobileSearchOpen;
+              if (!mobileSearchOpen) playlistQuery = '';
+            }}
+            aria-label={tr(lang, 'nav.search')}
+            title={tr(lang, 'nav.search')}
+            class="min-w-11 min-h-11 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+            style="color: {mobileSearchOpen ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-on-surface-variant)'};"
+          >
+            <Icon name={mobileSearchOpen ? 'x' : 'magnifying-glass'} size={21} />
+          </button>
+
+          <button
+            type="button"
+            onclick={onCreatePlaylist}
+            aria-label={tr(lang, 'nav.createPlaylist')}
+            title={tr(lang, 'nav.createPlaylist')}
+            class="min-w-11 min-h-11 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+            style="color: var(--md-sys-color-on-surface-variant);"
+          >
+            <Icon name="plus" weight="bold" size={21} />
+          </button>
+
+          <button
+            type="button"
+            onclick={() => {
+              spotifyError = '';
+              spotifyUrl = '';
+              importModalOpen = true;
+            }}
+            aria-label={tr(lang, 'nav.importPlaylist')}
+            title={tr(lang, 'nav.importPlaylist')}
+            class="min-w-11 min-h-11 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+            style="color: var(--md-sys-color-on-surface-variant);"
+          >
+            <Icon name="upload-simple" size={21} />
+          </button>
+        </div>
+      </div>
+
+      {#if mobileSearchOpen}
         <div
-          class="flex-1 min-w-0 h-11 px-3.5 rounded-xl flex items-center gap-2 border"
+          class="min-h-11 px-3.5 rounded-xl flex items-center gap-2 border"
           style="background-color: var(--md-sys-color-surface-container); border-color: color-mix(in srgb, var(--md-sys-color-outline-variant) 45%, transparent);"
         >
           <Icon name="magnifying-glass" size={17} style="color: var(--md-sys-color-on-surface-variant);" />
@@ -846,46 +924,11 @@
             bind:value={playlistQuery}
             placeholder={lang === 'id' ? 'Cari playlist...' : 'Search playlists...'}
             aria-label={lang === 'id' ? 'Cari playlist' : 'Search playlists'}
-            class="w-full bg-transparent text-sm outline-none"
+            class="w-full min-h-11 bg-transparent text-sm outline-none"
             style="color: var(--md-sys-color-on-surface);"
           />
         </div>
-
-        <button
-          type="button"
-          onclick={() => (mobileGridMode = !mobileGridMode)}
-          aria-label={mobileGridMode ? 'List view' : 'Grid view'}
-          class="min-w-11 min-h-11 rounded-xl flex items-center justify-center shrink-0 cursor-pointer transition-colors"
-          style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
-        >
-          <Icon name={mobileGridMode ? 'list-bullets' : 'squares-four'} size={20} />
-        </button>
-      </div>
-
-      <div class="flex items-center gap-2">
-        <button
-          type="button"
-          onclick={onCreatePlaylist}
-          class="flex-1 min-h-11 px-4 rounded-full text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
-          style="background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);"
-        >
-          <Icon name="plus" weight="bold" size={15} />
-          <span>{tr(lang, 'nav.createPlaylist')}</span>
-        </button>
-        <button
-          type="button"
-          onclick={() => {
-            spotifyError = '';
-            spotifyUrl = '';
-            importModalOpen = true;
-          }}
-          class="min-h-11 px-4 rounded-full text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-          style="background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);"
-        >
-          <Icon name="upload-simple" size={15} />
-          <span>{tr(lang, 'nav.importPlaylist')}</span>
-        </button>
-      </div>
+      {/if}
     </div>
 
     <section
@@ -938,10 +981,12 @@
     </section>
 
     <div
-      class="relative z-10 px-4 sm:px-8 pt-2.5 sm:pt-5 pb-10 flex-1 flex flex-col gap-4 sm:gap-5"
-      style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-primary-container) 26%, var(--md-sys-color-surface-container-low)) 0%, var(--md-sys-color-surface-container-low) 220px);"
+      class="relative z-10 px-4 sm:px-8 pt-2.5 sm:pt-5 pb-10 flex-1 flex flex-col gap-4 sm:gap-5 bg-[var(--md-sys-color-surface-container-low)] sm:bg-[linear-gradient(180deg,color-mix(in_srgb,var(--md-sys-color-primary-container)_26%,var(--md-sys-color-surface-container-low))_0%,var(--md-sys-color-surface-container-low)_220px)]"
     >
-      <div class="flex flex-nowrap items-center gap-2 overflow-x-auto no-scrollbar">
+      <div
+        use:shelfEdgeFade
+        class="flex flex-nowrap items-center gap-2 overflow-x-auto no-scrollbar velora-shelf-scroll pb-0.5"
+      >
         {#each [
           { id: 'all', label: tr(lang, 'nav.all') },
           { id: 'ytmusic', label: tr(lang, 'nav.savedPlaylists') },
@@ -991,13 +1036,12 @@
           </button>
         </EmptyState>
       {:else}
-        {#if !mobileGridMode}
           <div class="sm:hidden space-y-2">
             {#each visiblePlaylists as pl (pl.id)}
               {@const cover = resolveCoverUrl(pl.coverUrl, mediaBaseUrl, 128)}
               {@const cardTint = pl.coverColor || 'var(--md-sys-color-primary)'}
               <article
-                class="min-h-[68px] p-2 rounded-2xl flex items-center gap-3.5 transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+                class="velora-press min-h-[68px] p-2 rounded-2xl flex items-center gap-3.5 transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
                 style="background-color: var(--md-sys-color-surface-container);"
               >
                 <button
@@ -1019,17 +1063,15 @@
                   </div>
 
                   <div class="min-w-0 flex-1">
-                    <div class="text-sm font-bold truncate" style="color: var(--md-sys-color-on-surface);">
-                      {pl.name}
+                    <div
+                      use:veloraMarquee={{ text: pl.name }}
+                      class="overflow-hidden text-sm font-bold"
+                      style="color: var(--md-sys-color-on-surface);"
+                    >
+                      <span class="inline-block whitespace-nowrap">{pl.name}</span>
                     </div>
-                    <div class="flex items-center gap-1.5 text-xs truncate mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-                      <span
-                        class="w-1.5 h-1.5 rounded-full shrink-0"
-                        style="background-color: {pl.isLocal ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-tertiary)'};"
-                      ></span>
-                      <span class="truncate">
-                        {pl.isLocal ? tr(lang, 'nav.localPlaylist') : tr(lang, 'nav.savedPlaylist')} • {pl.trackCount} {tr(lang, 'nav.songs').toLowerCase()}
-                      </span>
+                    <div class="text-xs truncate mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
+                      {pl.isLocal ? tr(lang, 'nav.localPlaylist') : tr(lang, 'nav.savedPlaylist')} • {pl.trackCount} {tr(lang, 'nav.songs').toLowerCase()}
                     </div>
                   </div>
                 </button>
@@ -1038,7 +1080,7 @@
                   type="button"
                   onclick={() => (onPlayPlaylist ? onPlayPlaylist(pl.id) : onOpenPlaylist(pl.id))}
                   aria-label="Putar {pl.name}"
-                  class="min-w-11 min-h-11 rounded-full flex items-center justify-center shrink-0 cursor-pointer shadow-sm"
+                  class="velora-press min-w-11 min-h-11 rounded-full flex items-center justify-center shrink-0 cursor-pointer shadow-sm"
                   style="background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);"
                 >
                   <Icon name="play" weight="fill" size={18} />
@@ -1046,9 +1088,9 @@
               </article>
             {/each}
           </div>
-        {/if}
 
-        <div class="{mobileGridMode ? 'velora-card-grid-7 sm:velora-playlist-grid-7' : 'hidden sm:grid velora-playlist-grid-7'}">
+        <div class="hidden sm:block">
+          <div class="velora-playlist-grid-7">
           {#each visiblePlaylists as pl (pl.id)}
             {@const cover = resolveCoverUrl(pl.coverUrl, mediaBaseUrl)}
             {@const cardTint = pl.coverColor || 'var(--md-sys-color-primary)'}
@@ -1095,6 +1137,7 @@
               </button>
             </div>
           {/each}
+          </div>
         </div>
       {/if}
     </div>

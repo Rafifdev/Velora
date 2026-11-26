@@ -558,6 +558,8 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 	marqueeElapsed float64,
 	diLang string,
 	isScrolling bool,
+	effLyricPos float64,
+	lyricSweep bool,
 ) bool {
 	if c.d2dDCRT == 0 || c.dwFactory == 0 || c.d2dBrush == 0 {
 		return false
@@ -704,7 +706,25 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 					inOp = contentOp * closedLyricProg
 					inY = cyExact + 3.0*u*(1.0-closedLyricProg)
 				}
-				c.drawD2DStr(inTxt, fClosed, pal.TextMain, inOp, (nx+w/2.0)*u-maxBoxW/2.0, inY-boxH/2.0, maxBoxW, boxH, true)
+				if lyricSweep && len(lyrics) > 0 && lyricIdx >= 0 && lyricIdx < len(lyrics) && inTxt == strings.TrimSpace(lyrics[lyricIdx].Text) {
+					hasNext := lyricIdx+1 < len(lyrics)
+					nextStart := 0.0
+					if hasNext {
+						nextStart = lyrics[lyricIdx+1].TimeSec
+					}
+					swProg := computeLineSweepProgressFromLine(lyrics[lyricIdx], nextStart, hasNext, effLyricPos)
+					textW, _ := c.measureDWriteText(inTxt, fClosed, maxBoxW, boxH)
+					visW := math.Min(maxBoxW, textW)
+					textLeft := (nx+w/2.0)*u - visW/2.0
+					c.drawD2DStr(inTxt, fClosed, pal.TextMain, 0.48*inOp, (nx+w/2.0)*u-maxBoxW/2.0, inY-boxH/2.0, maxBoxW, boxH, true)
+					if swProg > 0.001 && visW > 1.0 {
+						c.pushD2DClip(textLeft-1.0, inY-boxH/2.0, visW*swProg+2.0, boxH)
+						c.drawD2DStr(inTxt, fClosed, pal.TextMain, inOp, (nx+w/2.0)*u-maxBoxW/2.0, inY-boxH/2.0, maxBoxW, boxH, true)
+						c.popD2DClip()
+					}
+				} else {
+					c.drawD2DStr(inTxt, fClosed, pal.TextMain, inOp, (nx+w/2.0)*u-maxBoxW/2.0, inY-boxH/2.0, maxBoxW, boxH, true)
+				}
 			}
 			c.popD2DClip()
 		} else {
@@ -886,6 +906,65 @@ func (c *dynamicIslandController) drawVeloraTextD2D(
 			}
 			if i == hoverLyric && opFactor < 0.95 {
 				opFactor = 0.95
+			}
+
+			if i == lyricIdx && lyricSweep && strings.TrimSpace(line.Text) != "" {
+				hasNext := i+1 < len(lyrics)
+				nextStart := 0.0
+				if hasNext {
+					nextStart = lyrics[i+1].TimeSec
+				}
+				swProg := computeLineSweepProgressFromLine(line, nextStart, hasNext, effLyricPos)
+				fLyrNoWrap := c.getDWriteTextFormat(2, 13.8*u, dwTextAlignLeading, dwParaAlignNear, false, false)
+				words := strings.Fields(line.Text)
+				type vLine struct {
+					text string
+					w    float64
+					h    float64
+				}
+				var vlines []vLine
+				curLine := ""
+				for _, wd := range words {
+					cand := wd
+					if curLine != "" {
+						cand = curLine + " " + wd
+					}
+					cw, _ := c.measureDWriteText(cand, fLyrNoWrap, 4096.0*u, 100.0*u)
+					if curLine != "" && cw > wrapW {
+						lw, lh := c.measureDWriteText(curLine, fLyrNoWrap, wrapW+4.0*u, 100.0*u)
+						vlines = append(vlines, vLine{text: curLine, w: lw, h: lh})
+						curLine = wd
+					} else {
+						curLine = cand
+					}
+				}
+				if curLine != "" {
+					lw, lh := c.measureDWriteText(curLine, fLyrNoWrap, wrapW+4.0*u, 100.0*u)
+					vlines = append(vlines, vLine{text: curLine, w: lw, h: lh})
+				}
+				totalW := 0.0
+				for _, vl := range vlines {
+					totalW += vl.w
+				}
+				if len(vlines) > 0 && totalW > 0.5 {
+					litBudget := totalW * swProg
+					curY := mapY(yTop)
+					litAlpha := opFactor * contentOp * maskAlpha
+					dimAlpha := 0.48 * litAlpha
+					for _, vl := range vlines {
+						vh := math.Max(16.0*u, vl.h)
+						c.drawD2DStr(vl.text, fLyrWrap, onPrimCont, dimAlpha, mapX(260), curY, wrapW, vh+4*u, true)
+						vlLit := math.Max(0, math.Min(vl.w, litBudget))
+						litBudget -= vl.w
+						if vlLit > 0.5 {
+							c.pushD2DClip(mapX(260)-1.0, curY-1.0, vlLit+2.0, vh+4*u)
+							c.drawD2DStr(vl.text, fLyrWrap, onPrimCont, litAlpha, mapX(260), curY, wrapW, vh+4*u, true)
+							c.popD2DClip()
+						}
+						curY += vh
+					}
+					continue
+				}
 			}
 
 			c.drawD2DStr(line.Text, fLyrWrap, onPrimCont, opFactor*contentOp*maskAlpha, mapX(260), mapY(yTop), wrapW, lineHeights[i]*u+4*u, true)

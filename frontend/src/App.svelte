@@ -35,6 +35,8 @@
   import Sidebar from './components/Sidebar.svelte';
   import RightPanel from './components/RightPanel.svelte';
   import PlayerBar from './components/PlayerBar.svelte';
+  import MobileNowPlaying from './components/MobileNowPlaying.svelte';
+  import MobileQueueSheet from './components/MobileQueueSheet.svelte';
   import SplashScreen from './components/SplashScreen.svelte';
 
   import HomeView from './views/HomeView.svelte';
@@ -67,6 +69,7 @@
   let jamConnected = $state(false);
   let isMobile = $state(false);
   let mobileShowQueue = $state(false);
+  let mobileSheetMode = $state<'queue' | 'devices'>('queue');
   let mobileMenuOpen = $state(false);
   let mobileNowPlayingOpen = $state(false);
   let mainScrollEl: HTMLElement | undefined = $state();
@@ -108,9 +111,9 @@
   let showDevDummyDownload = $state(true);
   const devDummyDownload: DownloadProgress = {
     trackId: -99901,
-    externalId: 'dev-dummy-download',
-    title: 'Midnight City (Velora Lossless)',
-    artist: 'M83',
+    externalId: '5F28ye50-Kc',
+    title: 'Teh Hijau',
+    artist: 'Tulus',
     status: 'downloading',
     progress: 64
   };
@@ -124,6 +127,12 @@
   const activeDownloadsCount = $derived(
     activeDownloadsList.filter((d) => d.status === 'queued' || d.status === 'downloading').length
   );
+  const downloadProgressPct = $derived.by(() => {
+    const active = activeDownloadsList.filter((d) => d.status === 'queued' || d.status === 'downloading');
+    if (active.length === 0) return 0;
+    const sum = active.reduce((acc, d) => acc + Math.max(0, Math.min(100, d.progress || 0)), 0);
+    return Math.round(sum / active.length);
+  });
   let albums = $state<Album[]>([]);
   let artists = $state<Artist[]>([]);
   let playlists = $state<Playlist[]>([]);
@@ -179,7 +188,7 @@
     currentRoute.name !== 'home' && currentRoute.name !== 'sources'
   );
 
-  function routeExitFade(node: HTMLElement, { duration = 140 }: { duration?: number } = {}) {
+  function routeExitFade(node: HTMLElement, { duration = 180, shiftX = 0 }: { duration?: number; shiftX?: number } = {}) {
     const top = node.offsetTop;
     const clipHeight = mainScrollEl?.clientHeight || node.parentElement?.clientHeight || 0;
     node.style.position = 'absolute';
@@ -195,7 +204,7 @@
     return {
       duration,
       easing: cubicOut,
-      css: (t: number) => `opacity: ${t};`
+      css: (t: number, u: number) => `opacity: ${t}; transform: translate3d(${(shiftX * u).toFixed(2)}px, ${(u * -4).toFixed(2)}px, 0);`
     };
   }
 
@@ -1155,6 +1164,7 @@
       getPrefValue(preferences, 'dynamicIsland.coverSpin') !== 'false',
       getPrefValue(preferences, 'dynamicIsland.closedCoverSpin') === 'true'
     );
+    api.setDynamicIslandLyricSweep(getPrefValue(preferences, 'dynamicIsland.lyricSweep') !== 'false');
     if (preferences['general.zoomLevel']) {
       const z = Number(preferences['general.zoomLevel']);
       if (Number.isFinite(z)) applyZoom(z, false);
@@ -1317,6 +1327,9 @@
         getPrefValue(preferences, 'dynamicIsland.showClosedProgress') !== 'false',
         getPrefValue(preferences, 'dynamicIsland.progressStyle') || 'thin'
       );
+    }
+    if (patch['dynamicIsland.lyricSweep'] !== undefined) {
+      api.setDynamicIslandLyricSweep(patch['dynamicIsland.lyricSweep'] !== 'false');
     }
     if (
       patch['dynamicIsland.coverStyle'] !== undefined ||
@@ -3431,6 +3444,7 @@
     }
     const fav = await api.toggleFavoriteTrack(targetId);
     tracks = tracks.map((t) => (t.id === targetId ? { ...t, isFavorite: fav } : t));
+    detailTracks = detailTracks.map((t) => (t.id === targetId ? { ...t, isFavorite: fav } : t));
     queue = queue.map((t) => (t.id === targetId || (track?.externalId && t.externalId === track.externalId) ? { ...t, id: targetId, isFavorite: fav } : t));
     if (currentTrack && (currentTrack.id === targetId || (track?.externalId && currentTrack.externalId === track.externalId))) {
       currentTrack = { ...currentTrack, id: targetId, isFavorite: fav };
@@ -3668,9 +3682,11 @@
   />
 
   <div
-    class="flex-1 min-h-0 flex gap-2 pl-2 pb-2 overflow-hidden {rightCollapsed && !lockRightHidden
-      ? 'pr-0'
-      : 'pr-2'}"
+    class="flex-1 min-h-0 flex gap-2 pl-2 pb-2 overflow-hidden {isMobile
+      ? 'pt-2 pr-2'
+      : rightCollapsed && !lockRightHidden
+        ? 'pr-0'
+        : 'pr-2'}"
   >
     {#if !isMobile}
       <Sidebar
@@ -3711,14 +3727,14 @@
 
     <main
       bind:this={mainScrollEl}
-      class="flex-1 min-w-0 min-h-0 {isFullHeightRoute ? 'overflow-hidden' : 'overflow-y-auto overflow-x-hidden'} scroll-pt-16 rounded-lg transition-colors duration-300 {isMobile && mobileShowQueue ? 'hidden' : ''}"
+      class="flex-1 min-w-0 min-h-0 {isFullHeightRoute ? 'overflow-hidden' : 'overflow-y-auto overflow-x-hidden'} scroll-pt-16 rounded-lg transition-colors duration-300"
       style="background-color: var(--md-sys-color-surface);"
     >
-      <div class="velora-route-stage {isFullHeightRoute ? 'h-full' : ''}">
+      <div class="velora-route-stage {isFullHeightRoute ? 'h-full' : isMobile ? 'pb-20' : ''}">
         {#key routeTransitionKey}
           <div
-            in:fly={{ y: 8, duration: 240, easing: cubicOut }}
-            out:routeExitFade={{ duration: 140 }}
+            in:fly={{ x: isMobile ? 16 : 0, y: isMobile ? 0 : 10, duration: 260, opacity: 0, easing: cubicOut }}
+            out:routeExitFade={{ duration: 180, shiftX: isMobile ? -12 : 0 }}
             class="velora-route-pane {isFullHeightRoute ? 'h-full min-h-0' : ''}"
           >
       {#if currentRoute.name === 'home'}
@@ -3782,6 +3798,7 @@
           onRemoveDownload={handleRemoveDownload}
           onOpenTrackAlbum={(tr) => void openTrackAlbumDetail(tr)}
           {activeDownloadsCount}
+          {downloadProgressPct}
           onNavigate={navigate}
         />
       {:else if currentRoute.name === 'downloads'}
@@ -3793,13 +3810,11 @@
           deletedTracks={sessionDeletedDownloadTracks}
           allTracks={tracks}
           {mediaBaseUrl}
-          isDummyActive={showDevDummyDownload}
           onBack={goBack}
           onPlayTrack={playTrack}
           onOpenTrackAlbum={openTrackAlbumDetail}
           onCancelDownload={handleCancelDownload}
           onRemoveDownload={handleRemoveDownload}
-          onToggleDummy={() => (showDevDummyDownload = !showDevDummyDownload)}
         />
         {/await}
       {:else if currentRoute.name === 'library' || (isMobile && (currentRoute.name === 'liked-songs' || currentRoute.name === 'downloaded' || currentRoute.name === 'favorite-albums' || currentRoute.name === 'favorite-artists'))}
@@ -3825,6 +3840,7 @@
           {shuffle}
           {mediaBaseUrl}
           {activeDownloadsCount}
+          {downloadProgressPct}
           onPlayTrack={playTrack}
           onTogglePlay={togglePlay}
           onPlayShuffled={playShuffledList}
@@ -3852,6 +3868,7 @@
         <LibraryViews
           lang={appLang}
           mode={currentRoute.name}
+          onBack={() => (navIndex > 0 ? goBack() : void navigate({ name: 'home' }))}
           {searchQuery}
           {tracks}
           {albums}
@@ -4007,6 +4024,7 @@
           onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
           onOpenTrackAlbum={openTrackAlbumDetail}
           {activeDownloadsCount}
+          {downloadProgressPct}
           onNavigate={navigate}
           onBack={goBack}
           onExportM3U={(pid) => api.exportLocalPlaylistM3U(pid)}
@@ -4125,6 +4143,7 @@
           }}
           onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
           onOpenAlbum={handleOpenAlbum}
+          onBack={goBack}
           onOpenYTAlbum={(card) => void openYTAlbumCard(card)}
           onDownloadTrack={handleDownloadTrack}
           onRemoveDownload={handleRemoveDownload}
@@ -4209,10 +4228,10 @@
       </div>
     </main>
 
-    {#if !lockRightHidden && (!isMobile || mobileShowQueue)}
+    {#if !lockRightHidden && !isMobile}
       <RightPanel
-        width={isMobile ? window.innerWidth - 16 : rightWidth}
-        collapsed={isMobile ? false : rightCollapsed}
+        width={rightWidth}
+        collapsed={rightCollapsed}
         mode={rightPanelMode}
         {currentTrack}
         {queue}
@@ -4250,6 +4269,7 @@
         onOpenTrackDetail={(tr) => void openTrackAlbumDetail(tr)}
         onOpenArtistDetail={(tr) => void openTrackArtistDetail(tr)}
         onOpenLyrics={() => navigate({ name: 'lyrics' })}
+        onResyncLyrics={() => currentTrack && void loadLyricsForTrack(currentTrack, durationSec > 0 ? Math.round(durationSec) : undefined, true)}
         onOpenQueueSource={queueSourceKey || inferQueueSourceKeyByTitle(queueSourceTitle)
           ? openQueueSource
           : undefined}
@@ -4363,8 +4383,8 @@
   {#if isMobile}
     <nav
       aria-label="Mobile Navigation"
-      class="w-full shrink-0 min-h-[68px] pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] px-2 grid grid-cols-4 gap-1 items-center border-t"
-      style="background-color: var(--md-sys-color-surface-container-lowest); border-color: var(--md-sys-color-outline-variant);"
+      class="w-full shrink-0 min-h-[68px] pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] px-2 grid grid-cols-4 gap-1 items-center"
+      style="background-color: var(--md-sys-color-surface-container-lowest);"
     >
       <button
         type="button"
@@ -4449,61 +4469,124 @@
       </button>
     </nav>
 
-    {#if mobileNowPlayingOpen}
-      {#await import('./components/MobileNowPlaying.svelte') then { default: MobileNowPlaying }}
-        <MobileNowPlaying
-          open={mobileNowPlayingOpen}
-          lang={appLang}
-          {currentTrack}
-          lyrics={currentLyrics}
-          {lyricsLoading}
-          lyricOffsetSec={currentLyricOffsetSec}
-          {queue}
-          queueIndex={resolveActiveQueueIndex()}
-          {playlists}
-          {preferences}
-          {isPlaying}
-          {positionSec}
-          {durationSec}
-          {shuffle}
-          {repeatMode}
-          {mediaBaseUrl}
-          onClose={() => (mobileNowPlayingOpen = false)}
-          onTogglePlay={togglePlay}
-          onPrev={playPrev}
-          onNext={playNext}
-          onSeek={handleSeek}
-          onToggleShuffle={toggleShuffleMode}
-          onCycleRepeat={() => {
-            repeatMode = repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off';
-            if (isJamRemote) void sendJamCommand('repeat');
-            else api.playerControl('repeat', 0, repeatMode);
-          }}
-          onToggleFavorite={handleToggleFavoriteTrack}
-          onPlayTrack={playTrack}
-          onPlayNext={handleQueuePlayNext}
-          onAddToQueue={handleAddToQueue}
-          onAddToPlaylist={handleAddTrackToPlaylist}
-          onCreatePlaylist={(tr) => {
-            pendingCreatePlaylistTrack = tr ?? null;
-            showCreatePlaylistModal = true;
-          }}
-          onDownloadTrack={handleDownloadTrack}
-          onRemoveDownload={handleRemoveDownload}
-          onOpenArtist={(artistId) => void navigate({ name: 'artist-detail', artistId })}
-          onOpenArtistDetail={(tr) => void openTrackArtistDetail(tr)}
-          onOpenTrackDetail={(tr) => void openTrackAlbumDetail(tr)}
-          onOpenTrackAlbum={(tr) => void openTrackAlbumDetail(tr)}
-          onOpenLyrics={() => {
-            mobileShowQueue = false;
-            void navigate({ name: 'lyrics' });
-          }}
-          onOpenQueue={() => {
-            mobileShowQueue = true;
-          }}
-        />
-      {/await}
-    {/if}
+    <MobileQueueSheet open={mobileShowQueue} onClose={() => (mobileShowQueue = false)}>
+      <RightPanel
+        width={360}
+        collapsed={false}
+        embeddedMobile={true}
+        mode={mobileSheetMode}
+        {currentTrack}
+        {queue}
+        queueIndex={resolveActiveQueueIndex()}
+        {queueSourceTitle}
+        {audioOutputs}
+        {switchingOutputId}
+        {isPlaying}
+        {positionSec}
+        lyricOffsetSec={currentLyricOffsetSec}
+        lyrics={currentLyrics}
+        {lyricsLoading}
+        {preferences}
+        {mediaBaseUrl}
+        {accentColor}
+        onChangeMode={(m) => (rightPanelMode = m)}
+        onSelectOutputDevice={(id) => void handleSelectOutputDevice(id)}
+        onRefreshAudioOutputs={() => void refreshAudioOutputs()}
+        onToggleCollapse={() => (mobileShowQueue = false)}
+        onResizeWidth={() => {}}
+        onResizeEnd={() => {}}
+        onPlayTrack={playTrack}
+        onRemoveFromQueue={(id) => {
+          queue = queue.filter((t) => t.id !== id);
+        }}
+        onClearQueue={() => {
+          queue = [];
+        }}
+        onToggleFavorite={handleToggleFavoriteTrack}
+        onSeek={handleSeek}
+        onOpenTrackDetail={(tr) => {
+          mobileShowQueue = false;
+          void openTrackAlbumDetail(tr);
+        }}
+        onOpenArtistDetail={(tr) => {
+          mobileShowQueue = false;
+          void openTrackArtistDetail(tr);
+        }}
+        onOpenLyrics={() => {
+          mobileShowQueue = false;
+          void navigate({ name: 'lyrics' });
+        }}
+        onResyncLyrics={() => currentTrack && void loadLyricsForTrack(currentTrack, durationSec > 0 ? Math.round(durationSec) : undefined, true)}
+        onOpenQueueSource={queueSourceKey || inferQueueSourceKeyByTitle(queueSourceTitle)
+          ? () => {
+              mobileShowQueue = false;
+              void openQueueSource();
+            }
+          : undefined}
+      />
+    </MobileQueueSheet>
+
+    <MobileNowPlaying
+      open={mobileNowPlayingOpen}
+      lang={appLang}
+      {currentTrack}
+      lyrics={currentLyrics}
+      {lyricsLoading}
+      lyricOffsetSec={currentLyricOffsetSec}
+      {queue}
+      queueIndex={resolveActiveQueueIndex()}
+      allTracks={tracks}
+      ytRecommendedTracks={ytTop100Tracks}
+      {playlists}
+      {preferences}
+      {isPlaying}
+      {positionSec}
+      {durationSec}
+      {shuffle}
+      {repeatMode}
+      {mediaBaseUrl}
+      onClose={() => (mobileNowPlayingOpen = false)}
+      onTogglePlay={togglePlay}
+      onPrev={playPrev}
+      onNext={playNext}
+      onSeek={handleSeek}
+      onToggleShuffle={toggleShuffleMode}
+      onCycleRepeat={() => {
+        repeatMode = repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off';
+        if (isJamRemote) void sendJamCommand('repeat');
+        else api.playerControl('repeat', 0, repeatMode);
+      }}
+      onToggleFavorite={handleToggleFavoriteTrack}
+      onPlayTrack={playTrack}
+      onPlayYTMusic={playYTMusicSingle}
+      onPlayNext={handleQueuePlayNext}
+      onAddToQueue={handleAddToQueue}
+      onAddToPlaylist={handleAddTrackToPlaylist}
+      onCreatePlaylist={(tr) => {
+        pendingCreatePlaylistTrack = tr ?? null;
+        showCreatePlaylistModal = true;
+      }}
+      onDownloadTrack={handleDownloadTrack}
+      onRemoveDownload={handleRemoveDownload}
+      onOpenArtist={(artistId) => void navigate({ name: 'artist-detail', artistId })}
+      onOpenArtistDetail={(tr) => void openTrackArtistDetail(tr)}
+      onOpenTrackDetail={(tr) => void openTrackAlbumDetail(tr)}
+      onOpenTrackAlbum={(tr) => void openTrackAlbumDetail(tr)}
+      onOpenLyrics={() => {
+        mobileShowQueue = false;
+        void navigate({ name: 'lyrics' });
+      }}
+      onResyncLyrics={() => currentTrack && void loadLyricsForTrack(currentTrack, durationSec > 0 ? Math.round(durationSec) : undefined, true)}
+      onOpenQueue={() => {
+        mobileSheetMode = 'queue';
+        mobileShowQueue = true;
+      }}
+      onOpenDevices={() => {
+        mobileSheetMode = 'devices';
+        mobileShowQueue = true;
+        void refreshAudioOutputs();
+      }}
+    />
   {/if}
 </div>
 

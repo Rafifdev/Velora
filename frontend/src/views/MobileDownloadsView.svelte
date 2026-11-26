@@ -4,6 +4,7 @@
   import type { DownloadProgress, Track } from '../lib/types';
   import CoverImage from '../components/CoverImage.svelte';
   import EmptyState from '../components/EmptyState.svelte';
+  import EqIndicator from '../components/EqIndicator.svelte';
   import Icon from '../components/Icon.svelte';
 
   interface Props {
@@ -14,14 +15,12 @@
     loading?: boolean;
     mediaBaseUrl: string;
     lang?: LangCode;
-    isDummyActive?: boolean;
     onBack: () => void;
     onPlayTrack: (track: Track, list: Track[]) => void;
     onOpenTrackAlbum?: (track: Track) => void;
     onCancelDownload?: (trackId: number) => void;
     onRemoveDownload?: (trackId: number) => void;
     onCopyLink?: (track: Track) => void;
-    onToggleDummy?: () => void;
   }
 
   let {
@@ -32,28 +31,24 @@
     loading = false,
     mediaBaseUrl,
     lang = 'en',
-    isDummyActive = false,
     onBack,
     onPlayTrack,
     onOpenTrackAlbum,
     onCancelDownload,
     onRemoveDownload,
-    onCopyLink,
-    onToggleDummy
+    onCopyLink
   }: Props = $props();
 
   let searchOpen = $state(false);
   let searchText = $state('');
-  let previewSkeleton = $state(false);
-
-  const totalCount = $derived(activeDownloads.length + downloadedTracks.length);
 
   function resolveDownloadCover(dl: DownloadProgress): string {
-    const matched = allTracks.find(
-      (t) =>
-        (dl.trackId > 0 && t.id === dl.trackId) ||
-        (dl.externalId && t.externalId === dl.externalId)
-    );
+    const matched =
+      allTracks.find(
+        (t) =>
+          (dl.trackId > 0 && t.id === dl.trackId) ||
+          (dl.externalId && t.externalId === dl.externalId)
+      ) ?? allTracks.find((t) => Boolean(t.coverUrl));
     return matched ? resolveCoverUrl(matched.coverUrl, mediaBaseUrl, 96) : '';
   }
 
@@ -156,8 +151,8 @@
   style="background-color: var(--md-sys-color-surface-container-low);"
 >
   <header
-    class="sticky top-0 z-20 px-3 pt-3 pb-2.5 border-b backdrop-blur-md space-y-2"
-    style="background-color: color-mix(in srgb, var(--md-sys-color-surface-container-low) 90%, transparent); border-color: color-mix(in srgb, var(--md-sys-color-outline-variant) 35%, transparent);"
+    class="sticky top-0 z-20 px-3 pt-3 pb-2.5 backdrop-blur-md space-y-2"
+    style="background-color: color-mix(in srgb, var(--md-sys-color-surface-container-low) 90%, transparent);"
   >
     <div class="flex items-center justify-between gap-2">
       <div class="flex items-center gap-1.5 min-w-0">
@@ -165,7 +160,7 @@
           type="button"
           onclick={onBack}
           aria-label="Kembali"
-          class="min-w-11 min-h-11 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+          class="velora-press min-w-11 min-h-11 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
           style="color: var(--md-sys-color-on-surface);"
         >
           <Icon name="arrow-left" size={22} />
@@ -174,94 +169,57 @@
         <h1 class="text-xl font-bold tracking-tight truncate" style="color: var(--md-sys-color-on-surface);">
           {tr(lang, 'nav.downloaded')}
         </h1>
-
-        <span
-          class="px-2 py-0.5 rounded-full text-[11px] font-bold tabular-nums shrink-0"
-          style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
-        >
-          {totalCount}
-        </span>
       </div>
 
-      <div class="flex items-center gap-1 shrink-0">
-        {#if onToggleDummy}
-          <button
-            type="button"
-            onclick={onToggleDummy}
-            class="min-h-9 px-2.5 rounded-full text-[11px] font-semibold cursor-pointer transition-colors"
-            style={isDummyActive
-              ? 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'
-              : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant);'}
-          >
-            Demo
-          </button>
-        {/if}
-
-        <button
-          type="button"
-          onclick={() => (previewSkeleton = !previewSkeleton)}
-          class="min-h-9 px-2.5 rounded-full text-[11px] font-semibold cursor-pointer transition-colors"
-          style={previewSkeleton
-            ? 'background-color: var(--md-sys-color-tertiary-container); color: var(--md-sys-color-on-tertiary-container);'
-            : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface-variant);'}
-        >
-          Skeleton
-        </button>
-
-        <button
-          type="button"
-          onclick={() => {
-            searchOpen = !searchOpen;
-            if (!searchOpen) searchText = '';
-          }}
-          aria-label={tr(lang, 'nav.search')}
-          class="min-w-11 min-h-11 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
-          style="color: {searchOpen ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-on-surface-variant)'};"
-        >
-          <Icon name={searchOpen ? 'x' : 'magnifying-glass'} size={20} />
-        </button>
-      </div>
+      <button
+        type="button"
+        onclick={() => {
+          searchOpen = !searchOpen;
+          if (!searchOpen) searchText = '';
+        }}
+        aria-label={tr(lang, 'nav.search')}
+        class="velora-press min-w-11 min-h-11 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)] shrink-0"
+        style="color: {searchOpen ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-on-surface-variant)'};"
+      >
+        <Icon name={searchOpen ? 'x' : 'magnifying-glass'} size={20} />
+      </button>
     </div>
 
     {#if searchOpen}
       <div
-        class="h-10 px-3 rounded-xl flex items-center gap-2 border"
-        style="background-color: var(--md-sys-color-surface-container); border-color: color-mix(in srgb, var(--md-sys-color-outline-variant) 45%, transparent);"
+        class="min-h-11 px-3 rounded-xl flex items-center gap-2"
+        style="background-color: var(--md-sys-color-surface-container);"
       >
         <Icon name="magnifying-glass" size={16} style="color: var(--md-sys-color-on-surface-variant);" />
         <input
           type="search"
           bind:value={searchText}
           placeholder={lang === 'id' ? 'Cari riwayat unduhan...' : 'Search downloads...'}
-          class="w-full bg-transparent text-sm outline-none"
+          class="w-full min-h-11 bg-transparent text-sm outline-none"
           style="color: var(--md-sys-color-on-surface);"
         />
       </div>
     {/if}
   </header>
 
-  <div class="px-4 py-4 pb-10 space-y-6 flex-1">
-    {#if loading || previewSkeleton}
+  <div class="px-4 py-3 pb-10 space-y-6 flex-1">
+    {#if loading}
       {#each [0, 1] as groupIdx (groupIdx)}
         <section class="space-y-3 animate-pulse">
           <div class="h-4 w-28 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
           {#each [0, 1] as cardIdx (cardIdx)}
             <div
-              class="relative overflow-clip rounded-2xl px-4 py-3.5 flex items-center gap-3.5 border"
-              style="background-color: var(--md-sys-color-surface-container); border-color: color-mix(in srgb, var(--md-sys-color-outline-variant) 35%, transparent);"
+              class="rounded-xl px-3.5 py-3 flex items-center gap-3.5"
+              style="background-color: var(--md-sys-color-surface-container);"
             >
-              <div class="w-11 h-11 rounded-lg shrink-0 bg-[var(--md-sys-color-surface-container-highest)]"></div>
+              <div class="w-12 h-12 rounded-lg shrink-0 bg-[var(--md-sys-color-surface-container-highest)]"></div>
               <div class="min-w-0 flex-1 space-y-2">
                 <div class="h-3.5 w-3/5 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
                 <div class="h-2.5 w-2/5 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
+                {#if groupIdx === 0 && cardIdx === 0}
+                  <div class="h-1 w-full rounded-full bg-[var(--md-sys-color-primary)]/40"></div>
+                {/if}
               </div>
-              <div class="flex items-center gap-2 shrink-0">
-                <div class="w-8 h-8 rounded-full bg-[var(--md-sys-color-surface-container-high)]"></div>
-                <div class="w-8 h-8 rounded-full bg-[var(--md-sys-color-surface-container-high)]"></div>
-              </div>
-              {#if groupIdx === 0 && cardIdx === 0}
-                <div class="absolute inset-x-0 bottom-0 h-1 bg-[var(--md-sys-color-primary)]/40"></div>
-              {/if}
             </div>
           {/each}
         </section>
@@ -277,36 +235,54 @@
     {:else}
       {#if filteredActive.length > 0}
         <section class="space-y-2.5">
-          <div class="flex items-center justify-between">
-            <h2 class="text-sm font-medium" style="color: var(--md-sys-color-on-surface-variant);">
-              {lang === 'id' ? 'Sedang Diunduh' : 'Downloading'} ({filteredActive.length})
-            </h2>
-          </div>
+          <h2 class="text-sm font-medium" style="color: var(--md-sys-color-on-surface-variant);">
+            {lang === 'id' ? 'Sedang Diunduh' : 'Downloading'} ({filteredActive.length})
+          </h2>
 
           <div class="space-y-2.5">
             {#each filteredActive as dl (dl.trackId)}
               {@const dlCover = resolveDownloadCover(dl)}
               {@const pct = Math.max(0, Math.min(100, Math.round(dl.progress || 0)))}
               <article
-                class="relative overflow-clip rounded-2xl px-4 pt-3.5 pb-4 flex items-center gap-3.5 border"
-                style="background-color: var(--md-sys-color-surface-container); border-color: color-mix(in srgb, var(--md-sys-color-outline-variant) 45%, transparent);"
+                class="velora-press rounded-xl px-3.5 py-3 flex items-center gap-3.5"
+                style="background-color: var(--md-sys-color-surface-container);"
               >
                 <div
-                  class="w-11 h-11 rounded-lg overflow-hidden shrink-0 flex items-center justify-center"
-                  style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
+                  class="relative w-12 h-12 rounded-lg overflow-hidden shrink-0 flex items-center justify-center"
+                  style="background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-primary);"
                 >
-                  {#if dlCover}
-                    <CoverImage src={dlCover} fallbackIcon="download" iconSize={20} />
-                  {:else}
-                    <Icon name="download" weight="bold" size={20} />
+                  <CoverImage src={dlCover} fallbackIcon="music-note" iconSize={20} isVideoThumb={isYTVideoThumb(dlCover)} />
+                  {#if dl.status === 'downloading' || dl.status === 'queued'}
+                    <div class="absolute inset-0 bg-black/40 pointer-events-none flex items-center justify-center">
+                      <div class="velora-download-wave absolute inset-0 pointer-events-none"></div>
+                      <div class="relative z-10 text-white">
+                        <EqIndicator color="currentColor" />
+                      </div>
+                    </div>
                   {/if}
                 </div>
 
-                <div class="min-w-0 flex-1">
-                  <div class="text-sm font-semibold truncate" style="color: var(--md-sys-color-primary);">
-                    {dl.title}
+                <div class="min-w-0 flex-1 space-y-1">
+                  <div class="flex items-center justify-between gap-2 min-w-0">
+                    <div class="text-sm font-semibold leading-tight truncate min-w-0" style="color: var(--md-sys-color-primary);">
+                      {dl.title}
+                    </div>
+
+                    {#if onCancelDownload}
+                      <button
+                        type="button"
+                        onclick={() => onCancelDownload(dl.trackId)}
+                        aria-label={tr(lang, 'nav.cancelDownload')}
+                        title={tr(lang, 'nav.cancelDownload')}
+                        class="velora-press min-w-11 min-h-11 -my-3 -mr-2 rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+                        style="color: var(--md-sys-color-on-surface-variant);"
+                      >
+                        <Icon name="x" size={18} />
+                      </button>
+                    {/if}
                   </div>
-                  <div class="text-xs truncate mt-0.5 tabular-nums" style="color: {dl.status === 'failed' ? 'var(--md-sys-color-error)' : 'var(--md-sys-color-on-surface-variant)'};">
+
+                  <div class="text-xs leading-tight truncate tabular-nums" style="color: {dl.status === 'failed' ? 'var(--md-sys-color-error)' : 'var(--md-sys-color-on-surface-variant)'};">
                     {#if dl.status === 'failed'}
                       {dl.artist} • {dl.error || 'Failed'}
                     {:else if dl.status === 'queued'}
@@ -315,29 +291,16 @@
                       {dl.artist} • {pct}%
                     {/if}
                   </div>
+
+                  {#if dl.status !== 'failed'}
+                    <progress
+                      class="velora-chrome-progress w-full rounded-full mt-0.5"
+                      max="100"
+                      value={dl.status === 'queued' ? undefined : pct}
+                      aria-label="{dl.title} {pct}%"
+                    ></progress>
+                  {/if}
                 </div>
-
-                {#if onCancelDownload}
-                  <button
-                    type="button"
-                    onclick={() => onCancelDownload(dl.trackId)}
-                    aria-label={tr(lang, 'nav.cancelDownload')}
-                    title={tr(lang, 'nav.cancelDownload')}
-                    class="min-w-10 min-h-10 rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
-                    style="color: var(--md-sys-color-on-surface-variant);"
-                  >
-                    <Icon name="x" size={18} />
-                  </button>
-                {/if}
-
-                {#if dl.status !== 'failed'}
-                  <progress
-                    class="velora-chrome-progress absolute inset-x-0 bottom-0"
-                    max="100"
-                    value={dl.status === 'queued' ? undefined : pct}
-                    aria-label="{dl.title} {pct}%"
-                  ></progress>
-                {/if}
               </article>
             {/each}
           </div>
@@ -355,75 +318,78 @@
               {@const item = entry.track}
               {@const cover = resolveCoverUrl(item.coverUrl, mediaBaseUrl, 96)}
               <article
-                class="relative overflow-clip rounded-2xl px-4 py-3.5 flex items-center gap-3.5 border transition-colors"
-                style="background-color: var(--md-sys-color-surface-container); border-color: color-mix(in srgb, var(--md-sys-color-outline-variant) 45%, transparent);"
+                class="velora-press rounded-xl px-3.5 py-3 flex items-center gap-3.5 transition-colors"
+                style="background-color: var(--md-sys-color-surface-container);"
               >
                 <div
-                  class="w-11 h-11 rounded-lg overflow-hidden shrink-0 flex items-center justify-center {entry.deleted ? 'opacity-45 grayscale' : ''}"
+                  class="w-12 h-12 rounded-lg overflow-hidden shrink-0 flex items-center justify-center {entry.deleted ? 'opacity-45 grayscale' : ''}"
                   style="background-color: var(--md-sys-color-surface-container-highest);"
                 >
                   <CoverImage src={cover} fallbackIcon="music-note" iconSize={20} isVideoThumb={isYTVideoThumb(cover)} />
                 </div>
 
-                <div class="min-w-0 flex-1">
-                  <div class="flex items-center gap-2 min-w-0">
-                    <button
-                      type="button"
-                      disabled={entry.deleted}
-                      onclick={() => onPlayTrack(item, downloadedTracks)}
-                      class="text-sm font-semibold truncate text-left cursor-pointer disabled:cursor-default {entry.deleted ? 'line-through opacity-55' : 'underline decoration-1 underline-offset-2'}"
-                      style="color: {entry.deleted ? 'var(--md-sys-color-on-surface-variant)' : 'var(--md-sys-color-primary)'};"
-                    >
-                      {item.title}
-                    </button>
-                    {#if entry.deleted}
-                      <span class="text-xs font-medium shrink-0" style="color: var(--md-sys-color-on-surface-variant);">
-                        Deleted
-                      </span>
-                    {/if}
+                <div class="min-w-0 flex-1 space-y-1">
+                  <div class="flex items-center justify-between gap-2 min-w-0">
+                    <div class="flex items-center gap-2 min-w-0 flex-1">
+                      <button
+                        type="button"
+                        disabled={entry.deleted}
+                        onclick={() => onPlayTrack(item, downloadedTracks)}
+                        class="min-h-11 -my-2.5 flex items-center text-sm font-semibold leading-tight truncate text-left cursor-pointer disabled:cursor-default {entry.deleted ? 'line-through opacity-55' : 'underline decoration-1 underline-offset-2'}"
+                        style="color: {entry.deleted ? 'var(--md-sys-color-on-surface-variant)' : 'var(--md-sys-color-primary)'};"
+                      >
+                        <span class="truncate">{item.title}</span>
+                      </button>
+                      {#if entry.deleted}
+                        <span class="text-xs font-medium shrink-0" style="color: var(--md-sys-color-on-surface-variant);">
+                          Deleted
+                        </span>
+                      {/if}
+                    </div>
+
+                    <div class="flex items-center gap-0.5 shrink-0 -my-2.5 -mr-2">
+                      {#if onCopyLink}
+                        <button
+                          type="button"
+                          onclick={() => onCopyLink(item)}
+                          aria-label={tr(lang, 'nav.copyLink')}
+                          title={tr(lang, 'nav.copyLink')}
+                          class="velora-press min-w-11 min-h-11 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+                          style="color: var(--md-sys-color-on-surface-variant);"
+                        >
+                          <Icon name="link" size={17} />
+                        </button>
+                      {/if}
+                      {#if onOpenTrackAlbum && !entry.deleted}
+                        <button
+                          type="button"
+                          onclick={() => onOpenTrackAlbum(item)}
+                          aria-label={tr(lang, 'nav.goToAlbum')}
+                          title={tr(lang, 'nav.goToAlbum')}
+                          class="velora-press min-w-11 min-h-11 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+                          style="color: var(--md-sys-color-on-surface-variant);"
+                        >
+                          <Icon name="folder-open" size={17} />
+                        </button>
+                      {/if}
+                      {#if onRemoveDownload && !entry.deleted}
+                        <button
+                          type="button"
+                          onclick={() => onRemoveDownload(item.id)}
+                          aria-label={tr(lang, 'nav.removeDownload')}
+                          title={tr(lang, 'nav.removeDownload')}
+                          class="velora-press min-w-11 min-h-11 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+                          style="color: var(--md-sys-color-on-surface-variant);"
+                        >
+                          <Icon name="x" size={17} />
+                        </button>
+                      {/if}
+                    </div>
                   </div>
-                  <div class="text-xs truncate mt-0.5 tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
+
+                  <div class="text-xs leading-tight truncate tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
                     {item.artistName}{item.durationSec > 0 ? ` • ${formatDuration(item.durationSec)}` : ''}{item.format ? ` • ${item.format}` : ''}
                   </div>
-                </div>
-
-                <div class="flex items-center gap-0.5 shrink-0">
-                  {#if onCopyLink}
-                    <button
-                      type="button"
-                      onclick={() => onCopyLink(item)}
-                      aria-label={tr(lang, 'nav.copyLink')}
-                      title={tr(lang, 'nav.copyLink')}
-                      class="min-w-10 min-h-10 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
-                      style="color: var(--md-sys-color-on-surface-variant);"
-                    >
-                      <Icon name="link" size={17} />
-                    </button>
-                  {/if}
-                  {#if onOpenTrackAlbum && !entry.deleted}
-                    <button
-                      type="button"
-                      onclick={() => onOpenTrackAlbum(item)}
-                      aria-label={tr(lang, 'nav.goToAlbum')}
-                      title={tr(lang, 'nav.goToAlbum')}
-                      class="min-w-10 min-h-10 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
-                      style="color: var(--md-sys-color-on-surface-variant);"
-                    >
-                      <Icon name="folder-open" size={17} />
-                    </button>
-                  {/if}
-                  {#if onRemoveDownload && !entry.deleted}
-                    <button
-                      type="button"
-                      onclick={() => onRemoveDownload(item.id)}
-                      aria-label={tr(lang, 'nav.removeDownload')}
-                      title={tr(lang, 'nav.removeDownload')}
-                      class="min-w-10 min-h-10 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
-                      style="color: var(--md-sys-color-on-surface-variant);"
-                    >
-                      <Icon name="x" size={17} />
-                    </button>
-                  {/if}
                 </div>
               </article>
             {/each}

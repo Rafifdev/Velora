@@ -1416,10 +1416,9 @@
       {:else}
         <div class="space-y-1">
           <div
-            class="-mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_96px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(100px,0.6fr)_minmax(150px,0.75fr)_56px_96px] items-center gap-4 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider"
+            class="-mx-2 hidden sm:grid grid-cols-[minmax(0,1fr)_52px_96px] md:grid-cols-[minmax(0,1.6fr)_minmax(100px,0.6fr)_minmax(150px,0.75fr)_56px_96px] items-center gap-4 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider"
             style="color: var(--md-sys-color-on-surface-variant);"
           >
-            <span class="text-center">#</span>
             <span>{tr(lang, 'nav.titleCol')}</span>
             <span class="hidden md:block">{tr(lang, 'nav.listenedCol')}</span>
             <span class="hidden md:block">{tr(lang, 'nav.watchedCol')}</span>
@@ -1430,7 +1429,7 @@
           </div>
 
           <div class="space-y-0.5" role="list">
-            {#each history as item, idx (item.id)}
+            {#each history as item (item.id)}
               {@const trItem = historyItemToTrack(item)}
               {@const cover = resolveCoverUrl(trItem.coverUrl || item.coverUrl, mediaBaseUrl)}
               {@const active = activeHistoryEntryId === item.id}
@@ -1439,45 +1438,11 @@
               {@const isDlActive = dlState && (dlState.status === 'queued' || dlState.status === 'downloading')}
               <div
                 role="listitem"
-                class="velora-track-row group -mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_96px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(100px,0.6fr)_minmax(150px,0.75fr)_56px_96px] items-center gap-4 px-3 py-2 rounded-lg transition-colors duration-150 {active
+                class="velora-track-row group -mx-2 grid grid-cols-[minmax(0,1fr)_52px_96px] md:grid-cols-[minmax(0,1.6fr)_minmax(100px,0.6fr)_minmax(150px,0.75fr)_56px_96px] items-center gap-4 px-3 py-2 rounded-lg transition-colors duration-150 {active
                   ? 'bg-[var(--md-sys-color-state-hover)]'
                   : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
                 style="color: var(--md-sys-color-on-surface);"
               >
-                <div class="flex items-center justify-center">
-                  {#if active && isPlaying}
-                    <EqIndicator class="group-hover:hidden" />
-                    <button
-                      type="button"
-                      onclick={() => (onTogglePlay ? onTogglePlay() : playHistoryTrack(item))}
-                      aria-label="{tr(lang, 'nav.pause')} {item.title}"
-                      class="hidden group-hover:flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
-                    >
-                      <Icon name="pause" weight="fill" size={14} />
-                    </button>
-                  {:else if active && !isPlaying}
-                    <button
-                      type="button"
-                      onclick={() => (onTogglePlay ? onTogglePlay() : playHistoryTrack(item))}
-                      aria-label="{tr(lang, 'nav.play')} {item.title}"
-                      class="flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
-                    >
-                      <Icon name="play" weight="fill" size={14} />
-                    </button>
-                  {:else}
-                    <span class="text-xs font-medium tabular-nums group-hover:hidden opacity-65">
-                      {idx + 1}
-                    </span>
-                    <button
-                      type="button"
-                      onclick={() => playHistoryTrack(item)}
-                      aria-label="{tr(lang, 'nav.play')} {item.title}"
-                      class="hidden group-hover:flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
-                    >
-                      <Icon name="play" weight="fill" size={14} />
-                    </button>
-                  {/if}
-                </div>
 
                 <div class="flex items-center gap-3 min-w-0 text-left">
                   <button

@@ -4,6 +4,7 @@
   import { veloraMarquee } from '../lib/marquee';
   import type { AudioOutputDevice, Track } from '../lib/types';
   import { tr, type LangCode } from '../lib/i18n';
+  import CoverImage from './CoverImage.svelte';
   import Icon from './Icon.svelte';
 
   interface Props {
@@ -130,31 +131,35 @@
   );
   const remainingSec = $derived(Math.max(0, effectiveDuration - positionSec));
   const displayVolume = $derived(muted ? 0 : volume);
+  const mobileCover = $derived.by(() => {
+    if (!currentTrack) return '';
+    const raw =
+      currentTrack.coverUrl ||
+      (/^[A-Za-z0-9_-]{11}$/.test(currentTrack.externalId ?? '')
+        ? `https://i.ytimg.com/vi/${currentTrack.externalId}/mqdefault.jpg`
+        : '');
+    return resolveCoverUrl(raw, mediaBaseUrl, 96);
+  });
 </script>
 
-<div class="sm:hidden px-2 pb-1.5 shrink-0 select-none">
+<div class="sm:hidden fixed left-0 right-0 bottom-[calc(68px+env(safe-area-inset-bottom,0px))] z-30 px-2 pb-1.5 select-none pointer-events-none">
   <div
-    class="relative rounded-lg overflow-hidden shadow-lg"
-    style="background-color: color-mix(in srgb, var(--md-sys-color-tertiary-container) 36%, var(--md-sys-color-surface-container-high));"
+    class="pointer-events-auto relative w-full rounded-lg overflow-hidden shadow-xl backdrop-blur-md"
+    style="background-color: color-mix(in srgb, var(--md-sys-color-tertiary-container) 42%, color-mix(in srgb, var(--md-sys-color-surface-container-high) 94%, transparent));"
   >
-    <div class="flex items-center justify-between gap-2.5 px-2.5 py-2">
+    <div class="flex items-center justify-between gap-2.5 px-2.5 pt-2 pb-1.5">
       <button
         type="button"
         onclick={() => onOpenMobileNowPlaying?.()}
-        class="flex-1 min-w-0 flex items-center gap-2.5 text-left cursor-pointer rounded-lg px-1 -mx-1 transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+        class="velora-press flex-1 min-w-0 flex items-center gap-2.5 text-left cursor-pointer rounded-lg px-1 -mx-1 transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
       >
         <div class="w-10 h-10 rounded-md overflow-hidden shrink-0 bg-[var(--md-sys-color-surface-container-highest)] flex items-center justify-center">
-          {#if currentTrack && resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl, 96)}
-            {@const mCover = resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl, 96)}
-            <img
-              src={mCover}
-              alt={currentTrack.title}
-              class="block w-full h-full object-cover object-center"
-              class:velora-yt-video-thumb={isYTVideoThumb(mCover)}
-            />
-          {:else}
-            <Icon name="music-note" size={18} />
-          {/if}
+          <CoverImage
+            src={mobileCover}
+            fallbackIcon="music-note"
+            iconSize={18}
+            isVideoThumb={isYTVideoThumb(mobileCover)}
+          />
         </div>
         <div class="min-w-0 flex-1">
           <div
@@ -219,9 +224,9 @@
       </div>
     </div>
 
-    <div class="h-[2px] w-full bg-white/15">
+    <div class="mx-2.5 mb-1.5 h-[3px] rounded-full overflow-hidden bg-white/15">
       <div
-        class="h-full transition-[width] duration-200"
+        class="h-full rounded-full transition-[width] duration-200"
         style="width: {progressPct}%; background-color: var(--md-sys-color-on-surface);"
       ></div>
     </div>

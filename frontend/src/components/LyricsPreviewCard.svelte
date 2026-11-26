@@ -24,6 +24,7 @@
     cardEl?: HTMLElement | undefined;
     onSeek: (sec: number) => void;
     onOpenLyrics?: () => void;
+    onResync?: () => void;
   }
 
   let {
@@ -38,7 +39,8 @@
     lyricsExpanded = $bindable(false),
     cardEl = $bindable(),
     onSeek,
-    onOpenLyrics
+    onOpenLyrics,
+    onResync
   }: Props = $props();
 
   let lyricsScrollEl: HTMLDivElement | undefined = $state();
@@ -173,17 +175,34 @@
   <div class="flex items-center justify-between gap-2 mb-3">
     <span class="text-[15px] font-bold">{tr(lang, 'nav.lyrics')}</span>
 
-    {#if onOpenLyrics}
-      <button
-        type="button"
-        onclick={() => onOpenLyrics()}
-        title={tr(lang, 'nav.expandLyrics')}
-        aria-label={tr(lang, 'nav.expandLyrics')}
-        class="w-8 h-8 sm:w-7 sm:h-7 rounded-full flex items-center justify-center opacity-75 hover:opacity-100 hover:bg-[var(--md-sys-color-state-hover)] transition-colors cursor-pointer"
-      >
-        <Icon name="arrows-out-simple" size={16} />
-      </button>
-    {/if}
+    <div class="flex items-center gap-1">
+      {#if onResync && currentTrack}
+        <button
+          type="button"
+          disabled={lyricsLoading}
+          onclick={(e) => {
+            e.stopPropagation();
+            onResync();
+          }}
+          title={tr(lang, 'nav.resyncLyrics')}
+          aria-label={tr(lang, 'nav.resyncLyrics')}
+          class="w-8 h-8 sm:w-7 sm:h-7 rounded-full flex items-center justify-center opacity-75 hover:opacity-100 hover:bg-[var(--md-sys-color-state-hover)] transition-colors cursor-pointer disabled:opacity-50"
+        >
+          <Icon name="arrows-clockwise" size={15} class={lyricsLoading ? 'animate-spin' : ''} />
+        </button>
+      {/if}
+      {#if onOpenLyrics}
+        <button
+          type="button"
+          onclick={() => onOpenLyrics()}
+          title={tr(lang, 'nav.expandLyrics')}
+          aria-label={tr(lang, 'nav.expandLyrics')}
+          class="w-8 h-8 sm:w-7 sm:h-7 rounded-full flex items-center justify-center opacity-75 hover:opacity-100 hover:bg-[var(--md-sys-color-state-hover)] transition-colors cursor-pointer"
+        >
+          <Icon name="arrows-out-simple" size={16} />
+        </button>
+      {/if}
+    </div>
   </div>
 
   <div class="relative">
@@ -210,7 +229,7 @@
           <button
             type="button"
             data-lyric-idx={idx}
-            onclick={() => line.isSynced && line.timeSec !== null && onSeek(line.timeSec)}
+            onclick={() => line.isSynced && line.timeSec !== null && onSeek(Math.max(0, line.timeSec - lyricOffsetSec))}
             class="w-full text-left font-bold {lyricsExpandedSizeClass} origin-left transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer {active
               ? 'opacity-100 scale-[1.02]'
               : lyricsBlurOthers && line.isSynced
@@ -218,11 +237,11 @@
                 : 'opacity-35 scale-[0.93] hover:opacity-100'}"
           >
             {#if active && line.isSynced && lyricsSweep}
-              {@const words = computeWordProgressList(line.text || '♪', getLineSweepProgress(idx))}
+              {@const timed = lyrics?.syncedLyrics?.[idx]?.words}
+              {@const words = computeWordProgressList(line.text || '♪', getLineSweepProgress(idx), timed, smoothPosSec + lyricOffsetSec)}
               {#each words as item, wIdx (wIdx)}
                 <span
-                  class="inline-block will-change-transform"
-                  style="background-image: {wordSweepBackground(item.prog, 'var(--md-sys-color-on-primary-container)', 'color-mix(in srgb, var(--md-sys-color-on-primary-container) 34%, transparent)')}; -webkit-background-clip: text; background-clip: text; color: transparent; transform: translate3d(0, {(-1.0 * item.prog).toFixed(2)}px, 0);"
+                  style="background-image: {wordSweepBackground(item.prog, 'var(--md-sys-color-on-primary-container)', 'color-mix(in srgb, var(--md-sys-color-on-primary-container) 48%, transparent)')}; -webkit-background-clip: text; background-clip: text; color: transparent;"
                 >{item.word}</span>{wIdx < words.length - 1 ? ' ' : ''}
               {/each}
             {:else}

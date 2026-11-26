@@ -105,10 +105,9 @@
 
 <div class="w-full">
   <div
-    class="grid grid-cols-[28px_minmax(0,1fr)_auto] sm:grid-cols-[36px_1.4fr_1fr_92px_96px] gap-2 sm:gap-3 px-2 sm:px-3.5 py-2 text-[11px] font-bold uppercase tracking-wider"
+    class="hidden sm:grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[1.4fr_1fr_92px_96px] gap-2 sm:gap-3 px-2 sm:px-3.5 py-2 text-[11px] font-bold uppercase tracking-wider"
     style="color: var(--md-sys-color-on-surface-variant);"
   >
-    <div class="text-center">#</div>
     <div>{tr(lang, 'nav.titleCol')}</div>
     <div class="hidden sm:block">{tr(lang, 'nav.albumCol')}</div>
     <div class="hidden sm:block">{tr(lang, 'nav.sourceCol')}</div>
@@ -116,49 +115,15 @@
   </div>
 
   <div class="space-y-0.5 mt-1">
-    {#each tracks as item, idx (item.id)}
+    {#each tracks as item (item.id)}
       {@const active = activeRowTrackId === item.id}
       {@const cover = resolveCoverUrl(item.coverUrl, mediaBaseUrl)}
       <div
-        class="velora-track-row group grid grid-cols-[28px_minmax(0,1fr)_auto] sm:grid-cols-[36px_1.4fr_1fr_92px_96px] gap-2 sm:gap-3 px-2 sm:px-3.5 py-2 items-center rounded-lg transition-colors duration-150 {active
+        class="velora-track-row group grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[1.4fr_1fr_92px_96px] gap-2 sm:gap-3 px-2 sm:px-3.5 py-2 items-center rounded-lg transition-colors duration-150 {active
           ? 'bg-[var(--md-sys-color-state-hover)]'
           : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
         style="color: var(--md-sys-color-on-surface);"
       >
-        <div class="flex items-center justify-center">
-          {#if active && isPlaying}
-            <EqIndicator class="group-hover:hidden" />
-            <button
-              type="button"
-              onclick={() => handleRowPlayClick(item, active)}
-              aria-label="{tr(lang, 'nav.pause')} {item.title}"
-              class="hidden group-hover:flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
-            >
-              <Icon name="pause" weight="fill" size={14} />
-            </button>
-          {:else if active && !isPlaying}
-            <button
-              type="button"
-              onclick={() => handleRowPlayClick(item, active)}
-              aria-label="{tr(lang, 'nav.play')} {item.title}"
-              class="flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
-            >
-              <Icon name="play" weight="fill" size={14} />
-            </button>
-          {:else}
-            <span class="text-xs font-medium tabular-nums group-hover:hidden opacity-65">
-              {idx + 1}
-            </span>
-            <button
-              type="button"
-              onclick={() => handleRowPlayClick(item, active)}
-              aria-label="{tr(lang, 'nav.play')} {item.title}"
-              class="hidden group-hover:flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
-            >
-              <Icon name="play" weight="fill" size={14} />
-            </button>
-          {/if}
-        </div>
 
         <div class="flex items-center gap-3 min-w-0 text-left">
           {#if showCover}

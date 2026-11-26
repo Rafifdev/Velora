@@ -1318,7 +1318,7 @@ func (a *App) resolveTrackLyrics(trackID int64, title, artist, album string, dur
 	}
 
 	reqSeq := a.nextLyricsReqSeq(trackID)
-	res := sources.FetchLyricsWithVideo(ctx, trackID, extID, title, artist, album, durationSec)
+	res := sources.FetchLyricsWithVideoOpts(ctx, trackID, extID, title, artist, album, durationSec, forceRefresh)
 
 	if res.Source != "instrumental" && extID != "" && (len(res.SyncedLyrics) == 0 || res.NeedsVideoVerify) {
 		ytCtx, cancel := context.WithTimeout(ctx, 6*time.Second)

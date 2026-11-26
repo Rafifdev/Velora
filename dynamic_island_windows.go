@@ -537,6 +537,7 @@ type dynamicIslandController struct {
 	closedSpinRad        float64
 	showArtist           bool
 	showLyric            bool
+	lyricSweep           bool
 	showHeart            bool
 	showDots             bool
 	showProgress         bool
@@ -717,6 +718,7 @@ func (a *App) initDynamicIsland(ctx context.Context) {
 	closedCoverSpin := false
 	showArtist := true
 	showLyric := true
+	lyricSweep := true
 	showHeart := true
 	showDots := true
 	showProgress := true
@@ -786,6 +788,9 @@ func (a *App) initDynamicIsland(ctx context.Context) {
 			}
 			if v, ok := prefs["dynamicIsland.showLyric"]; ok && v == "false" {
 				showLyric = false
+			}
+			if v, ok := prefs["dynamicIsland.lyricSweep"]; ok && v == "false" {
+				lyricSweep = false
 			}
 			if v, ok := prefs["dynamicIsland.showHeart"]; ok && v == "false" {
 				showHeart = false
@@ -859,6 +864,7 @@ func (a *App) initDynamicIsland(ctx context.Context) {
 		closedCoverSpin:   closedCoverSpin,
 		showArtist:        showArtist,
 		showLyric:         showLyric,
+		lyricSweep:        lyricSweep,
 		showHeart:         showHeart,
 		showDots:           showDots,
 		showProgress:       showProgress,
@@ -1502,6 +1508,22 @@ func (a *App) SetDynamicIslandLyricOffset(offsetSec float64) {
 	}
 	ctrl.mu.Lock()
 	ctrl.lyricOffsetSec = offsetSec
+	hwnd := ctrl.hwnd
+	ctrl.mu.Unlock()
+	if hwnd != 0 {
+		_, _, _ = procPostMessageW.Call(hwnd, diWmAppSync, 0, 0)
+	}
+}
+
+func (a *App) SetDynamicIslandLyricSweep(enabled bool) {
+	globalIslandMu.Lock()
+	ctrl := globalIsland
+	globalIslandMu.Unlock()
+	if ctrl == nil {
+		return
+	}
+	ctrl.mu.Lock()
+	ctrl.lyricSweep = enabled
 	hwnd := ctrl.hwnd
 	ctrl.mu.Unlock()
 	if hwnd != 0 {
@@ -3981,6 +4003,7 @@ func (c *dynamicIslandController) tickAndRender() {
 		math.Abs(c.winXFloat-c.winTargetX) > 0.5 ||
 		math.Abs(c.winVelX) > 0.5 ||
 		(c.isPlaying && (c.closedCoverSpin || c.coverSpin)) ||
+		(c.isPlaying && c.lyricSweep && len(c.lyrics) > 0 && (c.activeMode == diModeLyrics || c.isClosedLyricActiveLocked())) ||
 		(c.activeMode == diModeHeadphones && c.hpListProg > 0.01 && c.hpListProg < 0.99) ||
 		(c.appearProg > 0.01 && c.appearProg < 0.99)
 	desiredTimerMs := uint32(250)
@@ -4110,6 +4133,11 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	defaultArtMini := c.defaultArtMini
 	lyrics := c.lyrics
 	lyricIdx := c.lyricIdx
+	if mode == diModeClosed || mode == diModeResting {
+		lyricIdx = c.currentLyricIndexAtLocked(now)
+	}
+	effLyricPos := pos + c.lyricOffsetSec
+	lyricSweep := c.lyricSweep
 	prevLyricIdx := c.prevLyricIdx
 	lyricAnimProg := c.lyricAnimProg
 	lyricCurY := c.lyricCurY
@@ -4800,14 +4828,14 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 		title, artist, pos, dur, playing, lyricsOpen, vol, muted, eqPreset, streakDays,
 		audioDev, connType, btBat, sysBat, isBt, audioOutputs, hpListOpen, hpListProg, lyricsLoading, lyricsHasPlain, lyrics, lyricIdx, prevLyricIdx, lyricAnimProg, lyricCurY, lyricManualOffsetDp, hoverLyric,
 		closedLyricFrom, closedLyricTo, closedLyricProg,
-		qTitle, qIndex, qScrollDp, qItems, pal, now.Sub(c.marqueeStart).Seconds(), diLang, qScrolling,
+		qTitle, qIndex, qScrollDp, qItems, pal, now.Sub(c.marqueeStart).Seconds(), diLang, qScrolling, effLyricPos, lyricSweep,
 	) {
 		c.drawVeloraTextGdip(
 			g, nx, w, h, u, mode, contentOp, mapX, mapXStatic, mapY, mapW, mapH,
 			title, artist, pos, dur, playing, lyricsOpen, vol, muted, eqPreset, streakDays,
 			audioDev, connType, btBat, sysBat, isBt, audioOutputs, hpListOpen, hpListProg, lyricsLoading, lyricsHasPlain, lyrics, lyricIdx, prevLyricIdx, lyricAnimProg, lyricCurY, lyricManualOffsetDp, hoverLyric,
 			closedLyricFrom, closedLyricTo, closedLyricProg,
-			qTitle, qIndex, qScrollDp, qItems, pal, now.Sub(c.marqueeStart).Seconds(), diLang,
+			qTitle, qIndex, qScrollDp, qItems, pal, now.Sub(c.marqueeStart).Seconds(), diLang, effLyricPos, lyricSweep,
 		)
 	}
 
@@ -6330,12 +6358,73 @@ func (c *dynamicIslandController) drawPhosphorGlyphGdip(g uintptr, filled bool, 
 	_, _, _ = diProcGdipFillPath.Call(g, brush, path)
 }
 
+func computeLineSweepProgressFromLine(line sources.LyricLine, nextStartSec float64, hasNext bool, currentTimeSec float64) float64 {
+	if len(line.Words) > 0 {
+		eff := currentTimeSec + 0.05
+		totalW := 0.0
+		litW := 0.0
+		for _, w := range line.Words {
+			weight := math.Max(1.0, float64(len([]rune(w.Text)))+0.5)
+			totalW += weight
+			dur := math.Max(0.12, w.DurationSec)
+			if w.DurationSec <= 0 {
+				dur = 0.35
+			}
+			litW += weight * clamp01((eff-w.TimeSec)/dur)
+		}
+		if totalW > 0 {
+			return clamp01(litW / totalW)
+		}
+	}
+	return computeLyricSweepProgress(line.Text, line.TimeSec, nextStartSec, hasNext, currentTimeSec)
+}
+
+func computeLyricSweepProgress(lineText string, startSec, nextStartSec float64, hasNext bool, currentTimeSec float64) float64 {
+	words := strings.Fields(strings.TrimSpace(lineText))
+	wordCount := len(words)
+	if wordCount < 1 {
+		wordCount = 1
+	}
+	charCount := 0
+	for _, w := range words {
+		charCount += len([]rune(w))
+	}
+
+	var singDur float64
+	if hasNext && nextStartSec > startSec {
+		gap := math.Max(0.35, nextStartSec-startSec)
+		maxVocalDur := math.Max(2.2, float64(wordCount)*0.45+float64(charCount)*0.075)
+		singDur = math.Min(gap*0.92, maxVocalDur)
+		if gap < 0.8 {
+			singDur = math.Max(0.35, gap*0.9)
+		}
+	} else {
+		singDur = math.Max(2.0, math.Min(5.0, float64(wordCount)*0.35+float64(charCount)*0.06))
+	}
+
+	elapsed := currentTimeSec + 0.05 - startSec
+	return clamp01(elapsed / singDur)
+}
+
 func (c *dynamicIslandController) drawCenteredVectorTextGdip(
 	g uintptr,
 	fam uintptr,
 	txt string,
 	cx, cy, targetHeightPx, maxWidthPx float64,
 	argb uint32,
+) {
+	c.drawCenteredVectorTextSweepGdip(g, fam, txt, cx, cy, targetHeightPx, maxWidthPx, argb, argb, 1.0, false, 0, 0, 0, 0)
+}
+
+func (c *dynamicIslandController) drawCenteredVectorTextSweepGdip(
+	g uintptr,
+	fam uintptr,
+	txt string,
+	cx, cy, targetHeightPx, maxWidthPx float64,
+	litARGB, dimARGB uint32,
+	sweepProg float64,
+	restoreClip bool,
+	clipX, clipY, clipW, clipH float64,
 ) {
 	if g == 0 || fam == 0 || txt == "" || targetHeightPx <= 1.0 {
 		return
@@ -6394,11 +6483,56 @@ func (c *dynamicIslandController) drawCenteredVectorTextGdip(
 		_, _, _ = diProcGdipDeleteMatrix.Call(matrix)
 	}
 
-	var brush uintptr
-	_, _, _ = diProcGdipCreateSolidFill.Call(uintptr(argb), uintptr(unsafe.Pointer(&brush)))
-	if brush != 0 {
-		_, _, _ = diProcGdipFillPath.Call(g, brush, path)
-		_, _, _ = diProcGdipDeleteBrush.Call(brush)
+	if dimARGB == litARGB || sweepProg >= 0.999 {
+		var brush uintptr
+		_, _, _ = diProcGdipCreateSolidFill.Call(uintptr(litARGB), uintptr(unsafe.Pointer(&brush)))
+		if brush != 0 {
+			_, _, _ = diProcGdipFillPath.Call(g, brush, path)
+			_, _, _ = diProcGdipDeleteBrush.Call(brush)
+		}
+		return
+	}
+
+	var dimBrush uintptr
+	_, _, _ = diProcGdipCreateSolidFill.Call(uintptr(dimARGB), uintptr(unsafe.Pointer(&dimBrush)))
+	if dimBrush != 0 {
+		_, _, _ = diProcGdipFillPath.Call(g, dimBrush, path)
+		_, _, _ = diProcGdipDeleteBrush.Call(dimBrush)
+	}
+
+	if sweepProg <= 0.001 {
+		return
+	}
+
+	leftPx := float64(bounds.X)*scale + tx
+	topPx := float64(bounds.Y)*scale + ty
+	wPx := float64(bounds.Width) * scale
+	hPx := float64(bounds.Height) * scale
+	_, _, _ = diProcGdipSetClipRect.Call(
+		g,
+		uintptr(math.Float32bits(float32(leftPx-2))),
+		uintptr(math.Float32bits(float32(topPx-2))),
+		uintptr(math.Float32bits(float32(wPx*sweepProg+2))),
+		uintptr(math.Float32bits(float32(hPx+4))),
+		1, // CombineModeIntersect
+	)
+	var litBrush uintptr
+	_, _, _ = diProcGdipCreateSolidFill.Call(uintptr(litARGB), uintptr(unsafe.Pointer(&litBrush)))
+	if litBrush != 0 {
+		_, _, _ = diProcGdipFillPath.Call(g, litBrush, path)
+		_, _, _ = diProcGdipDeleteBrush.Call(litBrush)
+	}
+	if restoreClip {
+		_, _, _ = diProcGdipSetClipRect.Call(
+			g,
+			uintptr(math.Float32bits(float32(clipX))),
+			uintptr(math.Float32bits(float32(clipY))),
+			uintptr(math.Float32bits(float32(clipW))),
+			uintptr(math.Float32bits(float32(clipH))),
+			0,
+		)
+	} else {
+		_, _, _ = diProcGdipResetClip.Call(g)
 	}
 }
 
@@ -6443,6 +6577,8 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 	pal veloraBrandPalette,
 	marqueeElapsed float64,
 	diLang string,
+	effLyricPos float64,
+	lyricSweep bool,
 ) {
 	if contentOp <= 0.02 {
 		return
@@ -6646,11 +6782,29 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 					inOp = contentOp * closedLyricProg
 					inY = cyExact + 3.0*u*(1.0-closedLyricProg)
 				}
-				c.drawCenteredVectorTextGdip(
-					g, famSemi, inTxt,
-					(nx+w/2.0)*u, inY, txtHeightPx, maxClosedW,
-					rgbaToARGB(pal.TextMain, inOp),
-				)
+				if lyricSweep && len(lyrics) > 0 && lyricIdx >= 0 && lyricIdx < len(lyrics) && inTxt == strings.TrimSpace(lyrics[lyricIdx].Text) {
+					hasNext := lyricIdx+1 < len(lyrics)
+					nextStart := 0.0
+					if hasNext {
+						nextStart = lyrics[lyricIdx+1].TimeSec
+					}
+					swProg := computeLineSweepProgressFromLine(lyrics[lyricIdx], nextStart, hasNext, effLyricPos)
+					c.drawCenteredVectorTextSweepGdip(
+						g, famSemi, inTxt,
+						(nx+w/2.0)*u, inY, txtHeightPx, maxClosedW,
+						rgbaToARGB(pal.TextMain, inOp),
+						rgbaToARGB(pal.TextMain, 0.48*inOp),
+						swProg,
+						true,
+						(nx+closedClipMargin)*u, 0, math.Max(1.0, (w-closedClipMargin*2.0)*u), h*u,
+					)
+				} else {
+					c.drawCenteredVectorTextGdip(
+						g, famSemi, inTxt,
+						(nx+w/2.0)*u, inY, txtHeightPx, maxClosedW,
+						rgbaToARGB(pal.TextMain, inOp),
+					)
+				}
 			}
 			_, _, _ = diProcGdipResetClip.Call(g)
 		} else {

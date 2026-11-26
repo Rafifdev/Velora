@@ -4,7 +4,7 @@
   import { formatDuration, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
   import { tr, type LangCode } from '../lib/i18n';
   import { veloraMarquee } from '../lib/marquee';
-  import type { Playlist, Track, TrackLyrics } from '../lib/types';
+  import type { Playlist, Track, TrackLyrics, YTMusicTrack } from '../lib/types';
   import CoverImage from './CoverImage.svelte';
   import Icon from './Icon.svelte';
   import LyricsPreviewCard from './LyricsPreviewCard.svelte';
@@ -18,6 +18,8 @@
     lyricOffsetSec?: number;
     queue: Track[];
     queueIndex?: number;
+    allTracks?: Track[];
+    ytRecommendedTracks?: YTMusicTrack[];
     playlists?: Playlist[];
     preferences?: Record<string, string>;
     isPlaying: boolean;
@@ -36,6 +38,7 @@
     onCycleRepeat: () => void;
     onToggleFavorite: (trackId: number, track?: Track) => void;
     onPlayTrack: (tr: Track, list?: Track[]) => void;
+    onPlayYTMusic?: (yt: YTMusicTrack) => void;
     onPlayNext?: (track: Track) => void;
     onAddToQueue?: (track: Track) => void;
     onAddToPlaylist?: (playlistId: number, trackId: number, track?: Track) => void;
@@ -47,7 +50,9 @@
     onOpenTrackDetail?: (track: Track) => void;
     onOpenTrackAlbum?: (track: Track) => void;
     onOpenLyrics: () => void;
+    onResyncLyrics?: () => void;
     onOpenQueue: () => void;
+    onOpenDevices?: () => void;
   }
 
   let {
@@ -58,6 +63,8 @@
     lyricOffsetSec = 0,
     queue,
     queueIndex = -1,
+    allTracks = [],
+    ytRecommendedTracks = [],
     playlists = [],
     preferences = {},
     isPlaying,
@@ -76,6 +83,7 @@
     onCycleRepeat,
     onToggleFavorite,
     onPlayTrack,
+    onPlayYTMusic,
     onPlayNext,
     onAddToQueue,
     onAddToPlaylist,
@@ -87,42 +95,122 @@
     onOpenTrackDetail,
     onOpenTrackAlbum,
     onOpenLyrics,
-    onOpenQueue
+    onResyncLyrics,
+    onOpenQueue,
+    onOpenDevices
   }: Props = $props();
 
   let menuOpen = $state(false);
 
-  const cover = $derived(currentTrack ? resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl) : '');
+  const cover = $derived.by(() => {
+    if (!currentTrack) return '';
+    const raw =
+      currentTrack.coverUrl ||
+      (/^[A-Za-z0-9_-]{11}$/.test(currentTrack.externalId ?? '')
+        ? `https://i.ytimg.com/vi/${currentTrack.externalId}/mqdefault.jpg`
+        : '');
+    return resolveCoverUrl(raw, mediaBaseUrl);
+  });
   const effectiveDuration = $derived(durationSec > 0 ? durationSec : currentTrack?.durationSec || 0);
   const progressPct = $derived(
     effectiveDuration > 0 ? Math.min(100, Math.max(0, (positionSec / effectiveDuration) * 100)) : 0
   );
 
-  const upcomingQueue = $derived.by(() => {
-    if (!currentTrack) return queue;
-    const idx =
-      queueIndex >= 0 && queueIndex < queue.length && queue[queueIndex].id === currentTrack.id
-        ? queueIndex
-        : queue.findIndex(
-            (t) =>
-              (currentTrack.id > 0 && t.id === currentTrack.id) ||
-              (currentTrack.externalId && t.externalId === currentTrack.externalId)
-          );
-    if (idx < 0) return queue.filter((t) => t.id !== currentTrack.id);
-    return queue.slice(idx + 1);
-  });
+  function shelfEdgeFade(node: HTMLElement) {
+    const update = () => {
+      const hasOverflow = node.scrollWidth > node.clientWidth + 4;
+      const atStart = node.scrollLeft <= 4;
+      const atEnd = node.scrollLeft + node.clientWidth >= node.scrollWidth - 4;
+      node.dataset.fadeStart = hasOverflow && !atStart ? 'true' : 'false';
+      node.dataset.fadeEnd = hasOverflow && !atEnd ? 'true' : 'false';
+    };
+    update();
+    node.addEventListener('scroll', update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(node);
+    return {
+      destroy() {
+        node.removeEventListener('scroll', update);
+        ro.disconnect();
+      }
+    };
+  }
 
-  const nextTrack = $derived(upcomingQueue[0] ?? null);
+  type RecMusicCard =
+    | { kind: 'track'; key: string; title: string; subtitle: string; cover: string; track: Track }
+    | { kind: 'yt'; key: string; title: string; subtitle: string; cover: string; yt: YTMusicTrack };
+
+  const recommendedMusic = $derived.by<RecMusicCard[]>(() => {
+    const cards: RecMusicCard[] = [];
+    const seen = new Set<string>();
+    const curTitle = (currentTrack?.title ?? '').trim().toLowerCase();
+    const curArtist = (currentTrack?.artistName ?? '').trim().toLowerCase();
+    const curExt = (currentTrack?.externalId ?? '').trim();
+
+    const addTrack = (t: Track) => {
+      const key = `${t.title.trim().toLowerCase()}|${t.artistName.trim().toLowerCase()}`;
+      if (!t.title.trim() || seen.has(key)) return;
+      if (currentTrack && ((t.id > 0 && t.id === currentTrack.id) || (curExt && t.externalId === curExt) || (curTitle && key === `${curTitle}|${curArtist}`))) {
+        return;
+      }
+      seen.add(key);
+      const raw =
+        t.coverUrl ||
+        (/^[A-Za-z0-9_-]{11}$/.test(t.externalId ?? '')
+          ? `https://i.ytimg.com/vi/${t.externalId}/mqdefault.jpg`
+          : '');
+      cards.push({
+        kind: 'track',
+        key: `rec-tr-${t.id}-${key}`,
+        title: t.title,
+        subtitle: t.artistName,
+        cover: resolveCoverUrl(raw, mediaBaseUrl, 256),
+        track: t
+      });
+    };
+
+    if (curArtist) {
+      for (const t of allTracks) {
+        if (t.artistName.trim().toLowerCase() === curArtist) addTrack(t);
+        if (cards.length >= 12) return cards;
+      }
+    }
+    for (const yt of ytRecommendedTracks) {
+      const key = `${yt.title.trim().toLowerCase()}|${yt.artist.trim().toLowerCase()}`;
+      if (!yt.title.trim() || seen.has(key)) continue;
+      if (curExt && yt.videoId === curExt) continue;
+      seen.add(key);
+      const raw =
+        yt.coverUrl ||
+        (/^[A-Za-z0-9_-]{11}$/.test(yt.videoId ?? '')
+          ? `https://i.ytimg.com/vi/${yt.videoId}/mqdefault.jpg`
+          : '');
+      cards.push({
+        kind: 'yt',
+        key: `rec-yt-${yt.videoId || key}`,
+        title: yt.title,
+        subtitle: yt.artist,
+        cover: resolveCoverUrl(raw, mediaBaseUrl, 256),
+        yt
+      });
+      if (cards.length >= 12) return cards;
+    }
+    for (const t of [...allTracks, ...queue]) {
+      addTrack(t);
+      if (cards.length >= 12) return cards;
+    }
+    return cards;
+  });
 </script>
 
 {#if open}
   <div
-    in:fly={{ y: 480, duration: 280, easing: cubicOut }}
-    out:fly={{ y: 480, duration: 220, easing: cubicIn }}
-    class="fixed inset-0 z-50 overflow-y-auto px-5 pt-4 pb-10 select-none sm:hidden"
+    in:fly={{ y: typeof window !== 'undefined' ? window.innerHeight : 760, duration: 280, opacity: 1, easing: cubicOut }}
+    out:fly={{ y: typeof window !== 'undefined' ? window.innerHeight : 760, duration: 230, opacity: 1, easing: cubicIn }}
+    class="fixed inset-0 z-50 overflow-y-auto px-5 pt-[max(1rem,env(safe-area-inset-top))] pb-10 select-none sm:hidden"
     style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-tertiary-container) 70%, var(--md-sys-color-background)) 0%, var(--md-sys-color-background) 42%); color: var(--md-sys-color-on-surface); padding-bottom: calc(2.5rem + env(safe-area-inset-bottom, 0px));"
   >
-    <div class="max-w-md mx-auto space-y-6">
+    <div class="max-w-md mx-auto space-y-5">
       <div class="flex items-center justify-between gap-3">
         <button
           type="button"
@@ -185,7 +273,7 @@
         {/if}
       </div>
 
-      <div class="w-full aspect-square rounded-xl overflow-hidden shadow-2xl bg-[var(--md-sys-color-surface-container-high)] flex items-center justify-center">
+      <div class="w-full max-w-[320px] mx-auto aspect-square rounded-2xl overflow-hidden shadow-2xl bg-[var(--md-sys-color-surface-container-high)] flex items-center justify-center">
         {#if cover}
           <img
             src={cover}
@@ -241,7 +329,7 @@
             disabled={!currentTrack}
             onclick={() => currentTrack && onToggleFavorite(currentTrack.id, currentTrack)}
             aria-label={tr(lang, 'nav.likeSong')}
-            class="min-w-11 min-h-11 rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)] disabled:opacity-40 velora-heart-btn {currentTrack?.isFavorite ? 'is-loved' : ''}"
+            class="-mr-2.5 min-w-11 min-h-11 rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)] disabled:opacity-40 velora-heart-btn {currentTrack?.isFavorite ? 'is-loved' : ''}"
           >
             <Icon
               name="heart"
@@ -252,7 +340,7 @@
           </button>
         </div>
 
-        <div class="space-y-1.5">
+        <div class="space-y-2.5">
           <input
             type="range"
             min="0"
@@ -340,18 +428,34 @@
           >
             <Icon name="microphone-stage" size={20} />
           </button>
-          <button
-            type="button"
-            onclick={() => {
-              onClose();
-              onOpenQueue();
-            }}
-            aria-label="Buka Queue"
-            class="min-w-11 min-h-11 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
-            style="color: var(--md-sys-color-on-surface-variant);"
-          >
-            <Icon name="queue" size={20} />
-          </button>
+          <div class="flex items-center gap-1">
+            {#if onOpenDevices}
+              <button
+                type="button"
+                onclick={() => {
+                  onClose();
+                  onOpenDevices();
+                }}
+                aria-label={tr(lang, 'nav.audioOutput')}
+                class="velora-press min-w-11 min-h-11 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+                style="color: var(--md-sys-color-on-surface-variant);"
+              >
+                <Icon name="speaker-hifi" size={20} />
+              </button>
+            {/if}
+            <button
+              type="button"
+              onclick={() => {
+                onClose();
+                onOpenQueue();
+              }}
+              aria-label="Buka Queue"
+              class="velora-press min-w-11 min-h-11 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+              style="color: var(--md-sys-color-on-surface-variant);"
+            >
+              <Icon name="queue" size={20} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -369,54 +473,53 @@
           onClose();
           onOpenLyrics();
         }}
+        onResync={onResyncLyrics}
       />
 
-      <section
-        class="rounded-2xl p-4"
-        style="background-color: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface);"
-      >
-        <div class="flex items-center justify-between gap-2 mb-3.5">
-          <span class="text-[15px] font-bold">{tr(lang, 'nav.upNext')}</span>
-          <button
-            type="button"
-            onclick={() => {
-              onClose();
-              onOpenQueue();
-            }}
-            class="text-[13px] font-bold text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)] hover:underline cursor-pointer transition-colors shrink-0 min-h-11 flex items-center"
+      {#if recommendedMusic.length > 0}
+        <section class="pt-1">
+          <h2 class="text-base font-bold mb-3" style="color: var(--md-sys-color-on-surface);">
+            {lang === 'id' ? 'Rekomendasi Musik' : 'Recommended Music'}
+          </h2>
+          <div
+            use:shelfEdgeFade
+            class="flex items-start gap-3.5 overflow-x-auto no-scrollbar velora-shelf-scroll pb-2"
           >
-            {tr(lang, 'nav.openQueue')}
-          </button>
-        </div>
-
-        {#if !nextTrack}
-          <p class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] py-2">
-            {tr(lang, 'nav.emptyQueue')}
-          </p>
-        {:else}
-          <button
-            type="button"
-            onclick={() => onPlayTrack(nextTrack, queue)}
-            class="w-full min-h-11 flex items-center gap-3 p-1 -m-1 rounded-md text-left cursor-pointer hover:bg-[var(--md-sys-color-state-hover)] transition-colors"
-          >
-            <div class="w-12 h-12 rounded-md overflow-hidden shrink-0 bg-[var(--md-sys-color-surface-container-highest)]">
-              <CoverImage
-                src={resolveCoverUrl(nextTrack.coverUrl, mediaBaseUrl)}
-                iconSize={18}
-              />
-            </div>
-
-            <div class="min-w-0 flex-1">
-              <div class="text-[15px] font-semibold truncate leading-snug">
-                {nextTrack.title}
-              </div>
-              <div class="text-[13px] text-[var(--md-sys-color-on-surface-variant)] truncate mt-0.5">
-                {nextTrack.artistName}
-              </div>
-            </div>
-          </button>
-        {/if}
-      </section>
+            {#each recommendedMusic as card (card.key)}
+              <button
+                type="button"
+                onclick={() => {
+                  if (card.kind === 'track') {
+                    onPlayTrack(card.track, allTracks.length > 0 ? allTracks : queue);
+                  } else if (onPlayYTMusic) {
+                    onPlayYTMusic(card.yt);
+                  }
+                }}
+                class="velora-press w-32 shrink-0 flex flex-col items-stretch justify-start self-start text-left group cursor-pointer"
+              >
+                <div
+                  class="w-full aspect-square rounded-lg overflow-hidden mb-2 shadow-md"
+                  style="background-color: var(--md-sys-color-surface-container-highest);"
+                >
+                  <CoverImage
+                    src={card.cover}
+                    fallbackIcon="music-note"
+                    iconSize={30}
+                    imgClass="block w-full h-full object-cover object-center transition-transform duration-300 group-hover:scale-[1.03]"
+                    isVideoThumb={isYTVideoThumb(card.cover)}
+                  />
+                </div>
+                <div class="text-[13px] font-bold leading-snug line-clamp-2 break-words whitespace-normal" style="color: var(--md-sys-color-on-surface);">
+                  {card.title}
+                </div>
+                <div class="text-[11px] leading-snug truncate mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
+                  {card.subtitle}
+                </div>
+              </button>
+            {/each}
+          </div>
+        </section>
+      {/if}
     </div>
   </div>
 {/if}

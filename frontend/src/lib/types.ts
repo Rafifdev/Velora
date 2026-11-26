@@ -298,9 +298,16 @@ export interface AudioOutputDevice {
   volPct: number;
 }
 
+export interface LyricWord {
+  timeSec: number;
+  durationSec: number;
+  text: string;
+}
+
 export interface LyricLine {
   timeSec: number;
   text: string;
+  words?: LyricWord[];
 }
 
 export interface TrackLyrics {

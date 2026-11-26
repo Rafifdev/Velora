@@ -603,6 +603,10 @@ export const api = {
     if (isJamRemote) return;
     appBridge()?.SetDynamicIslandLyricOffset?.(offsetSec);
   },
+  setDynamicIslandLyricSweep(enabled: boolean): void {
+    if (isJamRemote) return;
+    appBridge()?.SetDynamicIslandLyricSweep?.(enabled);
+  },
   async getAudioOutputs(): Promise<AudioOutputDevice[]> {
     if (isJamRemote) return [];
     const fn = appBridge()?.GetAudioOutputs;

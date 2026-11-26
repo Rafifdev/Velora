@@ -32,6 +32,7 @@
     preferences: Record<string, string>;
     mediaBaseUrl: string;
     accentColor: string;
+    embeddedMobile?: boolean;
     focusCardSignal?: { card: 'album' | 'lyrics' | 'queue'; seq: number } | null;
     onChangeMode?: (mode: 'now-playing' | 'queue' | 'devices') => void;
     onSelectOutputDevice?: (deviceId: string) => void;
@@ -47,6 +48,7 @@
     onOpenTrackDetail?: (track: Track) => void;
     onOpenArtistDetail?: (track: Track) => void;
     onOpenLyrics?: () => void;
+    onResyncLyrics?: () => void;
     onOpenQueueSource?: () => void;
   }
 
@@ -67,6 +69,7 @@
     lyricsLoading,
     preferences,
     mediaBaseUrl,
+    embeddedMobile = false,
     focusCardSignal = null,
     onChangeMode,
     onSelectOutputDevice,
@@ -82,6 +85,7 @@
     onOpenTrackDetail,
     onOpenArtistDetail,
     onOpenLyrics,
+    onResyncLyrics,
     onOpenQueueSource
   }: Props = $props();
 
@@ -211,19 +215,21 @@
 
 <aside
   aria-label="Right Panel Section"
-  use:svelteMotionEnter={{ y: 8 }}
+  use:svelteMotionEnter={{ y: embeddedMobile ? 0 : 8 }}
   onmouseenter={() => {
     if (collapsed) collapsedHover = true;
   }}
   onmouseleave={() => {
     collapsedHover = false;
   }}
-  class="relative shrink-0 h-full min-h-0 flex flex-col select-none overflow-visible {collapsed
-    ? 'rounded-l-lg rounded-r-none'
-    : 'rounded-lg'}"
-  style="width: {collapsed ? (collapsedHover ? COLLAPSED_HOVER_WIDTH : COLLAPSED_WIDTH) : width}px; background-color: var(--md-sys-color-surface-container-low); transition: {isResizing ? 'none' : 'width 360ms cubic-bezier(0.22, 1, 0.36, 1), background-color 300ms ease'};"
+  class="relative shrink-0 h-full min-h-0 flex flex-col select-none overflow-visible {embeddedMobile
+    ? 'w-full rounded-none'
+    : collapsed
+      ? 'rounded-l-lg rounded-r-none'
+      : 'rounded-lg'}"
+  style="width: {embeddedMobile ? '100%' : `${collapsed ? (collapsedHover ? COLLAPSED_HOVER_WIDTH : COLLAPSED_WIDTH) : width}px`}; background-color: {embeddedMobile ? 'transparent' : 'var(--md-sys-color-surface-container-low)'}; transition: {isResizing || embeddedMobile ? 'none' : 'width 360ms cubic-bezier(0.22, 1, 0.36, 1), background-color 300ms ease'};"
 >
-  {#if !collapsed}
+  {#if !collapsed && !embeddedMobile}
     <div
       role="separator"
       aria-orientation="vertical"
@@ -643,6 +649,7 @@
         {collapsed}
         {onSeek}
         {onOpenLyrics}
+        onResync={onResyncLyrics}
       />
 
       <section

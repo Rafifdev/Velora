@@ -39,6 +39,7 @@
   let scrollEl: HTMLDivElement | undefined = $state();
   let lineEls: Array<HTMLElement | null> = $state([]);
   let autoSync = $state(true);
+  let mobileMenuOpen = $state(false);
   let offsetSec = $state(0);
   let smoothPosSec = $state(0);
   let anchorPos = 0;
@@ -210,13 +211,16 @@
     scrollToActiveLine('smooth');
   });
 
-  function handleSyncClick() {
+  function handleSyncClick(e: MouseEvent) {
+    e.stopPropagation();
     autoSync = true;
+    if (offsetSec !== 0) {
+      applyOffset(0);
+    }
     if (hasSynced) {
       scrollToActiveLine('smooth');
-    } else {
-      onResync?.();
     }
+    onResync?.();
   }
 </script>
 
@@ -238,7 +242,85 @@
     style="background: linear-gradient(180deg, rgba(10, 12, 16, 0.84) 0%, rgba(10, 12, 16, 0.68) 18%, rgba(10, 12, 16, 0.72) 55%, rgba(10, 12, 16, 0.88) 88%, rgba(10, 12, 16, 0.94) 100%);"
   ></div>
 
-  <header class="relative z-10 flex items-center justify-between gap-4 px-8 pt-6 pb-4 shrink-0">
+  <header class="sm:hidden relative z-20 flex items-center justify-between gap-3 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-3 shrink-0">
+    <button
+      type="button"
+      onclick={onClose}
+      aria-label={tr(lang, 'nav.closeLyrics')}
+      class="m3-icon-btn min-w-11 min-h-11 flex items-center justify-center cursor-pointer text-white"
+    >
+      <Icon name="caret-down" weight="bold" size={22} />
+    </button>
+
+    <div class="min-w-0 flex-1 text-center">
+      <div class="text-[10px] font-bold uppercase tracking-widest text-white/65">
+        {tr(lang, 'nav.playingFrom')}
+      </div>
+      <div class="text-xs font-bold text-white truncate max-w-[220px] mx-auto">
+        {track?.albumTitle || track?.title || 'Velora'}
+      </div>
+    </div>
+
+    <div class="relative shrink-0">
+      <button
+        type="button"
+        onclick={() => (mobileMenuOpen = !mobileMenuOpen)}
+        aria-label="Opsi Lirik"
+        class="m3-icon-btn min-w-11 min-h-11 flex items-center justify-center cursor-pointer text-white"
+      >
+        <Icon name="dots-three-vertical" weight="bold" size={20} />
+      </button>
+
+      {#if mobileMenuOpen}
+        <div
+          class="absolute right-0 top-12 z-30 min-w-[180px] p-2 rounded-xl shadow-2xl border border-white/15 backdrop-blur-xl flex flex-col gap-1.5"
+          style="background-color: rgba(20, 22, 28, 0.92);"
+        >
+          {#if hasSynced}
+            <div class="flex items-center justify-between gap-2 px-2 py-1">
+              <button
+                type="button"
+                onclick={() => applyOffset(offsetSec - lyricsNudgeStepSec)}
+                class="min-w-9 min-h-9 rounded-full bg-white/10 hover:bg-white/20 text-white font-bold text-sm flex items-center justify-center cursor-pointer"
+                aria-label={tr(lang, 'nav.nudgeLyricBack')}
+              >
+                -
+              </button>
+              <button
+                type="button"
+                onclick={() => applyOffset(0)}
+                class="text-xs font-semibold tabular-nums text-white/85 cursor-pointer"
+              >
+                {offsetSec === 0 ? '0s' : offsetSec > 0 ? `+${offsetSec}s` : `${offsetSec}s`}
+              </button>
+              <button
+                type="button"
+                onclick={() => applyOffset(offsetSec + lyricsNudgeStepSec)}
+                class="min-w-9 min-h-9 rounded-full bg-white/10 hover:bg-white/20 text-white font-bold text-sm flex items-center justify-center cursor-pointer"
+                aria-label={tr(lang, 'nav.nudgeLyricForward')}
+              >
+                +
+              </button>
+            </div>
+          {/if}
+          <button
+            type="button"
+            disabled={lyricsLoading}
+            onclick={(e) => {
+              handleSyncClick(e);
+              mobileMenuOpen = false;
+            }}
+            class="w-full min-h-10 px-3 rounded-lg flex items-center gap-2 text-xs font-semibold text-white hover:bg-white/10 cursor-pointer disabled:opacity-50"
+          >
+            <Icon name="arrows-clockwise" size={16} />
+            <span>{tr(lang, 'nav.resyncLyrics')}</span>
+          </button>
+        </div>
+      {/if}
+    </div>
+  </header>
+
+  <header class="hidden sm:flex relative z-10 items-center justify-between gap-4 px-8 pt-6 pb-4 shrink-0">
     <div class="flex items-center gap-4 min-w-0">
       {#if cover}
         <img
@@ -317,12 +399,13 @@
       {/if}
       <button
         type="button"
+        disabled={lyricsLoading}
         onclick={handleSyncClick}
-        class="w-9 h-9 rounded-full flex items-center justify-center transition-colors duration-200 cursor-pointer {hasSynced && autoSync
+        class="w-9 h-9 rounded-full flex items-center justify-center transition-colors duration-200 cursor-pointer disabled:opacity-60 {hasSynced && autoSync
           ? 'bg-white/25 text-white'
-          : 'bg-white/10 hover:bg-white/20 text-white/80 hover:text-white'}"
-        title={hasSynced ? tr(lang, 'nav.syncLyrics') : tr(lang, 'nav.resyncLyrics')}
-        aria-label={tr(lang, 'nav.syncLyrics')}
+          : 'bg-white/10 hover:bg-white/20 text-white/80 hover:text-white'} {lyricsLoading ? 'animate-pulse' : ''}"
+        title={tr(lang, 'nav.resyncLyrics')}
+        aria-label={tr(lang, 'nav.resyncLyrics')}
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <rect x="3" y="9" width="2.4" height="6" rx="1.2" fill="currentColor" />
@@ -374,7 +457,7 @@
           <button
             bind:this={lineEls[idx]}
             type="button"
-            onclick={() => onSeek(line.timeSec)}
+            onclick={() => onSeek(Math.max(0, line.timeSec - offsetSec))}
             class="text-left {syncedSizeClass} font-bold leading-snug tracking-tight origin-left transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer text-white {active
               ? 'opacity-100 scale-[1.03]'
               : lyricsBlurOthers
@@ -382,11 +465,10 @@
                 : 'opacity-35 scale-[0.92] hover:opacity-90'}"
           >
             {#if active && lyricsSweep}
-              {@const words = computeWordProgressList(line.text || '♪', getLineSweepProgress(idx))}
+              {@const words = computeWordProgressList(line.text || '♪', getLineSweepProgress(idx), line.words, smoothPosSec + offsetSec)}
               {#each words as item, wIdx (wIdx)}
                 <span
-                  class="inline-block will-change-transform"
-                  style="background-image: {wordSweepBackground(item.prog, 'rgba(255, 255, 255, 1)', 'rgba(255, 255, 255, 0.36)')}; -webkit-background-clip: text; background-clip: text; color: transparent; transform: translate3d(0, {(-1.2 * item.prog).toFixed(2)}px, 0);"
+                  style="background-image: {wordSweepBackground(item.prog, '#ffffff', 'rgba(255, 255, 255, 0.48)')}; -webkit-background-clip: text; background-clip: text; color: transparent;"
                 >{item.word}</span>{wIdx < words.length - 1 ? ' ' : ''}
               {/each}
             {:else}

@@ -70,6 +70,7 @@
     onNavigate: (route: ViewRoute) => void;
     lang?: LangCode;
     activeDownloadsCount?: number;
+    downloadProgressPct?: number;
     showGreeting?: boolean;
     showRecentHome?: boolean;
     meltCards?: boolean;
@@ -129,6 +130,7 @@
     onNavigate,
     lang = 'en',
     activeDownloadsCount = 0,
+    downloadProgressPct = 0,
     showGreeting: _showGreeting = true,
     showRecentHome: _showRecentHome = true,
     meltCards: _meltCards = true
@@ -645,6 +647,7 @@
     title={activeFilterPill === 'semua' ? tr(lang, 'nav.home') : pillHeading}
     {lang}
     {activeDownloadsCount}
+    {downloadProgressPct}
     {onNavigate}
   />
 
@@ -831,7 +834,7 @@
                 {@const menuKey = `shelf-${shelfKey}-${item.id}`}
                 {#if variant === 'compact-list'}
                   <article
-                    class="group flex items-center gap-2.5 p-2 rounded-xl bg-[var(--md-sys-color-surface-container)]/60 hover:bg-[var(--md-sys-color-state-hover)] transition-colors duration-200"
+                    class="velora-press group flex items-center gap-2.5 p-2 rounded-xl bg-[var(--md-sys-color-surface-container)]/60 hover:bg-[var(--md-sys-color-state-hover)] transition-colors duration-200"
                   >
                     <button
                       type="button"
@@ -861,6 +864,26 @@
                       </div>
                     </button>
 
+                    {#if item.kind !== 'artist'}
+                      <button
+                        type="button"
+                        onclick={() => playOrToggleCard(item, isCardActive)}
+                        aria-label="Putar {item.title}"
+                        class="shrink-0 w-8 h-8 rounded-full border-0 outline-none shadow-md bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] items-center justify-center cursor-pointer transition-all duration-200 {isCardActive
+                          ? 'flex opacity-100 scale-100'
+                          : 'hidden sm:flex opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100'}"
+                      >
+                        {#if isCardActive && isActuallyPlaying}
+                          <EqIndicator color="currentColor" />
+                          <span class="hidden group-hover:inline-flex items-center justify-center">
+                            <Icon name="pause" weight="fill" size={14} />
+                          </span>
+                        {:else}
+                          <Icon name="play" weight="fill" size={14} />
+                        {/if}
+                      </button>
+                    {/if}
+
                     {#if songTrack}
                       <TrackActionMenu
                         track={songTrack}
@@ -881,30 +904,10 @@
                         {onOpenTrackAlbum}
                       />
                     {/if}
-
-                    {#if item.kind !== 'artist'}
-                      <button
-                        type="button"
-                        onclick={() => playOrToggleCard(item, isCardActive)}
-                        aria-label="Putar {item.title}"
-                        class="shrink-0 w-8 h-8 rounded-full border-0 outline-none shadow-md bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer transition-all duration-200 {isCardActive
-                          ? 'opacity-100 scale-100'
-                          : 'opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100'}"
-                      >
-                        {#if isCardActive && isActuallyPlaying}
-                          <EqIndicator color="currentColor" />
-                          <span class="hidden group-hover:inline-flex items-center justify-center">
-                            <Icon name="pause" weight="fill" size={14} />
-                          </span>
-                        {:else}
-                          <Icon name="play" weight="fill" size={14} />
-                        {/if}
-                      </button>
-                    {/if}
                   </article>
                 {:else if variant === 'wide-rect'}
                   <article
-                    class="group {isExpanded || twoRow
+                    class="velora-press group {isExpanded || twoRow
                       ? 'w-full min-w-0'
                       : `grow shrink-0 basis-[258px] sm:basis-[296px] min-w-0 ${visibleItems.length <= 2 ? 'max-w-[460px]' : ''}`} flex items-center gap-3 p-2.5 rounded-xl bg-[var(--md-sys-color-surface-container)]/65 hover:bg-[var(--md-sys-color-state-hover)] transition-colors duration-200"
                   >
@@ -936,6 +939,26 @@
                       </div>
                     </button>
 
+                    {#if item.kind !== 'artist'}
+                      <button
+                        type="button"
+                        onclick={() => playOrToggleCard(item, isCardActive)}
+                        aria-label="Putar {item.title}"
+                        class="shrink-0 w-9 h-9 rounded-full border-0 outline-none shadow-md bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] items-center justify-center cursor-pointer transition-all duration-200 {isCardActive
+                          ? 'flex opacity-100 scale-100'
+                          : 'hidden sm:flex opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100'}"
+                      >
+                        {#if isCardActive && isActuallyPlaying}
+                          <EqIndicator color="currentColor" />
+                          <span class="hidden group-hover:inline-flex items-center justify-center">
+                            <Icon name="pause" weight="fill" size={16} />
+                          </span>
+                        {:else}
+                          <Icon name="play" weight="fill" size={16} />
+                        {/if}
+                      </button>
+                    {/if}
+
                     {#if songTrack}
                       <TrackActionMenu
                         track={songTrack}
@@ -956,32 +979,12 @@
                         {onOpenTrackAlbum}
                       />
                     {/if}
-
-                    {#if item.kind !== 'artist'}
-                      <button
-                        type="button"
-                        onclick={() => playOrToggleCard(item, isCardActive)}
-                        aria-label="Putar {item.title}"
-                        class="shrink-0 w-9 h-9 rounded-full border-0 outline-none shadow-md bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer transition-all duration-200 {isCardActive
-                          ? 'opacity-100 scale-100'
-                          : 'opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100'}"
-                      >
-                        {#if isCardActive && isActuallyPlaying}
-                          <EqIndicator color="currentColor" />
-                          <span class="hidden group-hover:inline-flex items-center justify-center">
-                            <Icon name="pause" weight="fill" size={16} />
-                          </span>
-                        {:else}
-                          <Icon name="play" weight="fill" size={16} />
-                        {/if}
-                      </button>
-                    {/if}
                   </article>
                 {:else}
                   {@const isLarge = variant === 'large'}
                   {@const isSmall = variant === 'small' || (isAlwaysFull && isViewportMobile)}
                   <article
-                    class="group {isExpanded
+                    class="velora-press group {isExpanded
                       ? 'w-full min-w-0'
                       : isLarge
                         ? `grow shrink-0 basis-[188px] sm:basis-[224px] min-w-0 ${visibleItems.length <= 2 ? 'max-w-[340px]' : ''}`
