@@ -5,7 +5,7 @@
   <p><strong>Modern Desktop Music Player for Windows with Native Dynamic Island, Synchronized Lyrics, Hybrid Streaming &amp; Velora Jam</strong></p>
 
   <p>
-    <img src="docs/badges/microsoft-store.svg" alt="Available on Microsoft Store" />
+    <a href="https://apps.microsoft.com/detail/9PN43QQ19SS9"><img src="docs/badges/microsoft-store.svg" alt="Available on Microsoft Store" /></a>
     <a href="https://github.com/Rafifdev/Velora/releases/tag/v1.2.0"><img src="docs/badges/release.svg" alt="Latest Release v1.2.0" /></a>
     <img src="https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20(x64)-0078D6?style=flat-square&logo=windows" alt="Platform Windows" />
     <img src="https://img.shields.io/badge/Go-1.24-00ADD8?style=flat-square&logo=go" alt="Go 1.24" />
@@ -21,16 +21,15 @@
 
 **Velora** is a native desktop music player for Windows built with **Go (Wails v2)** and **Svelte 5**. It combines online catalog streaming, local library playback, multi-source time-synced lyrics with word-by-word sweep, a mobile-friendly **Velora Jam** Wi-Fi remote, and a native Win32/Direct2D **Dynamic Island** overlay at the top edge of your screen — designed around an adaptive **Material Design 3** interface.
 
-Velora is officially published on the **Microsoft Store** under **Velora Player - Dynamic Island**.
+Velora is officially published on the [**Microsoft Store**](https://apps.microsoft.com/detail/9PN43QQ19SS9) under **Velora Player - Dynamic Island**.
 
 ---
 
 ## Installation
 
 ### Microsoft Store (Recommended)
-1. Open the **Microsoft Store** app on Windows 10 or Windows 11.
-2. Search for **Velora Player - Dynamic Island** (published by **Rafif Dev**).
-3. Click **Get** / **Install** to automatically receive signed builds and updates.
+1. Open [**Velora Player - Dynamic Island** on Microsoft Store](https://apps.microsoft.com/detail/9PN43QQ19SS9) (or search for it in the Microsoft Store app on Windows 10 / 11).
+2. Click **Get** / **Install** to automatically receive signed builds and updates.
 
 ### GitHub Releases (Standalone / Installer / MSIX)
 Download the latest release assets from [GitHub Releases](https://github.com/Rafifdev/Velora/releases):
