@@ -416,6 +416,28 @@ export namespace jam {
 
 export namespace main {
 	
+	export class AudioOutputDevice {
+	    id: string;
+	    name: string;
+	    connType: string;
+	    isActive: boolean;
+	    batPct: number;
+	    volPct: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new AudioOutputDevice(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.connType = source["connType"];
+	        this.isActive = source["isActive"];
+	        this.batPct = source["batPct"];
+	        this.volPct = source["volPct"];
+	    }
+	}
 	export class BootstrapData {
 	    tracks: db.Track[];
 	    albums: db.Album[];
@@ -505,6 +527,7 @@ export namespace main {
 	    streakDays: number;
 	    lyricsLoading: boolean;
 	    trackLoading: boolean;
+	    lyricOffsetSec: number;
 	    queueTitle: string;
 	    queueIndex: number;
 	    queue: DynamicIslandQueueItem[];
@@ -533,6 +556,7 @@ export namespace main {
 	        this.streakDays = source["streakDays"];
 	        this.lyricsLoading = source["lyricsLoading"];
 	        this.trackLoading = source["trackLoading"];
+	        this.lyricOffsetSec = source["lyricOffsetSec"];
 	        this.queueTitle = source["queueTitle"];
 	        this.queueIndex = source["queueIndex"];
 	        this.queue = this.convertValues(source["queue"], DynamicIslandQueueItem);
@@ -699,9 +723,26 @@ export namespace sources {
 	        this.error = source["error"];
 	    }
 	}
+	export class LyricWord {
+	    timeSec: number;
+	    durationSec: number;
+	    text: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LyricWord(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.timeSec = source["timeSec"];
+	        this.durationSec = source["durationSec"];
+	        this.text = source["text"];
+	    }
+	}
 	export class LyricLine {
 	    timeSec: number;
 	    text: string;
+	    words?: LyricWord[];
 	
 	    static createFrom(source: any = {}) {
 	        return new LyricLine(source);
@@ -711,8 +752,28 @@ export namespace sources {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.timeSec = source["timeSec"];
 	        this.text = source["text"];
+	        this.words = this.convertValues(source["words"], LyricWord);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
+	
 	export class TrackLyrics {
 	    trackId: number;
 	    title: string;
@@ -766,6 +827,7 @@ export namespace sources {
 	    album: string;
 	    durationSec: number;
 	    explicit?: boolean;
+	    videoType?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new YTMusicCard(source);
@@ -785,6 +847,7 @@ export namespace sources {
 	        this.album = source["album"];
 	        this.durationSec = source["durationSec"];
 	        this.explicit = source["explicit"];
+	        this.videoType = source["videoType"];
 	    }
 	}
 	export class YTMusicTrack {
@@ -797,6 +860,7 @@ export namespace sources {
 	    format: string;
 	    playCountText?: string;
 	    explicit?: boolean;
+	    videoType?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new YTMusicTrack(source);
@@ -813,6 +877,7 @@ export namespace sources {
 	        this.format = source["format"];
 	        this.playCountText = source["playCountText"];
 	        this.explicit = source["explicit"];
+	        this.videoType = source["videoType"];
 	    }
 	}
 	export class YTMusicShelf {

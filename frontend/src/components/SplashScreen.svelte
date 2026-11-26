@@ -15,6 +15,15 @@
   function finishSplash() {
     if (exiting || finished) return;
     exiting = true;
+    const v = darkVideo;
+    if (v) {
+      try {
+        v.pause();
+        v.removeAttribute('src');
+        v.load();
+      } catch {
+      }
+    }
     setTimeout(() => {
       finished = true;
       onComplete();

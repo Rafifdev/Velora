@@ -742,6 +742,18 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
     fr: ['Paroles', 'Bouton des paroles et ligne active dans la pilule sur une ligne.'],
     es: ['Letra', 'Botón de letra y línea de letra activa en la píldora de una línea.']
   },
+  'dynamicIsland.lyricSweep': {
+    en: ['Word-by-word lyric sweep', 'Sweep the active lyric line smoothly from left to right.'],
+    id: ['Sapuan lirik per kata', 'Sapuan halus baris lirik aktif dari kiri ke kanan mengikuti lagu.'],
+    ms: ['Sapuan lirik kata demi kata', 'Sapuan halus baris lirik aktif dari kiri ke kanan mengikut lagu.'],
+    ja: ['歌詞の単語ごとスイープ', '再生中の歌詞行を曲に合わせて左から右へ滑らかにスイープします。'],
+    ko: ['가사 단어별 스윕', '재생 중인 가사 줄을 곡에 맞춰 왼쪽에서 오른쪽으로 부드럽게 스윕합니다.'],
+    hi: ['शब्द-दर-शब्द लिरिक स्वीप', 'सक्रिय लिरिक लाइन को गाने के साथ बाएं से दाएं स्मूथ रूप से स्वीप करें।'],
+    pt: ['Varredura palavra por palavra', 'Destaca a linha de letra ativa suavemente da esquerda para a direita.'],
+    de: ['Wort-für-Wort-Sweep', 'Hebt die aktive Textzeile gleichmäßig von links nach rechts hervor.'],
+    fr: ['Balayage des paroles mot par mot', 'Balaie la ligne active de gauche à droite au rythme du morceau.'],
+    es: ['Barrido de letra palabra por palabra', 'Resalta la línea de letra activa suavemente de izquierda a derecha.']
+  },
   'dynamicIsland.showHeart': {
     en: ['Show heart button', 'Quick favorite toggle inside Dynamic Island.'],
     id: ['Tombol hati', 'Tombol suka cepat di dalam Dynamic Island.'],
@@ -1197,7 +1209,7 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     title: 'Word-by-word sweep',
     description: 'Smooth word-level highlighting.',
     widget: 'toggle',
-    defaultValue: 'false'
+    defaultValue: 'true'
   },
   {
     id: 'lyrics.blurOthers',
@@ -1596,6 +1608,16 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     group: 'grp.islandContent',
     title: 'Show lyric line',
     description: 'Active lyric line.',
+    widget: 'toggle',
+    defaultValue: 'true',
+    visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }
+  },
+  {
+    id: 'dynamicIsland.lyricSweep',
+    category: 'dynamic-island',
+    group: 'grp.islandContent',
+    title: 'Word-by-word lyric sweep',
+    description: 'Left-to-right lyric sweep.',
     widget: 'toggle',
     defaultValue: 'true',
     visibleWhen: { id: 'dynamicIsland.enabled', equals: 'true' }

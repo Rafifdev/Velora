@@ -30,6 +30,7 @@
     playlists?: Playlist[];
     downloadStates?: Record<number, DownloadProgress>;
     currentTrackId?: number | null;
+    currentHistoryEntryId?: number | null;
     currentExternalId?: string | null;
     currentTrackTitle?: string | null;
     currentTrackArtist?: string | null;
@@ -67,6 +68,7 @@
     playlists = [],
     downloadStates = {},
     currentTrackId = null,
+    currentHistoryEntryId = null,
     currentExternalId = null,
     currentTrackTitle = null,
     currentTrackArtist = null,
@@ -464,6 +466,8 @@
       if (res.hasUpdate) {
         updateStatusText = `${tr(lang, 'nav.updateAvailableBadge')} v${res.latestVersion}`;
         showUpdateModal = true;
+      } else if (res.releaseUrl?.startsWith('ms-windows-store://')) {
+        updateStatusText = `Microsoft Store (v${res.currentVersion})`;
       } else {
         updateStatusText = `${tr(lang, 'nav.upToDate')} (v${res.currentVersion})`;
       }
@@ -684,7 +688,7 @@
 
   function historyItemToTrack(item: PlayHistoryItem): Track {
     const byId = tracks.find((t) => t.id === item.trackId);
-    if (byId) return byId;
+    if (byId) return { ...byId, historyEntryId: item.id };
     const targetTitle = normHistoryTitle(item.title);
     const targetArtist = (item.artistName || '').trim().toLowerCase();
     const byMeta = targetTitle
@@ -694,7 +698,7 @@
             (!targetArtist || t.artistName.trim().toLowerCase().includes(targetArtist))
         )
       : undefined;
-    if (byMeta) return byMeta;
+    if (byMeta) return { ...byMeta, historyEntryId: item.id };
     return {
       id: item.trackId,
       title: item.title,
@@ -711,6 +715,7 @@
       coverUrl: item.coverUrl || '',
       isFavorite: false,
       playCount: 1,
+      historyEntryId: item.id,
       createdAt: item.playedAt || ''
     };
   }
@@ -739,15 +744,29 @@
     return false;
   }
 
+  const activeHistoryEntryId = $derived.by<number | null>(() => {
+    const matchingIds: number[] = [];
+    for (const item of history) {
+      if (isHistoryTrackActive(historyItemToTrack(item))) {
+        matchingIds.push(item.id);
+      }
+    }
+    if (matchingIds.length === 0) return null;
+    if (currentHistoryEntryId !== null && matchingIds.includes(currentHistoryEntryId)) {
+      return currentHistoryEntryId;
+    }
+    return matchingIds[0];
+  });
+
   function playHistoryTrack(item: PlayHistoryItem) {
-    const target = historyItemToTrack(item);
-    const list = filteredHistory.map(historyItemToTrack);
+    const list = history.map(historyItemToTrack);
+    const target = list.find((t) => t.historyEntryId === item.id) ?? historyItemToTrack(item);
     onPlayTrack(target, list.length > 0 ? list : [target]);
   }
 
   function playAllHistory() {
-    if (filteredHistory.length === 0) return;
-    const list = filteredHistory.map(historyItemToTrack);
+    if (history.length === 0) return;
+    const list = history.map(historyItemToTrack);
     onPlayTrack(list[0], list);
   }
 
@@ -1397,10 +1416,9 @@
       {:else}
         <div class="space-y-1">
           <div
-            class="-mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_96px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(100px,0.6fr)_minmax(150px,0.75fr)_56px_96px] items-center gap-4 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider"
+            class="-mx-2 hidden sm:grid grid-cols-[minmax(0,1fr)_52px_96px] md:grid-cols-[minmax(0,1.6fr)_minmax(100px,0.6fr)_minmax(150px,0.75fr)_56px_96px] items-center gap-4 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider"
             style="color: var(--md-sys-color-on-surface-variant);"
           >
-            <span class="text-center">#</span>
             <span>{tr(lang, 'nav.titleCol')}</span>
             <span class="hidden md:block">{tr(lang, 'nav.listenedCol')}</span>
             <span class="hidden md:block">{tr(lang, 'nav.watchedCol')}</span>
@@ -1411,54 +1429,20 @@
           </div>
 
           <div class="space-y-0.5" role="list">
-            {#each history as item, idx (item.id)}
+            {#each history as item (item.id)}
               {@const trItem = historyItemToTrack(item)}
               {@const cover = resolveCoverUrl(trItem.coverUrl || item.coverUrl, mediaBaseUrl)}
-              {@const active = isHistoryTrackActive(trItem)}
+              {@const active = activeHistoryEntryId === item.id}
               {@const menuOpen = openHistoryActionId === item.id}
               {@const dlState = downloadStates[trItem.id]}
               {@const isDlActive = dlState && (dlState.status === 'queued' || dlState.status === 'downloading')}
               <div
                 role="listitem"
-                class="velora-track-row group -mx-2 grid grid-cols-[32px_minmax(0,1fr)_52px_96px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(100px,0.6fr)_minmax(150px,0.75fr)_56px_96px] items-center gap-4 px-3 py-2 rounded-lg transition-colors duration-150 {active
+                class="velora-track-row group -mx-2 grid grid-cols-[minmax(0,1fr)_52px_96px] md:grid-cols-[minmax(0,1.6fr)_minmax(100px,0.6fr)_minmax(150px,0.75fr)_56px_96px] items-center gap-4 px-3 py-2 rounded-lg transition-colors duration-150 {active
                   ? 'bg-[var(--md-sys-color-state-hover)]'
                   : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
                 style="color: var(--md-sys-color-on-surface);"
               >
-                <div class="flex items-center justify-center">
-                  {#if active && isPlaying}
-                    <EqIndicator class="group-hover:hidden" />
-                    <button
-                      type="button"
-                      onclick={() => (onTogglePlay ? onTogglePlay() : playHistoryTrack(item))}
-                      aria-label="{tr(lang, 'nav.pause')} {item.title}"
-                      class="hidden group-hover:flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
-                    >
-                      <Icon name="pause" weight="fill" size={14} />
-                    </button>
-                  {:else if active && !isPlaying}
-                    <button
-                      type="button"
-                      onclick={() => (onTogglePlay ? onTogglePlay() : playHistoryTrack(item))}
-                      aria-label="{tr(lang, 'nav.play')} {item.title}"
-                      class="flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
-                    >
-                      <Icon name="play" weight="fill" size={14} />
-                    </button>
-                  {:else}
-                    <span class="text-xs font-medium tabular-nums group-hover:hidden opacity-65">
-                      {idx + 1}
-                    </span>
-                    <button
-                      type="button"
-                      onclick={() => playHistoryTrack(item)}
-                      aria-label="{tr(lang, 'nav.play')} {item.title}"
-                      class="hidden group-hover:flex items-center justify-center cursor-pointer text-[var(--md-sys-color-tertiary)]"
-                    >
-                      <Icon name="play" weight="fill" size={14} />
-                    </button>
-                  {/if}
-                </div>
 
                 <div class="flex items-center gap-3 min-w-0 text-left">
                   <button

@@ -17,6 +17,7 @@ export interface Track {
   isDownloaded?: boolean;
   downloadedAt?: string;
   globalPlays?: string;
+  historyEntryId?: number;
   createdAt: string;
 }
 
@@ -288,9 +289,25 @@ export interface YTMusicArtistView {
   relatedArtists: YTMusicCard[];
 }
 
+export interface AudioOutputDevice {
+  id: string;
+  name: string;
+  connType: 'bluetooth' | 'wired' | 'speaker' | string;
+  isActive: boolean;
+  batPct: number;
+  volPct: number;
+}
+
+export interface LyricWord {
+  timeSec: number;
+  durationSec: number;
+  text: string;
+}
+
 export interface LyricLine {
   timeSec: number;
   text: string;
+  words?: LyricWord[];
 }
 
 export interface TrackLyrics {
@@ -320,6 +337,8 @@ export type HomeFilter = 'semua' | 'musik' | 'artis' | 'album' | 'playlist' | 'p
 export type ViewRoute =
   | { name: 'home'; filter?: HomeFilter }
   | { name: 'search'; query: string }
+  | { name: 'library'; filter?: 'all' | 'music' | 'albums' | 'artists' | 'downloaded' }
+  | { name: 'downloads' }
   | { name: 'liked-songs' }
   | { name: 'favorite-albums' }
   | { name: 'album-detail'; albumId: number }

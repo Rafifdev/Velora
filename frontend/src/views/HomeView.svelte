@@ -8,6 +8,8 @@
   import EmptyState from '../components/EmptyState.svelte';
   import EqIndicator from '../components/EqIndicator.svelte';
   import Icon from '../components/Icon.svelte';
+  import MobileTopHeader from '../components/MobileTopHeader.svelte';
+  import TrackActionMenu from '../components/TrackActionMenu.svelte';
 
   interface Props {
     albums?: Album[];
@@ -57,8 +59,18 @@
     onLoadMoreYTMusic?: (category: HomeFilter) => void;
     onLoadMorePopularArtists?: () => void;
     onCreatePlaylist?: () => void;
+    onPlayNext?: (track: Track) => void;
+    onAddToQueue?: (track: Track) => void;
+    onAddToPlaylist?: (playlistId: number, trackId: number, track?: Track) => void;
+    onCreatePlaylistTrack?: (track?: Track) => void;
+    onToggleFavoriteTrack?: (trackId: number, track?: Track) => void;
+    onDownloadTrack?: (track: Track) => void;
+    onRemoveDownload?: (trackId: number) => void;
+    onOpenTrackAlbum?: (track: Track) => void;
     onNavigate: (route: ViewRoute) => void;
     lang?: LangCode;
+    activeDownloadsCount?: number;
+    downloadProgressPct?: number;
     showGreeting?: boolean;
     showRecentHome?: boolean;
     meltCards?: boolean;
@@ -107,8 +119,18 @@
     onLoadMoreYTMusic,
     onLoadMorePopularArtists,
     onCreatePlaylist: _onCreatePlaylist,
+    onPlayNext,
+    onAddToQueue,
+    onAddToPlaylist,
+    onCreatePlaylistTrack,
+    onToggleFavoriteTrack,
+    onDownloadTrack,
+    onRemoveDownload,
+    onOpenTrackAlbum,
     onNavigate,
     lang = 'en',
+    activeDownloadsCount = 0,
+    downloadProgressPct = 0,
     showGreeting: _showGreeting = true,
     showRecentHome: _showRecentHome = true,
     meltCards: _meltCards = true
@@ -205,6 +227,79 @@
       observer.disconnect();
     };
   });
+
+  let isViewportMobile = $state(false);
+  let openMenuKey = $state<string | null>(null);
+
+  $effect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 767px)');
+    const sync = () => {
+      isViewportMobile = mq.matches;
+    };
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  });
+
+  const savedTrackByExternalId = $derived.by(() => {
+    const map = new Map<string, Track>();
+    for (const t of tracks) {
+      if (t.externalId) map.set(t.externalId, t);
+    }
+    return map;
+  });
+
+  function cardToTrack(item: YTMusicCard): Track | null {
+    if (item.kind !== 'song') return null;
+    const videoId = (item.videoId || item.id || '').trim();
+    if (!videoId) return null;
+    const existing = savedTrackByExternalId.get(videoId);
+    if (existing) return existing;
+    return {
+      id: 0,
+      externalId: videoId,
+      sourceType: 'ytmusic',
+      title: item.title,
+      artistId: 0,
+      artistName: item.subtitle || 'Unknown Artist',
+      albumId: 0,
+      albumTitle: '',
+      durationSec: item.durationSec || 0,
+      filePath: '',
+      coverUrl: item.coverUrl,
+      bitrate: 0,
+      format: '',
+      playCount: 0,
+      isFavorite: false,
+      isDownloaded: false,
+      createdAt: ''
+    };
+  }
+
+  function ytTrackToTrack(yt: YTMusicTrack): Track {
+    const existing = savedTrackByExternalId.get(yt.videoId);
+    if (existing) return existing;
+    return {
+      id: 0,
+      externalId: yt.videoId,
+      sourceType: 'ytmusic',
+      title: yt.title,
+      artistId: 0,
+      artistName: yt.artist,
+      albumId: 0,
+      albumTitle: yt.album || '',
+      durationSec: yt.durationSec || 0,
+      filePath: '',
+      coverUrl: yt.coverUrl,
+      bitrate: 0,
+      format: '',
+      playCount: 0,
+      isFavorite: false,
+      isDownloaded: false,
+      createdAt: ''
+    };
+  }
 
   const filterPills = $derived([
     { id: 'semua', label: tr(lang, 'nav.all') },
@@ -417,7 +512,9 @@
     if (low.includes('artis')) {
       return 'standard';
     }
-    if (low.includes('new release') || low.includes('rilis baru')) return 'large';
+    if (low.includes('new release') || low.includes('rilis baru')) {
+      return isViewportMobile ? 'small' : 'large';
+    }
     if (
       low.includes("today's indonesian hits") ||
       low.includes('today indonesian hits') ||
@@ -456,7 +553,13 @@
     return 4;
   }
 
-  function shelfContainerClass(variant: HomeShelfVariant, isExpanded: boolean, twoRow = false): string {
+  function shelfContainerClass(
+    variant: HomeShelfVariant,
+    isExpanded: boolean,
+    twoRow = false,
+    isMoreSongs = false
+  ): string {
+    if (isMoreSongs) return 'velora-more-songs-grid';
     if (variant === 'compact-list') return 'velora-card-grid-compact';
     if (twoRow && !isExpanded) return 'velora-shelf-2row no-scrollbar velora-shelf-scroll pb-1';
     if (!isExpanded) {
@@ -540,17 +643,26 @@
 </script>
 
 <div class="relative min-h-full" style="overflow-anchor: none;">
+  <MobileTopHeader
+    title={activeFilterPill === 'semua' ? tr(lang, 'nav.home') : pillHeading}
+    {lang}
+    {activeDownloadsCount}
+    {downloadProgressPct}
+    {onNavigate}
+  />
+
   <div
     bind:this={stickyContainerEl}
     class="velora-sticky-pills-container"
     class:is-stuck={pillsStuck}
   >
-    <div class="velora-sticky-pills-bar px-4 sm:px-6 py-3 flex flex-wrap items-center gap-2">
+    <div class="velora-sticky-pills-bar px-4 sm:px-6 py-3 flex flex-nowrap items-center gap-2 overflow-x-auto no-scrollbar">
       {#each filterPills as pill (pill.id)}
         {@const active = activeFilterPill === pill.id}
         <button
           type="button"
-          onclick={() => {
+          onclick={(e) => {
+            (e.currentTarget as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
             const prevPill = activeFilterPill;
             if (scrollParentEl && prevPill !== pill.id) {
               categoryScrollMap[prevPill] = scrollParentEl.scrollTop;
@@ -583,7 +695,7 @@
               onSearchYTMusicPlaylists?.('');
             }
           }}
-          class="px-3.5 py-1.5 rounded-full text-xs font-semibold transition-colors duration-200 cursor-pointer hover:brightness-110"
+          class="shrink-0 whitespace-nowrap px-3.5 py-1.5 rounded-full text-xs font-semibold transition-colors duration-200 cursor-pointer hover:brightness-110"
           style={active
             ? 'background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);'
             : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);'}
@@ -694,7 +806,7 @@
           {@const twoRow = !isAlwaysFull && isTwoRowShelf(shelf)}
           {@const minShowAll = shelfCollapsedMinItems(variant, twoRow)}
           {@const visibleItems = variant === 'compact-list' && !isExpanded ? shelf.items.slice(0, 9) : shelf.items}
-          <section class="min-w-0 space-y-3" use:svelteMotionEnter={{ delay: Math.min(0.18, sIdx * 0.04) }}>
+          <section class="velora-cv-section min-w-0 space-y-3" use:svelteMotionEnter={{ delay: Math.min(0.18, sIdx * 0.04) }}>
             <div class="flex items-center justify-between gap-2">
               <h2 class="text-xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
                 {localizeShelfTitle(shelf.title)}
@@ -713,14 +825,16 @@
 
             <div
               use:shelfEdgeFade
-              class={shelfContainerClass(variant, isExpanded, twoRow)}
+              class={shelfContainerClass(variant, isExpanded, twoRow, isAlwaysFull)}
             >
               {#each visibleItems as item (item.id)}
-                {@const cover = resolveCoverUrl(item.coverUrl, mediaBaseUrl)}
+                {@const cover = resolveCoverUrl(item.coverUrl, mediaBaseUrl, variant === 'compact-list' ? 96 : 256)}
                 {@const isCardActive = isCollectionCardActive(item)}
+                {@const songTrack = cardToTrack(item)}
+                {@const menuKey = `shelf-${shelfKey}-${item.id}`}
                 {#if variant === 'compact-list'}
                   <article
-                    class="group flex items-center gap-2.5 p-2 rounded-xl bg-[var(--md-sys-color-surface-container)]/60 hover:bg-[var(--md-sys-color-state-hover)] transition-colors duration-200"
+                    class="velora-press group flex items-center gap-2.5 p-2 rounded-xl bg-[var(--md-sys-color-surface-container)]/60 hover:bg-[var(--md-sys-color-state-hover)] transition-colors duration-200"
                   >
                     <button
                       type="button"
@@ -755,9 +869,9 @@
                         type="button"
                         onclick={() => playOrToggleCard(item, isCardActive)}
                         aria-label="Putar {item.title}"
-                        class="shrink-0 w-8 h-8 rounded-full border-0 outline-none shadow-md bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer transition-all duration-200 {isCardActive
-                          ? 'opacity-100 scale-100'
-                          : 'opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100'}"
+                        class="shrink-0 w-8 h-8 rounded-full border-0 outline-none shadow-md bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] items-center justify-center cursor-pointer transition-all duration-200 {isCardActive
+                          ? 'flex opacity-100 scale-100'
+                          : 'hidden sm:flex opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100'}"
                       >
                         {#if isCardActive && isActuallyPlaying}
                           <EqIndicator color="currentColor" />
@@ -769,10 +883,31 @@
                         {/if}
                       </button>
                     {/if}
+
+                    {#if songTrack}
+                      <TrackActionMenu
+                        track={songTrack}
+                        open={openMenuKey === menuKey}
+                        {playlists}
+                        {lang}
+                        triggerClass="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 shrink-0 !w-8 !h-8"
+                        onToggleOpen={() => (openMenuKey = openMenuKey === menuKey ? null : menuKey)}
+                        onClose={() => { if (openMenuKey === menuKey) openMenuKey = null; }}
+                        {onPlayNext}
+                        {onAddToQueue}
+                        {onAddToPlaylist}
+                        onCreatePlaylist={onCreatePlaylistTrack}
+                        onToggleFavorite={onToggleFavoriteTrack}
+                        {onDownloadTrack}
+                        {onRemoveDownload}
+                        {onOpenArtist}
+                        {onOpenTrackAlbum}
+                      />
+                    {/if}
                   </article>
                 {:else if variant === 'wide-rect'}
                   <article
-                    class="group {isExpanded || twoRow
+                    class="velora-press group {isExpanded || twoRow
                       ? 'w-full min-w-0'
                       : `grow shrink-0 basis-[258px] sm:basis-[296px] min-w-0 ${visibleItems.length <= 2 ? 'max-w-[460px]' : ''}`} flex items-center gap-3 p-2.5 rounded-xl bg-[var(--md-sys-color-surface-container)]/65 hover:bg-[var(--md-sys-color-state-hover)] transition-colors duration-200"
                   >
@@ -809,9 +944,9 @@
                         type="button"
                         onclick={() => playOrToggleCard(item, isCardActive)}
                         aria-label="Putar {item.title}"
-                        class="shrink-0 w-9 h-9 rounded-full border-0 outline-none shadow-md bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer transition-all duration-200 {isCardActive
-                          ? 'opacity-100 scale-100'
-                          : 'opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100'}"
+                        class="shrink-0 w-9 h-9 rounded-full border-0 outline-none shadow-md bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] items-center justify-center cursor-pointer transition-all duration-200 {isCardActive
+                          ? 'flex opacity-100 scale-100'
+                          : 'hidden sm:flex opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100'}"
                       >
                         {#if isCardActive && isActuallyPlaying}
                           <EqIndicator color="currentColor" />
@@ -823,12 +958,33 @@
                         {/if}
                       </button>
                     {/if}
+
+                    {#if songTrack}
+                      <TrackActionMenu
+                        track={songTrack}
+                        open={openMenuKey === menuKey}
+                        {playlists}
+                        {lang}
+                        triggerClass="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 shrink-0 !w-8 !h-8"
+                        onToggleOpen={() => (openMenuKey = openMenuKey === menuKey ? null : menuKey)}
+                        onClose={() => { if (openMenuKey === menuKey) openMenuKey = null; }}
+                        {onPlayNext}
+                        {onAddToQueue}
+                        {onAddToPlaylist}
+                        onCreatePlaylist={onCreatePlaylistTrack}
+                        onToggleFavorite={onToggleFavoriteTrack}
+                        {onDownloadTrack}
+                        {onRemoveDownload}
+                        {onOpenArtist}
+                        {onOpenTrackAlbum}
+                      />
+                    {/if}
                   </article>
                 {:else}
                   {@const isLarge = variant === 'large'}
-                  {@const isSmall = variant === 'small'}
+                  {@const isSmall = variant === 'small' || (isAlwaysFull && isViewportMobile)}
                   <article
-                    class="group {isExpanded
+                    class="velora-press group {isExpanded
                       ? 'w-full min-w-0'
                       : isLarge
                         ? `grow shrink-0 basis-[188px] sm:basis-[224px] min-w-0 ${visibleItems.length <= 2 ? 'max-w-[340px]' : ''}`
@@ -837,10 +993,10 @@
                           : `grow shrink-0 basis-[136px] sm:basis-[172px] min-w-0 ${visibleItems.length <= 2 ? 'max-w-[320px]' : ''}`} flex flex-col justify-start items-stretch self-start {isLarge
                       ? 'p-3 rounded-xl bg-[var(--md-sys-color-surface-container)]/50'
                       : isSmall
-                        ? 'p-1.5 sm:p-2 rounded-lg'
+                        ? 'p-1 sm:p-2 rounded-lg'
                         : 'p-2 sm:p-2.5 rounded-lg'} border-0 outline-none focus:outline-none text-left transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]"
                   >
-                    <div class="relative {isLarge ? 'mb-3' : isSmall ? 'mb-2' : 'mb-2.5'}">
+                    <div class="relative {isLarge ? 'mb-3' : isSmall ? 'mb-1.5 sm:mb-2' : 'mb-2.5'}">
                       <div
                         class="velora-card-artwork flex items-center justify-center {isLarge ? '!rounded-lg' : ''} {item.kind === 'artist' ? 'velora-artist-avatar !rounded-full' : ''}"
                         style={cover
@@ -890,24 +1046,47 @@
                       {/if}
                     </div>
 
-                    <button
-                      type="button"
-                      onclick={() => openCard(item)}
-                      class="w-full min-w-0 text-left cursor-pointer"
-                    >
-                      <div
-                        class="{isLarge ? 'text-sm' : isSmall ? 'text-[11px]' : 'text-xs'} font-bold truncate"
-                        style="color: var(--md-sys-color-on-surface);"
+                    <div class="flex items-start gap-1 min-w-0">
+                      <button
+                        type="button"
+                        onclick={() => openCard(item)}
+                        class="min-w-0 flex-1 text-left cursor-pointer"
                       >
-                        {item.title}
-                      </div>
-                      <div
-                        class="{isLarge ? 'text-xs line-clamp-2 break-words' : isSmall ? 'text-[10px] truncate' : 'text-[11px] line-clamp-2 break-words'} leading-snug mt-0.5"
-                        style="color: var(--md-sys-color-on-surface-variant);"
-                      >
-                        {localizeItemSubtitle(item)}
-                      </div>
-                    </button>
+                        <div
+                          class="{isLarge ? 'text-sm' : isSmall ? 'text-[11px]' : 'text-xs'} font-bold truncate"
+                          style="color: var(--md-sys-color-on-surface);"
+                        >
+                          {item.title}
+                        </div>
+                        <div
+                          class="{isLarge ? 'text-xs line-clamp-2 break-words' : isSmall ? 'text-[10px] truncate' : 'text-[11px] line-clamp-2 break-words'} leading-snug mt-0.5"
+                          style="color: var(--md-sys-color-on-surface-variant);"
+                        >
+                          {localizeItemSubtitle(item)}
+                        </div>
+                      </button>
+
+                      {#if songTrack}
+                        <TrackActionMenu
+                          track={songTrack}
+                          open={openMenuKey === menuKey}
+                          {playlists}
+                          {lang}
+                          triggerClass="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 shrink-0 !w-7 !h-7"
+                          onToggleOpen={() => (openMenuKey = openMenuKey === menuKey ? null : menuKey)}
+                          onClose={() => { if (openMenuKey === menuKey) openMenuKey = null; }}
+                          {onPlayNext}
+                          {onAddToQueue}
+                          {onAddToPlaylist}
+                          onCreatePlaylist={onCreatePlaylistTrack}
+                          onToggleFavorite={onToggleFavoriteTrack}
+                          {onDownloadTrack}
+                          {onRemoveDownload}
+                          {onOpenArtist}
+                          {onOpenTrackAlbum}
+                        />
+                      {/if}
+                    </div>
                   </article>
                 {/if}
               {/each}
@@ -966,8 +1145,8 @@
             <div class="velora-card-grid-7">
               {#each displayedHomeArtists as ar (ar.key)}
                 {@const avatar = resolveCoverUrl(ar.rawAvatar, mediaBaseUrl)}
-                <div class="group w-full min-w-0 flex flex-col justify-start items-stretch self-start p-2.5 rounded-lg relative transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]">
-                  <div class="relative mb-2.5">
+                <div class="group w-full min-w-0 flex flex-col justify-start items-stretch self-start p-1.5 sm:p-2.5 rounded-lg relative transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]">
+                  <div class="relative mb-1.5 sm:mb-2.5">
                     <div
                       class="velora-card-artwork velora-artist-avatar !rounded-full flex items-center justify-center shadow-md"
                       style="background: linear-gradient(135deg, var(--md-sys-color-primary-container), var(--md-sys-color-surface-container-highest));"
@@ -1032,10 +1211,10 @@
                       })}
                     class="w-full text-center cursor-pointer"
                   >
-                    <div class="text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
+                    <div class="text-[11px] sm:text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
                       {ar.name}
                     </div>
-                    <div class="text-[11px] leading-snug truncate mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
+                    <div class="text-[10px] sm:text-[11px] leading-snug truncate mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
                       {ar.subtitle}
                     </div>
                   </button>
@@ -1068,10 +1247,10 @@
                 {@const isAlbumActive = isCollectionCardActive(item)}
                 <div
                   role="group"
-                  class="group w-full min-w-0 flex flex-col justify-start items-stretch self-start p-2.5 rounded-lg text-left transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]"
+                  class="group w-full min-w-0 flex flex-col justify-start items-stretch self-start p-1.5 sm:p-2.5 rounded-lg text-left transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]"
                 >
                   <div
-                    class="velora-card-artwork mb-2.5 flex items-center justify-center"
+                    class="velora-card-artwork mb-1.5 sm:mb-2.5 flex items-center justify-center"
                     style={cover
                       ? 'background-color: var(--md-sys-color-surface-container-high);'
                       : 'background: linear-gradient(135deg, var(--md-sys-color-primary-container), var(--md-sys-color-surface-container-highest));'}
@@ -1094,7 +1273,7 @@
                       type="button"
                       onclick={() => (isAlbumActive && onTogglePlay ? onTogglePlay() : onPlayYTCollection(item))}
                       aria-label="Putar album {item.title}"
-                      class="absolute z-20 bottom-2 right-2 w-10 h-10 rounded-full border-0 outline-none shadow-lg bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer transition-all duration-200 {isAlbumActive
+                      class="absolute z-20 bottom-1.5 right-1.5 sm:bottom-2 sm:right-2 w-8 h-8 sm:w-10 sm:h-10 rounded-full border-0 outline-none shadow-lg bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer transition-all duration-200 {isAlbumActive
                         ? 'opacity-100 translate-y-0'
                         : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'}"
                     >
@@ -1114,10 +1293,10 @@
                     onclick={() => (onOpenYTAlbum ? onOpenYTAlbum(item) : onPlayYTCollection(item))}
                     class="w-full text-left cursor-pointer"
                   >
-                    <div class="text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
+                    <div class="text-[11px] sm:text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
                       {item.title}
                     </div>
-                    <div class="text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
+                    <div class="text-[10px] sm:text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
                       {item.subtitle || 'Album'}
                     </div>
                   </button>
@@ -1149,10 +1328,10 @@
                 {@const isPlaylistActive = isCollectionCardActive(item)}
                 <div
                   role="group"
-                  class="group w-full min-w-0 flex flex-col justify-start items-stretch self-start p-2.5 rounded-lg text-left transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]"
+                  class="group w-full min-w-0 flex flex-col justify-start items-stretch self-start p-1.5 sm:p-2.5 rounded-lg text-left transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]"
                 >
                   <div
-                    class="velora-card-artwork mb-2.5 flex items-center justify-center"
+                    class="velora-card-artwork mb-1.5 sm:mb-2.5 flex items-center justify-center"
                     style={cover
                       ? 'background-color: var(--md-sys-color-surface-container-high);'
                       : 'background: linear-gradient(135deg, var(--md-sys-color-primary-container), var(--md-sys-color-surface-container-highest));'}
@@ -1178,7 +1357,7 @@
                         playOrToggleCard(item, isPlaylistActive);
                       }}
                       aria-label="Putar playlist {item.title}"
-                      class="absolute z-20 bottom-2 right-2 w-10 h-10 rounded-full border-0 outline-none shadow-lg bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer transition-all duration-200 {isPlaylistActive
+                      class="absolute z-20 bottom-1.5 right-1.5 sm:bottom-2 sm:right-2 w-8 h-8 sm:w-10 sm:h-10 rounded-full border-0 outline-none shadow-lg bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer transition-all duration-200 {isPlaylistActive
                         ? 'opacity-100 translate-y-0'
                         : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'}"
                     >
@@ -1198,10 +1377,10 @@
                     onclick={() => openCard(item)}
                     class="w-full text-left cursor-pointer"
                   >
-                    <div class="text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
+                    <div class="text-[11px] sm:text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
                       {item.title}
                     </div>
-                    <div class="text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
+                    <div class="text-[10px] sm:text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
                       {localizeItemSubtitle(item)}
                     </div>
                   </button>
@@ -1237,12 +1416,14 @@
             {#each displayedFilteredResults as yt (yt.videoId)}
               {@const cover = resolveCoverUrl(yt.coverUrl, mediaBaseUrl)}
               {@const isSongActive = isTrackCardActive(yt.videoId, yt.title, yt.artist)}
+              {@const songTrack = ytTrackToTrack(yt)}
+              {@const menuKey = `music-${yt.videoId}`}
               <div
                 role="group"
-                class="group w-full min-w-0 flex flex-col justify-start items-stretch self-start p-2.5 rounded-lg border-0 outline-none focus:outline-none text-left transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]"
+                class="group w-full min-w-0 flex flex-col justify-start items-stretch self-start p-1.5 sm:p-2.5 rounded-lg border-0 outline-none focus:outline-none text-left transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]"
               >
                 <div
-                  class="velora-card-artwork mb-2.5 flex items-center justify-center"
+                  class="velora-card-artwork mb-1.5 sm:mb-2.5 flex items-center justify-center"
                   style={cover
                     ? 'background-color: var(--md-sys-color-surface-container-high);'
                     : 'background: linear-gradient(135deg, var(--md-sys-color-primary-container), var(--md-sys-color-surface-container-highest));'}
@@ -1272,7 +1453,7 @@
                       }
                     }}
                     aria-label="Putar {yt.title}"
-                    class="absolute z-20 bottom-2 right-2 w-10 h-10 rounded-full border-0 outline-none shadow-lg bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer transition-all duration-200 {isSongActive
+                    class="absolute z-20 bottom-1.5 right-1.5 sm:bottom-2 sm:right-2 w-8 h-8 sm:w-10 sm:h-10 rounded-full border-0 outline-none shadow-lg bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer transition-all duration-200 {isSongActive
                       ? 'opacity-100 translate-y-0'
                       : 'opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0'}"
                   >
@@ -1287,18 +1468,39 @@
                   </button>
                 </div>
 
-                <button
-                  type="button"
-                  onclick={() => (onOpenYTSong ? onOpenYTSong(yt) : onPlayYTMusic(yt))}
-                  class="w-full text-left cursor-pointer"
-                >
-                  <div class="text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
-                    {yt.title}
-                  </div>
-                  <div class="text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-                    {yt.artist}
-                  </div>
-                </button>
+                <div class="flex items-start gap-1 min-w-0">
+                  <button
+                    type="button"
+                    onclick={() => (onOpenYTSong ? onOpenYTSong(yt) : onPlayYTMusic(yt))}
+                    class="min-w-0 flex-1 text-left cursor-pointer"
+                  >
+                    <div class="text-[11px] sm:text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
+                      {yt.title}
+                    </div>
+                    <div class="text-[10px] sm:text-[11px] leading-snug line-clamp-2 mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
+                      {yt.artist}
+                    </div>
+                  </button>
+
+                  <TrackActionMenu
+                    track={songTrack}
+                    open={openMenuKey === menuKey}
+                    {playlists}
+                    {lang}
+                    triggerClass="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 shrink-0 !w-7 !h-7"
+                    onToggleOpen={() => (openMenuKey = openMenuKey === menuKey ? null : menuKey)}
+                    onClose={() => { if (openMenuKey === menuKey) openMenuKey = null; }}
+                    {onPlayNext}
+                    {onAddToQueue}
+                    {onAddToPlaylist}
+                    onCreatePlaylist={onCreatePlaylistTrack}
+                    onToggleFavorite={onToggleFavoriteTrack}
+                    {onDownloadTrack}
+                    {onRemoveDownload}
+                    {onOpenArtist}
+                    {onOpenTrackAlbum}
+                  />
+                </div>
               </div>
             {/each}
           </div>

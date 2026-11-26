@@ -193,15 +193,15 @@ func ResolveSpotifyTracksToYTMusic(ctx context.Context, yt *YTMusicClient, spTra
 					continue
 				}
 				if hits, err := yt.Search(subCtx, q); err == nil && len(hits) > 0 {
-					for _, h := range hits {
-						if strings.TrimSpace(h.VideoID) == "" {
-							continue
+					if picked, ok := PickBestYTMusicTrack(hits, tr.Title, tr.Artist, tr.DurationSec); ok {
+						if picked.DurationSec <= 0 && tr.DurationSec > 0 {
+							picked.DurationSec = tr.DurationSec
 						}
-						best := h
-						if best.Album == "" || best.Album == "YouTube Music" {
-							best.Album = best.Title
+						// Do not copy song title into album, as that breaks exact album matching in lyric lookups.
+						if strings.EqualFold(strings.TrimSpace(picked.Album), "YouTube Music") {
+							picked.Album = "Single"
 						}
-						out[idx] = best
+						out[idx] = picked
 						return
 					}
 				}

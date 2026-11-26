@@ -5,7 +5,11 @@ import (
 	"image/color"
 	"math"
 	"testing"
+	"time"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
+	"velora/internal/sources"
 )
 
 func TestClosedPillCoverAndRingGeometrySymmetry(t *testing.T) {
@@ -131,5 +135,167 @@ func TestClosedPillCoverAndRingSymmetryGdiPlus(t *testing.T) {
 			t.Fatalf("u=%.2f ring height %d out of range [%d..%d] (L=[%d..%d], R=[%d..%d])", u, rightH, leftH, leftH+1, ly1, ly2, ry1, ry2)
 		}
 		ctrl.destroyDIB()
+	}
+}
+
+func TestCenteredWinXAndSnapSymmetry(t *testing.T) {
+	for _, tc := range []struct {
+		screenLeft int
+		screenW    int
+		dpiScale   float64
+		sizeScale  float64
+		pillW      float64
+	}{
+		{screenLeft: 0, screenW: 1920, dpiScale: 1.0, sizeScale: 0.88, pillW: 216},
+		{screenLeft: 0, screenW: 1920, dpiScale: 1.25, sizeScale: 0.88, pillW: 216},
+		{screenLeft: 0, screenW: 1920, dpiScale: 1.25, sizeScale: 1.00, pillW: 216},
+		{screenLeft: 0, screenW: 1920, dpiScale: 1.25, sizeScale: 1.08, pillW: 420},
+		{screenLeft: -1920, screenW: 1920, dpiScale: 1.5, sizeScale: 0.88, pillW: 216},
+	} {
+		ctrl := &dynamicIslandController{
+			dpiScale:   tc.dpiScale,
+			sizeScale:  tc.sizeScale,
+			screenLeft: tc.screenLeft,
+			screenW:    tc.screenW,
+			physW:      int(math.Ceil(float64(diLogicalW) * tc.dpiScale)),
+			curW:       tc.pillW,
+		}
+		cx := ctrl.centeredWinXLocked(tc.screenLeft, tc.screenW)
+		snapped, dock := ctrl.clampWinXLocked(cx+5, true)
+		if dock != 0 || snapped != cx {
+			t.Fatalf("expected center snap to %d, got snapped=%d dock=%d", cx, snapped, dock)
+		}
+		u := ctrl.effectiveScaleLocked()
+		nx := (float64(diLogicalW) - tc.pillW) / 2.0
+		leftEdge := float64(snapped) + nx*u
+		rightEdge := float64(snapped) + (nx+tc.pillW)*u
+		leftGap := leftEdge - float64(tc.screenLeft)
+		rightGap := float64(tc.screenLeft+tc.screenW) - rightEdge
+		if math.Abs(leftGap-rightGap) > 1.0 {
+			t.Fatalf("dpi=%.2f size=%.2f pill=%.0f: leftGap=%.2f != rightGap=%.2f",
+				tc.dpiScale, tc.sizeScale, tc.pillW, leftGap, rightGap)
+		}
+	}
+}
+
+func TestDynamicIslandLyricStatesAndSync(t *testing.T) {
+	now := time.Now()
+	ctrl := &dynamicIslandController{
+		title:        "Some Track",
+		isPlaying:    true,
+		showLyric:    true,
+		lyricsOpen:   true,
+		lang:         "en",
+		posSec:       10.0,
+		posUpdatedAt: now.Add(-200 * time.Millisecond),
+		durSec:       200.0,
+	}
+	if !ctrl.isLyricPlaybackModeActiveLocked() || !ctrl.isClosedLyricActiveLocked() {
+		t.Fatal("expected lyrics mode to remain active without synced lines so island does not hide")
+	}
+	if got := ctrl.closedLyricMessageLocked(now, getDIStrings("en")); got != "No lyrics found" {
+		t.Fatalf("unexpected empty lyric state: %q", got)
+	}
+	ctrl.lyricsHasPlain = true
+	if got := ctrl.closedLyricMessageLocked(now, getDIStrings("en")); got != "Synced lyrics unavailable" {
+		t.Fatalf("unexpected plain-only lyric state: %q", got)
+	}
+	if got := ctrl.closedLyricMessageLocked(now, getDIStrings("id")); got != "Lirik tersinkron tidak tersedia" {
+		t.Fatalf("unexpected Indonesian plain-only lyric state: %q", got)
+	}
+
+	ctrl.lyrics = []sources.LyricLine{
+		{TimeSec: 5.0, Text: "Line 1"},
+		{TimeSec: 10.15, Text: "Line 2"},
+	}
+	// Effective pos is ~10.20 + 0.05 = 10.25 >= 10.15 (line 2 already active thanks to interpolation)
+	if idx := ctrl.currentLyricIndexAtLocked(now); idx != 1 {
+		t.Fatalf("expected interpolated lyric idx=1 at pos 10.0+0.20s, got %d", idx)
+	}
+	ctrl.lyricOffsetSec = -0.30
+	if idx := ctrl.currentLyricIndexAtLocked(now); idx != 0 {
+		t.Fatalf("expected negative lyric offset to move back to idx=0, got %d", idx)
+	}
+}
+
+func TestDWriteEmojiColorRendering(t *testing.T) {
+	physW, physH := 220, 64
+	ctrl := &dynamicIslandController{}
+	ctrl.initDIB(physW, physH)
+	defer ctrl.destroyDIB()
+	ctrl.initD2DText()
+	defer ctrl.destroyD2DText()
+	if ctrl.d2dDCRT == 0 || ctrl.dwFactory == 0 {
+		t.Skip("Direct2D/DirectWrite unavailable on test host")
+	}
+
+	pix := unsafe.Slice((*byte)(ctrl.dibBits), physW*physH*4)
+	clear(pix)
+	for i := 0; i < physW*physH; i++ {
+		pix[i*4+3] = 255
+	}
+
+	bindRect := windows.Rect{Left: 0, Top: 0, Right: int32(physW), Bottom: int32(physH)}
+	if hr := comVtblCall(ctrl.d2dDCRT, 57, ctrl.memDC, uintptr(unsafe.Pointer(&bindRect))); int32(hr) < 0 {
+		t.Fatalf("BindDC failed: 0x%x", uint32(hr))
+	}
+	comVtblCall(ctrl.d2dDCRT, 48)
+	tf := ctrl.getDWriteTextFormat(1, 20.0, dwTextAlignCenter, dwParaAlignCenter, false, false)
+	ctrl.drawD2DStr("🎵 ❤️ 🔥", tf, color.RGBA{255, 255, 255, 255}, 1.0, 0, 0, float64(physW), float64(physH), false)
+	var t1, t2 uint64
+	comVtblCall(ctrl.d2dDCRT, 49, uintptr(unsafe.Pointer(&t1)), uintptr(unsafe.Pointer(&t2)))
+
+	coloredPixels := 0
+	litPixels := 0
+	for i := 0; i < physW*physH; i++ {
+		b, g, r := pix[i*4+0], pix[i*4+1], pix[i*4+2]
+		if r > 10 || g > 10 || b > 10 {
+			litPixels++
+		}
+		if r != g || g != b {
+			coloredPixels++
+		}
+	}
+	t.Logf("DWrite emoji test: litPixels=%d coloredPixels=%d (dwFontColl=%x)", litPixels, coloredPixels, ctrl.dwFontColl)
+	if litPixels == 0 {
+		t.Fatal("expected emoji text to render visible pixels")
+	}
+	if coloredPixels == 0 {
+		t.Fatal("expected color emoji glyphs (COLR) to produce non-grayscale color pixels")
+	}
+}
+
+func TestClosedPillClipAndQueuePlayAlignment(t *testing.T) {
+	// Verify queue Play/Pause button right edge aligns with music queue row container (18 + 374 = 392 dp),
+	// rather than the scrollbar track (398.5 + 3.5 = 402 dp).
+	const queueRowRight = 18.0 + 374.0
+	const queuePlayCenter = 375.5
+	const queuePlayRadius = 16.5
+	if math.Abs((queuePlayCenter+queuePlayRadius)-queueRowRight) > 1e-6 {
+		t.Fatalf("queue Play/Pause right edge %.2f != queue row right edge %.2f",
+			queuePlayCenter+queuePlayRadius, queueRowRight)
+	}
+
+	// Verify closed pill lyric clip margins stay outside both rotating left cover and right progress ring.
+	for _, tc := range []struct {
+		w float64
+		u float64
+	}{
+		{w: 216, u: 1.0},
+		{w: 320, u: 1.25},
+		{w: 560, u: 1.5},
+	} {
+		nx := (float64(diLogicalW) - tc.w) / 2.0
+		miniPx, _, leftCov, ringCx, _, strokeW, ringR := closedPillCoverAndRingGeom(nx, tc.w, 36.0, tc.u)
+		covRightPx := float64(leftCov + miniPx)
+		ringLeftPx := ringCx - ringR - strokeW/2.0
+		clipLeftPx := (nx + 38.0) * tc.u
+		clipRightPx := clipLeftPx + math.Max(1.0, (tc.w-76.0)*tc.u)
+		if clipLeftPx <= covRightPx+1.5*tc.u {
+			t.Fatalf("w=%.0f u=%.2f clipLeft %.2f too close to coverRight %.2f", tc.w, tc.u, clipLeftPx, covRightPx)
+		}
+		if clipRightPx >= ringLeftPx-1.5*tc.u {
+			t.Fatalf("w=%.0f u=%.2f clipRight %.2f too close to ringLeft %.2f", tc.w, tc.u, clipRightPx, ringLeftPx)
+		}
 	}
 }

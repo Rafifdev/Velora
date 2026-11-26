@@ -40,6 +40,8 @@ export function GetArtistTracks(arg1:number):Promise<Array<db.Track>>;
 
 export function GetArtists(arg1:boolean):Promise<Array<db.Artist>>;
 
+export function GetAudioOutputs():Promise<Array<main.AudioOutputDevice>>;
+
 export function GetBootstrapData():Promise<main.BootstrapData>;
 
 export function GetDataDir():Promise<string>;
@@ -108,6 +110,8 @@ export function PlayerControl(arg1:string,arg2:number,arg3:string):Promise<audio
 
 export function RecordListenProgress(arg1:number,arg2:number,arg3:boolean):Promise<stats.FireStreakStatus>;
 
+export function RefreshTrackLyrics(arg1:number,arg2:string,arg3:string,arg4:string,arg5:number):Promise<sources.TrackLyrics>;
+
 export function RemoveDownloadedTrack(arg1:number):Promise<db.Track>;
 
 export function RemoveSource(arg1:number):Promise<void>;
@@ -130,6 +134,8 @@ export function SearchYouTubeMusicArtists(arg1:string):Promise<Array<sources.YTM
 
 export function SearchYouTubeMusicPlaylists(arg1:string):Promise<Array<sources.YTMusicCard>>;
 
+export function SetAudioOutput(arg1:string):Promise<boolean>;
+
 export function SetDynamicIslandAnimSpeed(arg1:string):Promise<void>;
 
 export function SetDynamicIslandContent(arg1:boolean,arg2:boolean,arg3:boolean,arg4:boolean,arg5:boolean,arg6:boolean,arg7:boolean,arg8:boolean,arg9:boolean,arg10:string):Promise<void>;
@@ -145,6 +151,10 @@ export function SetDynamicIslandHideWhenAppActive(arg1:boolean):Promise<void>;
 export function SetDynamicIslandIdleHideSeconds(arg1:number):Promise<void>;
 
 export function SetDynamicIslandLanguage(arg1:string):Promise<void>;
+
+export function SetDynamicIslandLyricOffset(arg1:number):Promise<void>;
+
+export function SetDynamicIslandLyricSweep(arg1:boolean):Promise<void>;
 
 export function SetDynamicIslandOnlyPlaying(arg1:boolean):Promise<void>;
 
@@ -185,6 +195,8 @@ export function ToggleFavoriteYTMusicAlbum(arg1:string,arg2:string,arg3:string,a
 export function ToggleFavoriteYTMusicArtist(arg1:string,arg2:string,arg3:string):Promise<db.Artist>;
 
 export function ToggleSaveYTMusicPlaylist(arg1:string,arg2:string,arg3:string,arg4:string,arg5:Array<number>):Promise<boolean>;
+
+export function TrimMemory():Promise<void>;
 
 export function UpdateDynamicIslandProgress(arg1:number,arg2:number):Promise<void>;
 

@@ -1,14 +1,15 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { fade, fly } from 'svelte/transition';
   import { cubicIn, cubicOut } from 'svelte/easing';
-  import { api, isJamRemote, resolveCoverUrl, safeEventsOn, sendJamCommand } from './lib/api';
+  import { api, isJamRemote, isYTVideoThumb, resolveCoverUrl, safeEventsOn, sendJamCommand } from './lib/api';
   import { VeloraAudioEngine } from './lib/audioEngine';
   import { getPrefBool, getPrefValue } from './lib/preferences';
   import { getPrefLang, tr } from './lib/i18n';
   import type {
     Album,
     Artist,
+    AudioOutputDevice,
     DownloadProgress,
     FireStreakStatus,
     HomeFilter,
@@ -34,18 +35,11 @@
   import Sidebar from './components/Sidebar.svelte';
   import RightPanel from './components/RightPanel.svelte';
   import PlayerBar from './components/PlayerBar.svelte';
-  import StreakModal from './components/StreakModal.svelte';
-  import CreatePlaylistModal from './components/CreatePlaylistModal.svelte';
-  import SplashScreen from './components/SplashScreen.svelte';
-  import LyricsView from './components/LyricsView.svelte';
-  import TrackDetailView from './components/TrackDetailView.svelte';
   import MobileNowPlaying from './components/MobileNowPlaying.svelte';
+  import MobileQueueSheet from './components/MobileQueueSheet.svelte';
+  import SplashScreen from './components/SplashScreen.svelte';
 
   import HomeView from './views/HomeView.svelte';
-  import LibraryViews from './views/LibraryViews.svelte';
-  import PlaylistViews from './views/PlaylistViews.svelte';
-  import SourcesView from './views/SourcesView.svelte';
-  import AnalyticsAndSettingsViews from './views/AnalyticsAndSettingsViews.svelte';
 
   let tracks = $state<Track[]>([]);
   let trackLoading = $state(false);
@@ -75,6 +69,7 @@
   let jamConnected = $state(false);
   let isMobile = $state(false);
   let mobileShowQueue = $state(false);
+  let mobileSheetMode = $state<'queue' | 'devices'>('queue');
   let mobileMenuOpen = $state(false);
   let mobileNowPlayingOpen = $state(false);
   let mainScrollEl: HTMLElement | undefined = $state();
@@ -86,7 +81,58 @@
   let ytArtistReqSeq = 0;
   let homeFilter = $state<HomeFilter>('semua');
   let ytLoadingMorePopularArtists = $state(false);
-  let showSplash = $state(true);
+  const mobileNavTab = $derived.by(() => {
+    if (mobileShowQueue) return 'queue';
+    if (currentRoute.name === 'home') return 'home';
+    if (currentRoute.name === 'search') return 'search';
+    if (
+      currentRoute.name === 'library' ||
+      currentRoute.name === 'liked-songs' ||
+      currentRoute.name === 'downloaded' ||
+      currentRoute.name === 'favorite-albums' ||
+      currentRoute.name === 'favorite-artists'
+    ) {
+      return 'library';
+    }
+    if (
+      currentRoute.name === 'playlists' ||
+      currentRoute.name === 'local-playlists' ||
+      currentRoute.name === 'playlist-detail'
+    ) {
+      return 'playlists';
+    }
+    return '';
+  });
+
+  const SPLASH_SEEN_KEY = 'velora.splashShownOnce';
+  let showSplash = $state(
+    typeof localStorage !== 'undefined' ? localStorage.getItem(SPLASH_SEEN_KEY) !== '1' : false
+  );
+  let showDevDummyDownload = $state(true);
+  const devDummyDownload: DownloadProgress = {
+    trackId: -99901,
+    externalId: '5F28ye50-Kc',
+    title: 'Teh Hijau',
+    artist: 'Tulus',
+    status: 'downloading',
+    progress: 64
+  };
+  let sessionDeletedDownloadTracks = $state<Track[]>([]);
+  const activeDownloadsList = $derived.by(() => {
+    const real = Object.values(downloadStates).filter(
+      (d) => d.status === 'queued' || d.status === 'downloading' || d.status === 'failed'
+    );
+    return showDevDummyDownload ? [devDummyDownload, ...real] : real;
+  });
+  const activeDownloadsCount = $derived(
+    activeDownloadsList.filter((d) => d.status === 'queued' || d.status === 'downloading').length
+  );
+  const downloadProgressPct = $derived.by(() => {
+    const active = activeDownloadsList.filter((d) => d.status === 'queued' || d.status === 'downloading');
+    if (active.length === 0) return 0;
+    const sum = active.reduce((acc, d) => acc + Math.max(0, Math.min(100, d.progress || 0)), 0);
+    return Math.round(sum / active.length);
+  });
   let albums = $state<Album[]>([]);
   let artists = $state<Artist[]>([]);
   let playlists = $state<Playlist[]>([]);
@@ -142,7 +188,7 @@
     currentRoute.name !== 'home' && currentRoute.name !== 'sources'
   );
 
-  function routeExitFade(node: HTMLElement, { duration = 140 }: { duration?: number } = {}) {
+  function routeExitFade(node: HTMLElement, { duration = 180, shiftX = 0 }: { duration?: number; shiftX?: number } = {}) {
     const top = node.offsetTop;
     const clipHeight = mainScrollEl?.clientHeight || node.parentElement?.clientHeight || 0;
     node.style.position = 'absolute';
@@ -158,7 +204,7 @@
     return {
       duration,
       easing: cubicOut,
-      css: (t: number) => `opacity: ${t};`
+      css: (t: number, u: number) => `opacity: ${t}; transform: translate3d(${(shiftX * u).toFixed(2)}px, ${(u * -4).toFixed(2)}px, 0);`
     };
   }
 
@@ -195,17 +241,21 @@
   }
 
   function saveLastQueue(force = false): void {
-    if (!getPrefBool(preferences, 'playback.resumeQueue') || !currentTrack || queue.length === 0) return;
+    if (!currentTrack || queue.length === 0) return;
     const now = Date.now();
     if (!force && now - lastQueueSaveAt < 2500) return;
     lastQueueSaveAt = now;
     try {
-      const idx = Math.max(0, queue.findIndex((t) => trackQueueKey(t) === trackQueueKey(currentTrack!)));
+      const idx = Math.max(0, resolveActiveQueueIndex());
+      const start = idx >= 40 && queue.length > 50 ? Math.min(idx - 10, queue.length - 50) : 0;
+      const slicedQueue = queue.slice(start, start + 50);
+      const slicedIdx = Math.max(0, Math.min(slicedQueue.length - 1, idx - start));
       localStorage.setItem('velora.lastQueue', JSON.stringify({
-        queue: queue.slice(0, 50),
-        index: idx < 50 ? idx : 0,
+        queue: slicedQueue,
+        index: slicedIdx,
         positionSec: Math.floor(positionSec || 0),
         queueSourceTitle,
+        queueSourceKey
       }));
     } catch {
     }
@@ -216,7 +266,26 @@
   let rightWidth = $state(328);
   let leftCollapsed = $state(false);
   let rightCollapsed = $state(false);
-  let rightPanelMode = $state<'now-playing' | 'queue'>('now-playing');
+  let rightPanelMode = $state<'now-playing' | 'queue' | 'devices'>('now-playing');
+  let currentQueueIndex = $state(-1);
+  let lastDIQueueOffset = 0;
+
+  function resolveActiveQueueIndex(tr: Track | null = currentTrack, q: Track[] = queue): number {
+    if (!tr || q.length === 0) return -1;
+    if (tr.historyEntryId != null) {
+      const hIdx = q.findIndex((item) => item.historyEntryId === tr.historyEntryId);
+      if (hIdx >= 0) return hIdx;
+    }
+    if (currentQueueIndex >= 0 && currentQueueIndex < q.length && trackQueueKey(q[currentQueueIndex]) === trackQueueKey(tr)) {
+      return currentQueueIndex;
+    }
+    if (tr.id > 0 || tr.externalId) {
+      return q.findIndex((item) => trackQueueKey(item) === trackQueueKey(tr));
+    }
+    return -1;
+  }
+  let audioOutputs = $state<AudioOutputDevice[]>([]);
+  let switchingOutputId = $state<string | null>(null);
   let focusRightSignal = $state<{ card: 'album' | 'lyrics' | 'queue'; seq: number } | null>(null);
   let activePrefTab = $state<string>('appearance');
   let prefSearch = $state('');
@@ -362,6 +431,56 @@
 
   const accentColor = '#F6847E';
 
+  let lyricOffsetVersion = $state(0);
+
+  function getTrackLyricOffsetSec(tr: Track | null): number {
+    if (!tr || typeof localStorage === 'undefined') return 0;
+    const key = (tr.externalId || `${tr.title}::${tr.artistName}`).toLowerCase();
+    if (!key) return 0;
+    const saved = Number(localStorage.getItem(`velora.lyricOffset:${key}`) || '0');
+    return Number.isFinite(saved) ? saved : 0;
+  }
+
+  const currentLyricOffsetSec = $derived.by(() => {
+    void lyricOffsetVersion;
+    return getTrackLyricOffsetSec(currentTrack);
+  });
+
+  const activeOutputDevice = $derived(
+    audioOutputs.find((d) => d.isActive) ?? audioOutputs[0] ?? null
+  );
+
+  async function refreshAudioOutputs() {
+    if (isJamRemote) return;
+    try {
+      const list = await api.getAudioOutputs();
+      audioOutputs = list;
+    } catch {
+    }
+  }
+
+  async function handleSelectOutputDevice(deviceId: string) {
+    if (!deviceId || switchingOutputId) return;
+    switchingOutputId = deviceId;
+    try {
+      const ok = await api.setAudioOutput(deviceId);
+      if (ok) {
+        await refreshAudioOutputs();
+      }
+    } finally {
+      switchingOutputId = null;
+    }
+  }
+
+  $effect(() => {
+    if (isJamRemote || rightCollapsed || rightPanelMode !== 'devices') return;
+    void refreshAudioOutputs();
+    const id = setInterval(() => {
+      void refreshAudioOutputs();
+    }, 2500);
+    return () => clearInterval(id);
+  });
+
   onMount(() => {
     const savedZoom = Number(localStorage.getItem('velora.zoom') || '1');
     if (Number.isFinite(savedZoom) && savedZoom >= 0.5 && savedZoom <= 1.5) {
@@ -471,7 +590,7 @@
     });
     const offIslandPlayQueue = safeEventsOn('island:play-queue-index', (idx: number) => {
       if (Number.isInteger(idx) && idx >= 0 && idx < queue.length) {
-        void playTrack(queue[idx], queue, queueSourceTitle);
+        void playTrack(queue[idx], queue, queueSourceTitle, queueSourceKey);
       }
     });
     const offIslandFavId = safeEventsOn('island:toggle-favorite-id', (tid: number) => {
@@ -481,7 +600,19 @@
     });
     const onMediaDeviceChange = () => {
       api.notifyDynamicIslandAudioDevice('');
+      void refreshAudioOutputs();
     };
+    const onLyricOffsetChange = (ev: Event) => {
+      lyricOffsetVersion += 1;
+      const detail = (ev as CustomEvent<{ offsetSec?: number }>).detail;
+      if (typeof detail?.offsetSec === 'number') {
+        api.setDynamicIslandLyricOffset(detail.offsetSec);
+      }
+    };
+    void refreshAudioOutputs();
+    const onBeforeUnload = () => saveLastQueue(true);
+    window.addEventListener('beforeunload', onBeforeUnload);
+    window.addEventListener('velora:lyric-offset', onLyricOffsetChange);
     navigator.mediaDevices?.addEventListener?.('devicechange', onMediaDeviceChange);
     const offDownload = safeEventsOn('download:progress', (p: DownloadProgress) => {
       if (!p || !p.trackId) return;
@@ -603,6 +734,7 @@
 
     return () => {
       mq.removeEventListener('change', syncMobile);
+      window.removeEventListener('beforeunload', onBeforeUnload);
       window.removeEventListener('wheel', onWheel);
       document.removeEventListener('mouseover', onMouseOver, true);
       document.removeEventListener('mouseout', onMouseOut, true);
@@ -614,6 +746,7 @@
       offIslandAction?.();
       offIslandPlayQueue?.();
       offIslandFavId?.();
+      window.removeEventListener('velora:lyric-offset', onLyricOffsetChange);
       navigator.mediaDevices?.removeEventListener?.('devicechange', onMediaDeviceChange);
       offDownload?.();
       offJamStatus?.();
@@ -633,9 +766,13 @@
   $effect(() => {
     if (isJamRemote) return;
     const tr = currentTrack;
-    const cover = tr ? resolveCoverUrl(tr.coverUrl, mediaBaseUrl) : '';
+    const cover = tr ? resolveCoverUrl(tr.coverUrl, mediaBaseUrl, 120) : '';
     const eqPreset = getPrefValue(preferences, 'playback.eqPreset') || 'spotify';
-    const qIdx = tr ? queue.findIndex((q) => (tr.id > 0 && q.id === tr.id) || (tr.externalId && q.externalId === tr.externalId)) : -1;
+    const qIdx = resolveActiveQueueIndex(tr, queue);
+    const qStart = qIdx > 20 && queue.length > 80 ? Math.min(qIdx - 20, queue.length - 80) : 0;
+    lastDIQueueOffset = qStart;
+    const qSlice = queue.slice(qStart, qStart + 80);
+    const qSliceIdx = qIdx >= 0 ? qIdx - qStart : -1;
     api.syncDynamicIsland({
       title: tr?.title ?? '',
       artist: tr?.artistName ?? '',
@@ -643,8 +780,8 @@
       coverUrl: cover,
       isPlaying,
       isFavorite: Boolean(tr?.isFavorite),
-      positionSec,
-      durationSec: durationSec || tr?.durationSec || 0,
+      positionSec: untrack(() => positionSec),
+      durationSec: untrack(() => durationSec) || tr?.durationSec || 0,
       volume,
       muted,
       shuffle,
@@ -654,15 +791,16 @@
       accentColor,
       streakDays: fireStreak?.currentStreak ?? 0,
       lyricsLoading,
-      trackLoading: false,
+      trackLoading,
+      lyricOffsetSec: currentLyricOffsetSec,
       queueTitle: queueSourceTitle || 'Queue',
-      queueIndex: qIdx,
-      queue: queue.slice(0, 250).map((q) => ({
+      queueIndex: qSliceIdx,
+      queue: qSlice.map((q) => ({
         id: q.id,
         externalId: q.externalId ?? '',
         title: q.title,
         artist: q.artistName,
-        coverUrl: resolveCoverUrl(q.coverUrl, mediaBaseUrl),
+        coverUrl: resolveCoverUrl(q.coverUrl, mediaBaseUrl, 96),
         isFavorite: Boolean(q.isFavorite)
       }))
     });
@@ -816,10 +954,39 @@
     }
   }
 
+  async function syncRemoteDownloadStates() {
+    try {
+      const list = await api.getDownloadStates();
+      const next: Record<number, DownloadProgress> = {};
+      for (const item of list || []) {
+        if (item && item.trackId && item.status !== 'completed' && item.status !== 'cancelled') {
+          next[item.trackId] = item;
+        }
+      }
+      downloadStates = next;
+    } catch {
+    }
+  }
+
+  $effect(() => {
+    if (!isJamRemote) return;
+    const hasRealActive = Object.values(downloadStates).some(
+      (d) => d.status === 'queued' || d.status === 'downloading'
+    );
+    const shouldPoll = currentRoute.name === 'downloads' || hasRealActive;
+    void syncRemoteDownloadStates();
+    if (!shouldPoll) return;
+    const timer = setInterval(() => {
+      void syncRemoteDownloadStates();
+    }, 1500);
+    return () => clearInterval(timer);
+  });
+
   async function handleDownloadTrack(tr: Track) {
     if (!tr) return;
     if (tr.id > 0) {
       await api.downloadTrack(tr.id);
+      if (isJamRemote) void syncRemoteDownloadStates();
       return;
     }
     if (tr.externalId) {
@@ -832,16 +999,22 @@
         coverUrl: tr.coverUrl,
         format: tr.format || 'OPUS'
       });
+      if (isJamRemote) void syncRemoteDownloadStates();
     }
   }
 
   async function handleDownloadYTMusicTrack(yt: YTMusicTrack) {
     if (!yt?.videoId) return;
     await api.downloadYTMusicTrack(yt);
+    if (isJamRemote) void syncRemoteDownloadStates();
   }
 
   async function handleRemoveDownload(trackId: number) {
+    const existing = tracks.find((t) => t.id === trackId);
     const updated = await api.removeDownloadedTrack(trackId);
+    if (existing && !sessionDeletedDownloadTracks.some((d) => d.id === trackId)) {
+      sessionDeletedDownloadTracks = [existing, ...sessionDeletedDownloadTracks];
+    }
     tracks = tracks.map((t) => (t.id === trackId ? updated : t));
     detailTracks = detailTracks.map((t) => (t.id === trackId ? updated : t));
     if (selectedPlaylistDetail) {
@@ -853,6 +1026,10 @@
   }
 
   async function handleCancelDownload(trackId: number) {
+    if (trackId === devDummyDownload.trackId) {
+      showDevDummyDownload = false;
+      return;
+    }
     await api.cancelDownload(trackId);
     const next = { ...downloadStates };
     delete next[trackId];
@@ -877,6 +1054,58 @@
     listeningStats = boot.listeningStats;
     mediaBaseUrl = boot.mediaBaseUrl;
 
+    if (!currentTrack) {
+      try {
+        const raw = localStorage.getItem('velora.lastQueue');
+        if (raw) {
+          const saved = JSON.parse(raw) as { queue?: Track[]; index?: number; positionSec?: number; queueSourceTitle?: string; queueSourceKey?: string };
+          if (Array.isArray(saved.queue) && saved.queue.length > 0) {
+            const idx = typeof saved.index === 'number' && saved.index >= 0 && saved.index < saved.queue.length ? saved.index : 0;
+            queue = saved.queue;
+            currentQueueIndex = idx;
+            queueSourceTitle = saved.queueSourceTitle || '';
+            queueSourceKey = saved.queueSourceKey || inferQueueSourceKeyByTitle(queueSourceTitle);
+            currentTrack = saved.queue[idx];
+            const restorePos = getPrefBool(preferences, 'playback.resumeQueue') && typeof saved.positionSec === 'number' && saved.positionSec > 0
+              ? saved.positionSec
+              : 0;
+            positionSec = restorePos;
+            durationSec = currentTrack.durationSec || 0;
+            pendingResumeSeek = restorePos;
+            isPlaying = false;
+            loadLyricsForTrack(currentTrack);
+          }
+        }
+      } catch {
+      }
+    }
+
+    if (!currentTrack && history.length > 0) {
+      const h = history[0];
+      const matched = tracks.find((t) => t.id === h.trackId) ?? {
+        id: h.trackId,
+        title: h.title,
+        artistId: 0,
+        artistName: h.artistName || 'Unknown Artist',
+        albumId: 0,
+        albumTitle: h.albumTitle || 'Unknown Album',
+        durationSec: h.durationSec || 0,
+        format: h.format || 'OPUS',
+        bitrate: 160,
+        sourceType: h.sourceType || 'ytmusic',
+        filePath: '',
+        externalId: '',
+        coverUrl: h.coverUrl || '',
+        isFavorite: false,
+        playCount: 1,
+        createdAt: h.playedAt || ''
+      };
+      currentTrack = matched;
+      durationSec = matched.durationSec || 0;
+      isPlaying = false;
+      loadLyricsForTrack(matched);
+    }
+
     if (queue.length === 0 && tracks.length > 0) {
       if (!currentTrack) {
         currentTrack = tracks[0];
@@ -884,6 +1113,7 @@
         loadLyricsForTrack(tracks[0]);
       }
       queue = buildLocalAlgorithmQueue(currentTrack ?? tracks[0]);
+      currentQueueIndex = 0;
       void populateYTMusicAlgorithmQueue(currentTrack ?? tracks[0]);
     }
 
@@ -934,6 +1164,7 @@
       getPrefValue(preferences, 'dynamicIsland.coverSpin') !== 'false',
       getPrefValue(preferences, 'dynamicIsland.closedCoverSpin') === 'true'
     );
+    api.setDynamicIslandLyricSweep(getPrefValue(preferences, 'dynamicIsland.lyricSweep') !== 'false');
     if (preferences['general.zoomLevel']) {
       const z = Number(preferences['general.zoomLevel']);
       if (Number.isFinite(z)) applyZoom(z, false);
@@ -951,27 +1182,6 @@
       shuffle = true;
     }
     audioEngine.setVolume(volume, muted);
-
-    if (getPrefBool(preferences, 'playback.resumeQueue') && !currentTrack) {
-      try {
-        const raw = localStorage.getItem('velora.lastQueue');
-        if (raw) {
-          const saved = JSON.parse(raw) as { queue?: Track[]; index?: number; positionSec?: number; queueSourceTitle?: string };
-          if (Array.isArray(saved.queue) && saved.queue.length > 0) {
-            const idx = typeof saved.index === 'number' && saved.index >= 0 && saved.index < saved.queue.length ? saved.index : 0;
-            queue = saved.queue;
-            queueSourceTitle = saved.queueSourceTitle || '';
-            currentTrack = saved.queue[idx];
-            positionSec = typeof saved.positionSec === 'number' && saved.positionSec > 0 ? saved.positionSec : 0;
-            durationSec = currentTrack.durationSec || 0;
-            pendingResumeSeek = positionSec;
-            isPlaying = false;
-            loadLyricsForTrack(currentTrack);
-          }
-        }
-      } catch {
-      }
-    }
 
     const startPage = getPrefValue(preferences, 'appearance.startPage');
     if (startPage === 'explore') {
@@ -1118,6 +1328,9 @@
         getPrefValue(preferences, 'dynamicIsland.progressStyle') || 'thin'
       );
     }
+    if (patch['dynamicIsland.lyricSweep'] !== undefined) {
+      api.setDynamicIslandLyricSweep(patch['dynamicIsland.lyricSweep'] !== 'false');
+    }
     if (
       patch['dynamicIsland.coverStyle'] !== undefined ||
       patch['dynamicIsland.coverSpin'] !== undefined ||
@@ -1211,15 +1424,22 @@
         break;
       case 'play-index': {
         const idx = Math.round(Number(cmd.value) || 0);
-        if (idx >= 0 && idx < queue.length) {
-          await playTrack(queue[idx], queue);
+        const realIdx = lastDIQueueOffset + idx;
+        if (idx >= 0 && realIdx >= 0 && realIdx < queue.length) {
+          await playTrack(queue[realIdx], queue, queueSourceTitle, queueSourceKey, false, realIdx);
         }
         break;
       }
       case 'remove-index': {
         const idx = Math.round(Number(cmd.value) || 0);
-        if (idx >= 0 && idx < queue.length) {
-          queue = queue.filter((_, i) => i !== idx);
+        const realIdx = lastDIQueueOffset + idx;
+        if (idx >= 0 && realIdx >= 0 && realIdx < queue.length) {
+          queue = queue.filter((_, i) => i !== realIdx);
+          if (realIdx < currentQueueIndex) {
+            currentQueueIndex -= 1;
+          } else if (currentQueueIndex >= queue.length) {
+            currentQueueIndex = queue.length - 1;
+          }
         }
         break;
       }
@@ -1241,6 +1461,24 @@
             coverUrl: cmd.coverUrl || '',
             format: 'OPUS'
           });
+        }
+        break;
+      }
+      case 'play-next': {
+        let tr: Track | undefined = cmd.trackId && cmd.trackId > 0 ? tracks.find((t) => t.id === cmd.trackId) : undefined;
+        if (!tr && cmd.externalId) {
+          tr = await api.saveYTMusicTrack({
+            videoId: cmd.externalId,
+            title: cmd.title || 'Untitled',
+            artist: cmd.artist || 'Unknown Artist',
+            album: cmd.album || 'Single',
+            durationSec: cmd.durationSec || 180,
+            coverUrl: cmd.coverUrl || '',
+            format: 'OPUS'
+          });
+        }
+        if (tr) {
+          handleQueuePlayNext(tr);
         }
         break;
       }
@@ -1303,7 +1541,7 @@
     });
   });
 
-  async function loadLyricsForTrack(tr: Track, overrideDurSec?: number) {
+  async function loadLyricsForTrack(tr: Track, overrideDurSec?: number, forceRefresh = false) {
     const targetKey = trackQueueKey(tr);
     const effDur = Math.round(overrideDurSec ?? tr.durationSec ?? 0);
     lyricsLoadedTrackKey = targetKey;
@@ -1311,13 +1549,9 @@
     const reqSeq = ++lyricsRequestSeq;
     lyricsLoading = true;
     try {
-      const res = await api.getTrackLyrics(
-        tr.id,
-        tr.title,
-        tr.artistName,
-        tr.albumTitle,
-        effDur
-      );
+      const res = forceRefresh
+        ? await api.refreshTrackLyrics(tr.id, tr.title, tr.artistName, tr.albumTitle, effDur)
+        : await api.getTrackLyrics(tr.id, tr.title, tr.artistName, tr.albumTitle, effDur);
       if (reqSeq === lyricsRequestSeq && currentTrack && trackQueueKey(currentTrack) === targetKey) {
         currentLyrics = res;
       }
@@ -1333,11 +1567,18 @@
   }
 
   async function navigate(route: ViewRoute) {
+    let resolvedRoute = route;
+    if (isMobile) {
+      if (route.name === 'liked-songs') resolvedRoute = { name: 'library', filter: 'music' };
+      else if (route.name === 'downloaded') resolvedRoute = { name: 'library', filter: 'downloaded' };
+      else if (route.name === 'favorite-albums') resolvedRoute = { name: 'library', filter: 'albums' };
+      else if (route.name === 'favorite-artists') resolvedRoute = { name: 'library', filter: 'artists' };
+    }
     const nextStack = navStack.slice(0, navIndex + 1);
-    nextStack.push(route);
+    nextStack.push(resolvedRoute);
     navStack = nextStack;
     navIndex = nextStack.length - 1;
-    await loadRouteData(route);
+    await loadRouteData(resolvedRoute);
   }
 
   async function goBack() {
@@ -1481,8 +1722,21 @@
     });
   }
 
+  function inferQueueSourceKeyByTitle(rawTitle: string): string {
+    const clean = rawTitle.trim().toLowerCase();
+    if (!clean) return '';
+    const pl = playlists.find((p) => p.name.trim().toLowerCase() === clean);
+    if (pl) return `local-playlist:${pl.id}`;
+    const al = albums.find((a) => a.title.trim().toLowerCase() === clean);
+    if (al) return `local-album:${al.id}`;
+    const ar = artists.find((a) => a.name.trim().toLowerCase() === clean);
+    if (ar) return `local-artist:${ar.id}`;
+    if (clean === 'favorite music' || clean === 'lagu disukai') return 'liked-songs';
+    return '';
+  }
+
   async function openQueueSource() {
-    const key = queueSourceKey.trim();
+    const key = queueSourceKey.trim() || inferQueueSourceKeyByTitle(queueSourceTitle);
     if (!key) return;
     if (key.startsWith('local-playlist:')) {
       const id = Number(key.slice('local-playlist:'.length));
@@ -1507,6 +1761,10 @@
     }
     if (key === 'liked-songs') {
       await navigate({ name: 'liked-songs' });
+      return;
+    }
+    if (key === 'history') {
+      await navigate({ name: 'history' });
       return;
     }
     if (key.startsWith('UC')) {
@@ -2106,12 +2364,31 @@
     }
   }
 
+  const atvCheckedTrackIds = new Set<number>();
+
+  function shouldUpgradeVideoTrackToATV(tr: Track): boolean {
+    if (tr.sourceType !== 'ytmusic' || tr.isDownloaded || tr.id <= 0) return false;
+    if (!isYTVideoThumb(tr.coverUrl)) return false;
+    const low = (tr.title || '').toLowerCase();
+    for (const marker of [
+      'official video', 'music video', 'lyric video', ' mv', '(mv', '[mv', 'm/v',
+      'live', 'session', 'cover', 'karaoke', 'remix', 'acoustic', 'dangdut', 'koplo',
+      'slowed', 'sped up', 'nightcore', 'instrumental'
+    ]) {
+      if (low.includes(marker)) return false;
+    }
+    return true;
+  }
+
   function resolveDirectStreamUrl(tr: Track): string {
     if (!mediaBaseUrl) return '';
     if (tr.sourceType === 'local' && tr.id > 0) {
       return `${mediaBaseUrl}/media/local?id=${tr.id}`;
     }
     if (tr.externalId && !tr.externalId.startsWith('dz:') && !tr.externalId.startsWith('sp:')) {
+      if (shouldUpgradeVideoTrackToATV(tr) && !atvCheckedTrackIds.has(tr.id)) {
+        return '';
+      }
       const q = encodeURIComponent(getPrefValue(preferences, 'stream_quality') || 'high');
       return `${mediaBaseUrl}/media/yt?v=${encodeURIComponent(tr.externalId)}&q=${q}`;
     }
@@ -2415,7 +2692,12 @@
   async function handlePlayPlaylist(playlistId: number) {
     const detail = await api.getPlaylistDetail(playlistId);
     if (detail?.tracks && detail.tracks.length > 0) {
-      await playTrack(detail.tracks[0], detail.tracks, detail.playlist?.name || 'Playlist');
+      await playTrack(
+        detail.tracks[0],
+        detail.tracks,
+        detail.playlist?.name || 'Playlist',
+        `local-playlist:${playlistId}`
+      );
     }
   }
 
@@ -2457,7 +2739,7 @@
     const albumTracks = await api.getAlbumTracks(albumId);
     if (albumTracks && albumTracks.length > 0) {
       const albumName = al?.title || 'Album';
-      await playTrack(albumTracks[0], albumTracks, albumName);
+      await playTrack(albumTracks[0], albumTracks, albumName, `local-album:${albumId}`);
     }
   }
 
@@ -2465,7 +2747,7 @@
     const artistTracks = await api.getArtistTracks(artistId);
     if (artistTracks && artistTracks.length > 0) {
       const artistName = artists.find((a) => a.id === artistId)?.name || 'Artis';
-      await playTrack(artistTracks[0], artistTracks, artistName);
+      await playTrack(artistTracks[0], artistTracks, artistName, `local-artist:${artistId}`);
     }
   }
 
@@ -2531,7 +2813,7 @@
     await playTrack(shuffled[0], shuffled, sourceTitle, sourceKey, true);
   }
 
-  async function playTrack(tr: Track, list: Track[] = [], sourceTitle?: string, sourceKey?: string, keepOriginalQueue = false) {
+  async function playTrack(tr: Track, list: Track[] = [], sourceTitle?: string, sourceKey?: string, keepOriginalQueue = false, preferredQueueIndex?: number) {
     if (isJamRemote) {
       await sendJamCommand('play-track', {
         trackId: tr.id,
@@ -2544,6 +2826,7 @@
       });
       return;
     }
+    const clickedRefIdx = list.length > 0 ? list.indexOf(tr) : -1;
     if (sourceKey !== undefined) {
       queueSourceKey = sourceKey;
     } else if (sourceTitle !== undefined) {
@@ -2551,6 +2834,8 @@
     }
     if (sourceTitle !== undefined) {
       queueSourceTitle = sourceTitle;
+    } else if (list === queue && (queueSourceTitle || queueSourceKey)) {
+      // Playing a track from within the existing queue preserves its source navigation link.
     } else if (list.length > 0) {
       if (currentRoute.name === 'playlist-detail') {
         queueSourceTitle = selectedPlaylistDetail?.playlist?.name || 'Playlist';
@@ -2564,6 +2849,9 @@
       } else if (currentRoute.name === 'liked-songs') {
         queueSourceTitle = 'Favorite music';
         queueSourceKey = 'liked-songs';
+      } else if (currentRoute.name === 'history') {
+        queueSourceTitle = appLang === 'id' ? 'Riwayat' : 'History';
+        queueSourceKey = 'history';
       } else if (currentRoute.name === 'yt-album-detail') {
         queueSourceTitle = currentRoute.albumTitle || currentRoute.title || 'Album';
         queueSourceKey = currentRoute.browseId || currentRoute.videoId || '';
@@ -2576,6 +2864,13 @@
     if (list.length > 0) {
       if (list === queue) {
         queue = [...list];
+        if (preferredQueueIndex !== undefined && preferredQueueIndex >= 0 && preferredQueueIndex < queue.length && trackQueueKey(queue[preferredQueueIndex]) === trackQueueKey(tr)) {
+          currentQueueIndex = preferredQueueIndex;
+        } else if (clickedRefIdx >= 0 && clickedRefIdx < queue.length) {
+          currentQueueIndex = clickedRefIdx;
+        } else {
+          currentQueueIndex = resolveActiveQueueIndex(tr, queue);
+        }
       } else {
         if (!keepOriginalQueue) {
           originalQueue = [...list];
@@ -2583,10 +2878,20 @@
         const curKey = trackQueueKey(tr);
         shufflePlayedKeys = new Set([curKey]);
         if (shuffle && !keepOriginalQueue) {
-          const rest = list.filter((item) => trackQueueKey(item) !== curKey);
+          const rest = clickedRefIdx >= 0
+            ? list.filter((_, idx) => idx !== clickedRefIdx)
+            : list.filter((item) => trackQueueKey(item) !== curKey);
           queue = [tr, ...fisherYatesShuffle(rest)];
+          currentQueueIndex = 0;
         } else {
           queue = [...list];
+          if (preferredQueueIndex !== undefined && preferredQueueIndex >= 0 && preferredQueueIndex < queue.length && trackQueueKey(queue[preferredQueueIndex]) === trackQueueKey(tr)) {
+            currentQueueIndex = preferredQueueIndex;
+          } else if (clickedRefIdx >= 0 && clickedRefIdx < queue.length) {
+            currentQueueIndex = clickedRefIdx;
+          } else {
+            currentQueueIndex = resolveActiveQueueIndex(tr, queue);
+          }
         }
       }
     } else {
@@ -2597,6 +2902,7 @@
       } else {
         queue = [tr];
       }
+      currentQueueIndex = 0;
       shufflePlayedKeys = new Set([trackQueueKey(tr)]);
     }
 
@@ -2632,6 +2938,30 @@
     } else {
       try {
         streamUrl = await api.getStreamUrl(tr.id);
+        if (tr.id > 0) atvCheckedTrackIds.add(tr.id);
+        let resolvedVid = '';
+        try {
+          resolvedVid = new URL(streamUrl, window.location.origin).searchParams.get('v') || '';
+        } catch {
+        }
+        if (seq === playRequestSeq && resolvedVid && resolvedVid !== tr.externalId) {
+          const refreshedList = await api.getTracks('all', '');
+          tracks = refreshedList;
+          const upgraded =
+            refreshedList.find((item) => item.id === tr.id || item.externalId === resolvedVid) ??
+            { ...tr, externalId: resolvedVid };
+          tr = upgraded;
+          if (seq === playRequestSeq) {
+            currentTrack = upgraded;
+            if (upgraded.durationSec > 0) durationSec = upgraded.durationSec;
+            queue = queue.map((q) => (q.id === upgraded.id || q.externalId === tr.externalId ? upgraded : q));
+            void loadLyricsForTrack(
+              upgraded,
+              upgraded.durationSec > 0 ? upgraded.durationSec : undefined,
+              true
+            );
+          }
+        }
       } catch {
         if (seq === playRequestSeq) {
           trackLoading = false;
@@ -2778,9 +3108,20 @@
   }
 
   function handleQueuePlayNext(tr: Track) {
+    if (isJamRemote) {
+      void sendJamCommand('play-next', {
+        trackId: tr.id,
+        externalId: tr.externalId,
+        title: tr.title,
+        artist: tr.artistName,
+        album: tr.albumTitle,
+        durationSec: tr.durationSec,
+        coverUrl: tr.coverUrl
+      });
+    }
     if (!currentTrack) {
       queue = [tr];
-      void playTrack(tr, [tr]);
+      if (!isJamRemote) void playTrack(tr, [tr]);
       return;
     }
     const curKey = trackQueueKey(currentTrack);
@@ -2793,6 +3134,17 @@
   }
 
   function handleAddToQueue(tr: Track) {
+    if (isJamRemote) {
+      void sendJamCommand('add-track', {
+        trackId: tr.id,
+        externalId: tr.externalId,
+        title: tr.title,
+        artist: tr.artistName,
+        album: tr.albumTitle,
+        durationSec: tr.durationSec,
+        coverUrl: tr.coverUrl
+      });
+    }
     const targetKey = trackQueueKey(tr);
     if (!queue.some((q) => trackQueueKey(q) === targetKey)) {
       queue = [...queue, tr];
@@ -2810,7 +3162,7 @@
     }
     if (shuffle && queue.length > 1) {
       const curKey = currentTrack ? trackQueueKey(currentTrack) : '';
-      const curIdx = currentTrack ? queue.findIndex((t) => trackQueueKey(t) === curKey) : -1;
+      const curIdx = resolveActiveQueueIndex();
       let nextCandidate: Track | null = null;
       for (let step = 1; step <= queue.length; step++) {
         const cand = queue[(Math.max(0, curIdx) + step) % queue.length];
@@ -2850,12 +3202,12 @@
       isPlaying = false;
       return;
     }
-    const idx = currentTrack ? queue.findIndex((t) => t.id === currentTrack!.id) : -1;
+    const idx = resolveActiveQueueIndex();
     const nextIdx = idx + 1;
     if (nextIdx < queue.length) {
-      await playTrack(queue[nextIdx], queue, queueSourceTitle);
+      await playTrack(queue[nextIdx], queue, queueSourceTitle, queueSourceKey, false, nextIdx);
     } else if (repeatMode === 'all' && queueSourceTitle !== '') {
-      await playTrack(queue[0], queue, queueSourceTitle);
+      await playTrack(queue[0], queue, queueSourceTitle, queueSourceKey, false, 0);
     } else if (currentTrack && getPrefBool(preferences, 'playback.autoplay')) {
       if (queueSourceTitle !== '') {
         algoBatchRound = 0;
@@ -2868,12 +3220,12 @@
       if (nextBatch.length > 0) {
         await playTrack(nextBatch[0], nextBatch, '');
       } else if (repeatMode === 'all') {
-        await playTrack(queue[0], queue, queueSourceTitle);
+        await playTrack(queue[0], queue, queueSourceTitle, queueSourceKey, false, 0);
       } else {
         isPlaying = false;
       }
     } else if (repeatMode === 'all') {
-      await playTrack(queue[0], queue, queueSourceTitle);
+      await playTrack(queue[0], queue, queueSourceTitle, queueSourceKey, false, 0);
     } else {
       isPlaying = false;
     }
@@ -2896,9 +3248,9 @@
       await playTrack(prevTrack, queue, queueSourceTitle, queueSourceKey, true);
       return;
     }
-    const idx = currentTrack ? queue.findIndex((t) => t.id === currentTrack!.id) : 0;
+    const idx = Math.max(0, resolveActiveQueueIndex());
     const prevIdx = idx - 1 >= 0 ? idx - 1 : queue.length - 1;
-    await playTrack(queue[prevIdx], queue);
+    await playTrack(queue[prevIdx], queue, queueSourceTitle, queueSourceKey, false, prevIdx);
   }
 
   function handleSeek(sec: number) {
@@ -3057,18 +3409,66 @@
     api.playerControl('mute');
   }
 
-  async function handleToggleFavoriteTrack(id: number) {
-    const fav = await api.toggleFavoriteTrack(id);
-    tracks = tracks.map((t) => (t.id === id ? { ...t, isFavorite: fav } : t));
-    queue = queue.map((t) => (t.id === id ? { ...t, isFavorite: fav } : t));
-    if (currentTrack && currentTrack.id === id) {
-      currentTrack = { ...currentTrack, isFavorite: fav };
+  let pendingCreatePlaylistTrack = $state<Track | null>(null);
+
+  async function ensurePersistedTrack(track?: Track | null): Promise<Track | null> {
+    if (!track) return null;
+    if (track.id > 0) return track;
+    if (!track.externalId) return null;
+    const existing = tracks.find((t) => t.externalId === track.externalId);
+    if (existing) return existing;
+    const saved = await api.saveYTMusicTrack({
+      videoId: track.externalId,
+      title: track.title || 'Untitled',
+      artist: track.artistName || 'Unknown Artist',
+      album: track.albumTitle || 'Single',
+      durationSec: track.durationSec || 0,
+      coverUrl: track.coverUrl || '',
+      format: track.format || 'OPUS'
+    });
+    if (saved) {
+      tracks = tracks.some((t) => t.id === saved.id)
+        ? tracks.map((t) => (t.id === saved.id ? saved : t))
+        : [saved, ...tracks];
+    }
+    return saved ?? null;
+  }
+
+  async function handleToggleFavoriteTrack(id: number, track?: Track) {
+    let targetId = id;
+    if (targetId <= 0) {
+      const candidate = track ?? (currentTrack && currentTrack.id === id ? currentTrack : undefined);
+      const saved = await ensurePersistedTrack(candidate);
+      if (!saved) return;
+      targetId = saved.id;
+    }
+    const fav = await api.toggleFavoriteTrack(targetId);
+    tracks = tracks.map((t) => (t.id === targetId ? { ...t, isFavorite: fav } : t));
+    detailTracks = detailTracks.map((t) => (t.id === targetId ? { ...t, isFavorite: fav } : t));
+    queue = queue.map((t) => (t.id === targetId || (track?.externalId && t.externalId === track.externalId) ? { ...t, id: targetId, isFavorite: fav } : t));
+    if (currentTrack && (currentTrack.id === targetId || (track?.externalId && currentTrack.externalId === track.externalId))) {
+      currentTrack = { ...currentTrack, id: targetId, isFavorite: fav };
     }
     if (selectedPlaylistDetail) {
       selectedPlaylistDetail = {
         ...selectedPlaylistDetail,
-        tracks: selectedPlaylistDetail.tracks.map((t) => (t.id === id ? { ...t, isFavorite: fav } : t))
+        tracks: selectedPlaylistDetail.tracks.map((t) => (t.id === targetId ? { ...t, isFavorite: fav } : t))
       };
+    }
+  }
+
+  async function handleAddTrackToPlaylist(playlistId: number, trackId: number, track?: Track) {
+    let targetId = trackId;
+    if (targetId <= 0 && track) {
+      const saved = await ensurePersistedTrack(track);
+      if (!saved) return;
+      targetId = saved.id;
+    }
+    if (targetId <= 0) return;
+    await api.addTrackToPlaylist(playlistId, targetId);
+    playlists = await api.getPlaylists(false);
+    if (selectedPlaylistDetail && selectedPlaylistDetail.playlist.id === playlistId) {
+      selectedPlaylistDetail = await api.getPlaylistDetail(playlistId);
     }
   }
 
@@ -3137,7 +3537,13 @@
 
   async function handleCreatePlaylist(name: string, desc: string, isLocal: boolean, color: string) {
     const created = await api.createPlaylist(name, desc, isLocal, color);
-    playlists = await api.getPlaylists(false);
+    if (pendingCreatePlaylistTrack) {
+      const pending = pendingCreatePlaylistTrack;
+      pendingCreatePlaylistTrack = null;
+      await handleAddTrackToPlaylist(created.id, pending.id, pending);
+    } else {
+      playlists = await api.getPlaylists(false);
+    }
     await navigate({ name: 'playlist-detail', playlistId: created.id });
   }
 
@@ -3208,7 +3614,15 @@
   style="zoom: {zoomLevel}; width: {100 / zoomLevel}vw; height: {100 / zoomLevel}dvh; background-color: var(--md-sys-color-surface-container-lowest); color: var(--md-sys-color-on-surface);"
 >
   {#if showSplash}
-    <SplashScreen onComplete={() => (showSplash = false)} />
+    <SplashScreen
+      onComplete={() => {
+        try {
+          localStorage.setItem(SPLASH_SEEN_KEY, '1');
+        } catch {
+        }
+        showSplash = false;
+      }}
+    />
   {/if}
 
   <Titlebar
@@ -3268,15 +3682,11 @@
   />
 
   <div
-    class="flex-1 min-h-0 flex gap-2 pl-2 pb-2 overflow-hidden {rightCollapsed &&
-    !lockRightHidden &&
-    currentRoute.name !== 'preferences' &&
-    currentRoute.name !== 'track-detail' &&
-    currentRoute.name !== 'album-detail' &&
-    currentRoute.name !== 'yt-album-detail' &&
-    currentRoute.name !== 'lyrics'
-      ? 'pr-0'
-      : 'pr-2'}"
+    class="flex-1 min-h-0 flex gap-2 pl-2 pb-2 overflow-hidden {isMobile
+      ? 'pt-2 pr-2'
+      : rightCollapsed && !lockRightHidden
+        ? 'pr-0'
+        : 'pr-2'}"
   >
     {#if !isMobile}
       <Sidebar
@@ -3317,14 +3727,14 @@
 
     <main
       bind:this={mainScrollEl}
-      class="flex-1 min-w-0 min-h-0 {isFullHeightRoute ? 'overflow-hidden' : 'overflow-y-auto overflow-x-hidden'} scroll-pt-16 rounded-lg transition-colors duration-300 {isMobile && mobileShowQueue ? 'hidden' : ''}"
+      class="flex-1 min-w-0 min-h-0 {isFullHeightRoute ? 'overflow-hidden' : 'overflow-y-auto overflow-x-hidden'} scroll-pt-16 rounded-lg transition-colors duration-300"
       style="background-color: var(--md-sys-color-surface);"
     >
-      <div class="velora-route-stage {isFullHeightRoute ? 'h-full' : ''}">
+      <div class="velora-route-stage {isFullHeightRoute ? 'h-full' : isMobile ? 'pb-20' : ''}">
         {#key routeTransitionKey}
           <div
-            in:fly={{ y: 8, duration: 240, easing: cubicOut }}
-            out:routeExitFade={{ duration: 140 }}
+            in:fly={{ x: isMobile ? 16 : 0, y: isMobile ? 0 : 10, duration: 260, opacity: 0, easing: cubicOut }}
+            out:routeExitFade={{ duration: 180, shiftX: isMobile ? -12 : 0 }}
             class="velora-route-pane {isFullHeightRoute ? 'h-full min-h-0' : ''}"
           >
       {#if currentRoute.name === 'home'}
@@ -3376,12 +3786,89 @@
           onLoadMoreYTMusic={handleLoadMoreYTMusic}
           onLoadMorePopularArtists={handleLoadMorePopularArtists}
           onCreatePlaylist={() => (showCreatePlaylistModal = true)}
+          onPlayNext={handleQueuePlayNext}
+          onAddToQueue={handleAddToQueue}
+          onAddToPlaylist={handleAddTrackToPlaylist}
+          onCreatePlaylistTrack={(tr) => {
+            pendingCreatePlaylistTrack = tr ?? null;
+            showCreatePlaylistModal = true;
+          }}
+          onToggleFavoriteTrack={handleToggleFavoriteTrack}
+          onDownloadTrack={handleDownloadTrack}
+          onRemoveDownload={handleRemoveDownload}
+          onOpenTrackAlbum={(tr) => void openTrackAlbumDetail(tr)}
+          {activeDownloadsCount}
+          {downloadProgressPct}
           onNavigate={navigate}
         />
+      {:else if currentRoute.name === 'downloads'}
+        {#await import('./views/MobileDownloadsView.svelte') then { default: MobileDownloadsView }}
+        <MobileDownloadsView
+          lang={appLang}
+          activeDownloads={activeDownloadsList}
+          downloadedTracks={tracks.filter((t) => t.isDownloaded)}
+          deletedTracks={sessionDeletedDownloadTracks}
+          allTracks={tracks}
+          {mediaBaseUrl}
+          onBack={goBack}
+          onPlayTrack={playTrack}
+          onOpenTrackAlbum={openTrackAlbumDetail}
+          onCancelDownload={handleCancelDownload}
+          onRemoveDownload={handleRemoveDownload}
+        />
+        {/await}
+      {:else if currentRoute.name === 'library' || (isMobile && (currentRoute.name === 'liked-songs' || currentRoute.name === 'downloaded' || currentRoute.name === 'favorite-albums' || currentRoute.name === 'favorite-artists'))}
+        {#await import('./views/MobileLibraryView.svelte') then { default: MobileLibraryView }}
+        <MobileLibraryView
+          lang={appLang}
+          {tracks}
+          {albums}
+          {artists}
+          {playlists}
+          initialFilter={currentRoute.name === 'library'
+            ? (currentRoute.filter ?? 'all')
+            : currentRoute.name === 'liked-songs'
+              ? 'music'
+              : currentRoute.name === 'downloaded'
+                ? 'downloaded'
+                : currentRoute.name === 'favorite-albums'
+                  ? 'albums'
+                  : 'artists'}
+          currentTrackId={currentTrack?.id ?? null}
+          currentExternalId={currentTrack?.externalId ?? null}
+          {isPlaying}
+          {shuffle}
+          {mediaBaseUrl}
+          {activeDownloadsCount}
+          {downloadProgressPct}
+          onPlayTrack={playTrack}
+          onTogglePlay={togglePlay}
+          onPlayShuffled={playShuffledList}
+          onPlayNext={handleQueuePlayNext}
+          onAddToQueue={handleAddToQueue}
+          onAddToPlaylist={handleAddTrackToPlaylist}
+          onCreatePlaylistTrack={(tr) => {
+            pendingCreatePlaylistTrack = tr ?? null;
+            showCreatePlaylistModal = true;
+          }}
+          onToggleFavoriteTrack={handleToggleFavoriteTrack}
+          onToggleFavoriteAlbum={handleToggleFavoriteAlbum}
+          onToggleFavoriteArtist={handleToggleFavoriteArtist}
+          onDownloadTrack={handleDownloadTrack}
+          onRemoveDownload={handleRemoveDownload}
+          onOpenAlbum={handleOpenAlbum}
+          onPlayAlbum={handlePlayAlbum}
+          onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
+          onOpenTrackAlbum={openTrackAlbumDetail}
+          onNavigate={navigate}
+        />
+        {/await}
       {:else if currentRoute.name === 'search' || currentRoute.name === 'liked-songs' || currentRoute.name === 'downloaded' || currentRoute.name === 'favorite-albums' || currentRoute.name === 'favorite-artists' || currentRoute.name === 'artist-detail'}
+        {#await import('./views/LibraryViews.svelte') then { default: LibraryViews }}
         <LibraryViews
           lang={appLang}
           mode={currentRoute.name}
+          onBack={() => (navIndex > 0 ? goBack() : void navigate({ name: 'home' }))}
           {searchQuery}
           {tracks}
           {albums}
@@ -3461,7 +3948,9 @@
             })}
           onNavigate={navigate}
         />
+        {/await}
       {:else if currentRoute.name === 'playlists' || currentRoute.name === 'local-playlists' || currentRoute.name === 'playlist-detail'}
+        {#await import('./views/PlaylistViews.svelte') then { default: PlaylistViews }}
         <PlaylistViews
           lang={appLang}
           mode={currentRoute.name}
@@ -3534,6 +4023,10 @@
           onRemoveDownload={handleRemoveDownload}
           onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
           onOpenTrackAlbum={openTrackAlbumDetail}
+          {activeDownloadsCount}
+          {downloadProgressPct}
+          onNavigate={navigate}
+          onBack={goBack}
           onExportM3U={(pid) => api.exportLocalPlaylistM3U(pid)}
           onImportM3U={async () => {
             const pl = await api.importLocalPlaylistM3U();
@@ -3552,7 +4045,9 @@
             }
           }}
         />
+        {/await}
       {:else if currentRoute.name === 'sources'}
+        {#await import('./views/SourcesView.svelte') then { default: SourcesView }}
         <SourcesView
           {sources}
           {ytResults}
@@ -3582,6 +4077,7 @@
             await playTrack(tr, [tr, ...tracks]);
           }}
         />
+        {/await}
       {:else if currentRoute.name === 'track-detail' || currentRoute.name === 'album-detail' || currentRoute.name === 'yt-album-detail'}
         {@const detailTrack =
           currentRoute.name === 'track-detail'
@@ -3609,6 +4105,7 @@
                 : detailTrack
                   ? [detailTrack]
                   : []}
+        {#await import('./components/TrackDetailView.svelte') then { default: TrackDetailView }}
         <TrackDetailView
           lang={appLang}
           track={detailTrack ?? albumTrackList[0] ?? null}
@@ -3646,13 +4143,16 @@
           }}
           onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
           onOpenAlbum={handleOpenAlbum}
+          onBack={goBack}
           onOpenYTAlbum={(card) => void openYTAlbumCard(card)}
           onDownloadTrack={handleDownloadTrack}
           onRemoveDownload={handleRemoveDownload}
           onPlayNext={handleQueuePlayNext}
           onAddToQueue={handleAddToQueue}
         />
+        {/await}
       {:else if currentRoute.name === 'lyrics'}
+        {#await import('./components/LyricsView.svelte') then { default: LyricsView }}
         <LyricsView
           track={currentTrack}
           lyrics={currentLyrics}
@@ -3662,13 +4162,15 @@
           {mediaBaseUrl}
           {preferences}
           onSeek={handleSeek}
-          onResync={() => currentTrack && loadLyricsForTrack(currentTrack)}
+          onResync={() => currentTrack && loadLyricsForTrack(currentTrack, durationSec > 0 ? Math.round(durationSec) : undefined, true)}
           onClose={() => {
             if (navIndex > 0) goBack();
             else navigate({ name: 'home' });
           }}
         />
+        {/await}
       {:else}
+        {#await import('./views/AnalyticsAndSettingsViews.svelte') then { default: AnalyticsAndSettingsViews }}
         <AnalyticsAndSettingsViews
           mode={currentRoute.name}
           {history}
@@ -3719,22 +4221,27 @@
           }}
           onNavigate={navigate}
         />
+        {/await}
       {/if}
           </div>
         {/key}
       </div>
     </main>
 
-    {#if !lockRightHidden && (!isMobile || mobileShowQueue) && currentRoute.name !== 'preferences' && currentRoute.name !== 'track-detail' && currentRoute.name !== 'album-detail' && currentRoute.name !== 'yt-album-detail' && currentRoute.name !== 'lyrics'}
+    {#if !lockRightHidden && !isMobile}
       <RightPanel
-        width={isMobile ? window.innerWidth - 16 : rightWidth}
-        collapsed={isMobile ? false : rightCollapsed}
+        width={rightWidth}
+        collapsed={rightCollapsed}
         mode={rightPanelMode}
         {currentTrack}
         {queue}
+        queueIndex={resolveActiveQueueIndex()}
         {queueSourceTitle}
+        {audioOutputs}
+        {switchingOutputId}
         {isPlaying}
         {positionSec}
+        lyricOffsetSec={currentLyricOffsetSec}
         lyrics={currentLyrics}
         {lyricsLoading}
         {preferences}
@@ -3742,6 +4249,8 @@
         {accentColor}
         focusCardSignal={focusRightSignal}
         onChangeMode={(m) => (rightPanelMode = m)}
+        onSelectOutputDevice={(id) => void handleSelectOutputDevice(id)}
+        onRefreshAudioOutputs={() => void refreshAudioOutputs()}
         onToggleCollapse={() => {
           rightCollapsed = !rightCollapsed;
           patchPrefs({ 'layout.rightCollapsed': rightCollapsed ? 'true' : 'false' });
@@ -3760,7 +4269,10 @@
         onOpenTrackDetail={(tr) => void openTrackAlbumDetail(tr)}
         onOpenArtistDetail={(tr) => void openTrackArtistDetail(tr)}
         onOpenLyrics={() => navigate({ name: 'lyrics' })}
-        onOpenQueueSource={queueSourceKey ? openQueueSource : undefined}
+        onResyncLyrics={() => currentTrack && void loadLyricsForTrack(currentTrack, durationSec > 0 ? Math.round(durationSec) : undefined, true)}
+        onOpenQueueSource={queueSourceKey || inferQueueSourceKeyByTitle(queueSourceTitle)
+          ? openQueueSource
+          : undefined}
       />
     {/if}
   </div>
@@ -3779,6 +4291,7 @@
       {repeatMode}
       {rightCollapsed}
       {rightPanelMode}
+      {activeOutputDevice}
       isLyricsOpen={currentRoute.name === 'lyrics'}
       {seekDeltaSec}
       {seekDeltaSeq}
@@ -3809,6 +4322,18 @@
           navigate({ name: 'lyrics' });
         }
       }}
+      onToggleDevices={() => {
+        if (lockRightHidden) return;
+        if (!rightCollapsed && rightPanelMode === 'devices') {
+          rightCollapsed = true;
+          patchPrefs({ 'layout.rightCollapsed': 'true' });
+        } else {
+          rightCollapsed = false;
+          rightPanelMode = 'devices';
+          patchPrefs({ 'layout.rightCollapsed': 'false' });
+          void refreshAudioOutputs();
+        }
+      }}
       onFocusRightCard={(card) => {
         if (lockRightHidden) return;
         if (card === 'queue') {
@@ -3824,21 +4349,6 @@
           return;
         }
         if (card === 'album') {
-          if (
-            currentRoute.name === 'track-detail' ||
-            currentRoute.name === 'album-detail' ||
-            currentRoute.name === 'yt-album-detail' ||
-            currentRoute.name === 'lyrics' ||
-            currentRoute.name === 'preferences'
-          ) {
-            if (navIndex > 0) goBack();
-            else navigate({ name: 'home' });
-            rightCollapsed = false;
-            rightPanelMode = 'now-playing';
-            patchPrefs({ 'layout.rightCollapsed': 'false' });
-            focusRightSignal = { card, seq: Date.now() };
-            return;
-          }
           if (!rightCollapsed && rightPanelMode === 'now-playing') {
             rightCollapsed = true;
             patchPrefs({ 'layout.rightCollapsed': 'true' });
@@ -3871,68 +4381,10 @@
   {/if}
 
   {#if isMobile}
-    {#if mobileMenuOpen}
-      <div
-        role="presentation"
-        transition:fade={{ duration: 160 }}
-        onclick={() => (mobileMenuOpen = false)}
-        class="fixed inset-0 z-50 bg-black/50 flex items-end"
-      >
-        <div
-          role="dialog"
-          aria-label="Menu Navigasi"
-          in:fly={{ y: 260, duration: 240, easing: cubicOut }}
-          out:fly={{ y: 260, duration: 180, easing: cubicIn }}
-          onclick={(e) => e.stopPropagation()}
-          class="w-full rounded-t-2xl p-4 pb-6 space-y-2 border-t"
-          style="background-color: var(--md-sys-color-surface-container-high); border-color: var(--md-sys-color-outline-variant);"
-        >
-          <div class="flex items-center justify-between px-2 pb-2">
-            <span class="text-xs font-bold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
-              Menu Velora
-            </span>
-            <button
-              type="button"
-              onclick={() => (mobileMenuOpen = false)}
-              class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer"
-            >
-              <Icon name="x" size={15} />
-            </button>
-          </div>
-          <div class="grid grid-cols-2 gap-2">
-            {#each [
-              { label: tr(appLang, 'nav.favoriteAlbums'), icon: 'vinyl-record', route: { name: 'favorite-albums' } as ViewRoute },
-              { label: tr(appLang, 'nav.favoriteMusic'), icon: 'music-note', route: { name: 'liked-songs' } as ViewRoute },
-              { label: tr(appLang, 'nav.favoriteArtists'), icon: 'user', route: { name: 'favorite-artists' } as ViewRoute },
-              { label: tr(appLang, 'nav.playlists'), icon: 'playlist', route: { name: 'playlists' } as ViewRoute },
-              { label: tr(appLang, 'nav.downloaded'), icon: 'download', route: { name: 'downloaded' } as ViewRoute },
-              { label: tr(appLang, 'nav.history'), icon: 'clock-counter-clockwise', route: { name: 'history' } as ViewRoute },
-              { label: tr(appLang, 'nav.stats'), icon: 'chart-bar', route: { name: 'listening-stats' } as ViewRoute },
-              { label: tr(appLang, 'nav.settings'), icon: 'gear', route: { name: 'preferences' } as ViewRoute }
-            ] as entry (entry.icon)}
-              <button
-                type="button"
-                onclick={() => {
-                  mobileMenuOpen = false;
-                  mobileShowQueue = false;
-                  void navigate(entry.route);
-                }}
-                class="flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold cursor-pointer text-left transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
-                style="background-color: var(--md-sys-color-surface-container); color: var(--md-sys-color-on-surface);"
-              >
-                <Icon name={entry.icon} size={17} />
-                <span class="truncate">{entry.label}</span>
-              </button>
-            {/each}
-          </div>
-        </div>
-      </div>
-    {/if}
-
     <nav
       aria-label="Mobile Navigation"
-      class="w-full shrink-0 min-h-14 pb-[env(safe-area-inset-bottom)] px-2 grid grid-cols-4 items-center border-t"
-      style="background-color: var(--md-sys-color-surface-container-lowest); border-color: var(--md-sys-color-outline-variant);"
+      class="w-full shrink-0 min-h-[68px] pt-1.5 pb-[max(0.5rem,env(safe-area-inset-bottom,0px))] px-2 grid grid-cols-4 gap-1 items-center"
+      style="background-color: var(--md-sys-color-surface-container-lowest);"
     >
       <button
         type="button"
@@ -3941,17 +4393,18 @@
           mobileShowQueue = false;
           void navigate({ name: 'home' });
         }}
-        class="flex flex-col items-center justify-center gap-0.5 py-1 rounded-lg cursor-pointer transition-all duration-150 hover:bg-[var(--md-sys-color-state-hover)] active:scale-95"
-        style="color: {!mobileShowQueue && !mobileMenuOpen && currentRoute.name === 'home'
+        aria-current={mobileNavTab === 'home' ? 'page' : undefined}
+        class="min-h-[52px] min-w-[56px] w-full flex flex-col items-center justify-center gap-1 py-1.5 rounded-xl cursor-pointer transition-all duration-150 hover:bg-[var(--md-sys-color-state-hover)] active:scale-95"
+        style="color: {mobileNavTab === 'home'
           ? 'var(--md-sys-color-on-surface)'
           : 'var(--md-sys-color-on-surface-variant)'};"
       >
         <Icon
           name="house"
-          weight={!mobileShowQueue && !mobileMenuOpen && currentRoute.name === 'home' ? 'fill' : 'regular'}
-          size={20}
+          weight={mobileNavTab === 'home' ? 'fill' : 'regular'}
+          size={23}
         />
-        <span class="text-[10px] font-semibold">{tr(appLang, 'nav.home')}</span>
+        <span class="text-[11px] font-semibold truncate max-w-full">{tr(appLang, 'nav.home')}</span>
       </button>
 
       <button
@@ -3963,61 +4416,135 @@
             requestAnimationFrame(() => (document.getElementById('mobile-search-input') as HTMLInputElement | null)?.focus())
           );
         }}
-        class="flex flex-col items-center justify-center gap-0.5 py-1 rounded-lg cursor-pointer transition-all duration-150 hover:bg-[var(--md-sys-color-state-hover)] active:scale-95"
-        style="color: {!mobileShowQueue && !mobileMenuOpen && currentRoute.name === 'search'
+        aria-current={mobileNavTab === 'search' ? 'page' : undefined}
+        class="min-h-[52px] min-w-[56px] w-full flex flex-col items-center justify-center gap-1 py-1.5 rounded-xl cursor-pointer transition-all duration-150 hover:bg-[var(--md-sys-color-state-hover)] active:scale-95"
+        style="color: {mobileNavTab === 'search'
           ? 'var(--md-sys-color-on-surface)'
           : 'var(--md-sys-color-on-surface-variant)'};"
       >
         <Icon
           name="magnifying-glass"
-          weight={!mobileShowQueue && !mobileMenuOpen && currentRoute.name === 'search' ? 'bold' : 'regular'}
-          size={20}
+          weight={mobileNavTab === 'search' ? 'bold' : 'regular'}
+          size={23}
         />
-        <span class="text-[10px] font-semibold">{tr(appLang, 'nav.search')}</span>
-      </button>
-
-      <button
-        type="button"
-        onclick={() => (mobileMenuOpen = !mobileMenuOpen)}
-        class="flex flex-col items-center justify-center gap-0.5 py-1 rounded-lg cursor-pointer transition-all duration-150 hover:bg-[var(--md-sys-color-state-hover)] active:scale-95"
-        style="color: {mobileMenuOpen
-          ? 'var(--md-sys-color-on-surface)'
-          : 'var(--md-sys-color-on-surface-variant)'};"
-      >
-        <Icon name="books" weight={mobileMenuOpen ? 'fill' : 'regular'} size={20} />
-        <span class="text-[10px] font-semibold">{tr(appLang, 'nav.library')}</span>
+        <span class="text-[11px] font-semibold truncate max-w-full">{tr(appLang, 'nav.search')}</span>
       </button>
 
       <button
         type="button"
         onclick={() => {
           mobileMenuOpen = false;
-          mobileShowQueue = !mobileShowQueue;
+          mobileShowQueue = false;
+          void navigate({ name: 'library' });
         }}
-        class="flex flex-col items-center justify-center gap-0.5 py-1 rounded-lg cursor-pointer transition-all duration-150 hover:bg-[var(--md-sys-color-state-hover)] active:scale-95"
-        style="color: {mobileShowQueue
+        aria-current={mobileNavTab === 'library' ? 'page' : undefined}
+        class="min-h-[52px] min-w-[56px] w-full flex flex-col items-center justify-center gap-1 py-1.5 rounded-xl cursor-pointer transition-all duration-150 hover:bg-[var(--md-sys-color-state-hover)] active:scale-95"
+        style="color: {mobileNavTab === 'library'
           ? 'var(--md-sys-color-on-surface)'
           : 'var(--md-sys-color-on-surface-variant)'};"
       >
-        <Icon name="queue" weight={mobileShowQueue ? 'fill' : 'regular'} size={20} />
-        <span class="text-[10px] font-semibold">{tr(appLang, 'nav.queue')}</span>
+        <Icon name="books" weight={mobileNavTab === 'library' ? 'fill' : 'regular'} size={23} />
+        <span class="text-[11px] font-semibold truncate max-w-full">{tr(appLang, 'nav.library')}</span>
+      </button>
+
+      <button
+        type="button"
+        onclick={() => {
+          mobileMenuOpen = false;
+          mobileShowQueue = false;
+          void navigate({ name: 'playlists' });
+        }}
+        aria-current={mobileNavTab === 'playlists' ? 'page' : undefined}
+        class="min-h-[52px] min-w-[56px] w-full flex flex-col items-center justify-center gap-1 py-1.5 rounded-xl cursor-pointer transition-all duration-150 hover:bg-[var(--md-sys-color-state-hover)] active:scale-95"
+        style="color: {mobileNavTab === 'playlists'
+          ? 'var(--md-sys-color-on-surface)'
+          : 'var(--md-sys-color-on-surface-variant)'};"
+      >
+        <Icon
+          name="playlist"
+          weight={mobileNavTab === 'playlists' ? 'fill' : 'regular'}
+          size={23}
+        />
+        <span class="text-[11px] font-semibold truncate max-w-full">{tr(appLang, 'nav.playlists')}</span>
       </button>
     </nav>
+
+    <MobileQueueSheet open={mobileShowQueue} onClose={() => (mobileShowQueue = false)}>
+      <RightPanel
+        width={360}
+        collapsed={false}
+        embeddedMobile={true}
+        mode={mobileSheetMode}
+        {currentTrack}
+        {queue}
+        queueIndex={resolveActiveQueueIndex()}
+        {queueSourceTitle}
+        {audioOutputs}
+        {switchingOutputId}
+        {isPlaying}
+        {positionSec}
+        lyricOffsetSec={currentLyricOffsetSec}
+        lyrics={currentLyrics}
+        {lyricsLoading}
+        {preferences}
+        {mediaBaseUrl}
+        {accentColor}
+        onChangeMode={(m) => (rightPanelMode = m)}
+        onSelectOutputDevice={(id) => void handleSelectOutputDevice(id)}
+        onRefreshAudioOutputs={() => void refreshAudioOutputs()}
+        onToggleCollapse={() => (mobileShowQueue = false)}
+        onResizeWidth={() => {}}
+        onResizeEnd={() => {}}
+        onPlayTrack={playTrack}
+        onRemoveFromQueue={(id) => {
+          queue = queue.filter((t) => t.id !== id);
+        }}
+        onClearQueue={() => {
+          queue = [];
+        }}
+        onToggleFavorite={handleToggleFavoriteTrack}
+        onSeek={handleSeek}
+        onOpenTrackDetail={(tr) => {
+          mobileShowQueue = false;
+          void openTrackAlbumDetail(tr);
+        }}
+        onOpenArtistDetail={(tr) => {
+          mobileShowQueue = false;
+          void openTrackArtistDetail(tr);
+        }}
+        onOpenLyrics={() => {
+          mobileShowQueue = false;
+          void navigate({ name: 'lyrics' });
+        }}
+        onResyncLyrics={() => currentTrack && void loadLyricsForTrack(currentTrack, durationSec > 0 ? Math.round(durationSec) : undefined, true)}
+        onOpenQueueSource={queueSourceKey || inferQueueSourceKeyByTitle(queueSourceTitle)
+          ? () => {
+              mobileShowQueue = false;
+              void openQueueSource();
+            }
+          : undefined}
+      />
+    </MobileQueueSheet>
 
     <MobileNowPlaying
       open={mobileNowPlayingOpen}
       lang={appLang}
       {currentTrack}
       lyrics={currentLyrics}
+      {lyricsLoading}
+      lyricOffsetSec={currentLyricOffsetSec}
       {queue}
+      queueIndex={resolveActiveQueueIndex()}
+      allTracks={tracks}
+      ytRecommendedTracks={ytTop100Tracks}
+      {playlists}
+      {preferences}
       {isPlaying}
       {positionSec}
       {durationSec}
       {shuffle}
       {repeatMode}
       {mediaBaseUrl}
-      showMiniLyrics={getPrefBool(preferences, 'lyrics.miniLyrics')}
-      plainFallback={getPrefBool(preferences, 'lyrics.plainFallback')}
       onClose={() => (mobileNowPlayingOpen = false)}
       onTogglePlay={togglePlay}
       onPrev={playPrev}
@@ -4031,32 +4558,61 @@
       }}
       onToggleFavorite={handleToggleFavoriteTrack}
       onPlayTrack={playTrack}
+      onPlayYTMusic={playYTMusicSingle}
+      onPlayNext={handleQueuePlayNext}
+      onAddToQueue={handleAddToQueue}
+      onAddToPlaylist={handleAddTrackToPlaylist}
+      onCreatePlaylist={(tr) => {
+        pendingCreatePlaylistTrack = tr ?? null;
+        showCreatePlaylistModal = true;
+      }}
+      onDownloadTrack={handleDownloadTrack}
+      onRemoveDownload={handleRemoveDownload}
+      onOpenArtist={(artistId) => void navigate({ name: 'artist-detail', artistId })}
+      onOpenArtistDetail={(tr) => void openTrackArtistDetail(tr)}
+      onOpenTrackDetail={(tr) => void openTrackAlbumDetail(tr)}
+      onOpenTrackAlbum={(tr) => void openTrackAlbumDetail(tr)}
       onOpenLyrics={() => {
         mobileShowQueue = false;
         void navigate({ name: 'lyrics' });
       }}
+      onResyncLyrics={() => currentTrack && void loadLyricsForTrack(currentTrack, durationSec > 0 ? Math.round(durationSec) : undefined, true)}
       onOpenQueue={() => {
+        mobileSheetMode = 'queue';
         mobileShowQueue = true;
+      }}
+      onOpenDevices={() => {
+        mobileSheetMode = 'devices';
+        mobileShowQueue = true;
+        void refreshAudioOutputs();
       }}
     />
   {/if}
 </div>
 
-<StreakModal
-  open={showStreakModal}
-  {fireStreak}
-  lang={appLang}
-  onClose={() => (showStreakModal = false)}
-  onOpenFullPage={() => navigate({ name: 'listening-stats' })}
-/>
+{#if showStreakModal}
+  {#await import('./components/StreakModal.svelte') then { default: StreakModal }}
+    <StreakModal
+      open={showStreakModal}
+      {fireStreak}
+      lang={appLang}
+      onClose={() => (showStreakModal = false)}
+      onOpenFullPage={() => navigate({ name: 'listening-stats' })}
+    />
+  {/await}
+{/if}
 
-<CreatePlaylistModal
-  open={showCreatePlaylistModal}
-  initialIsLocal={createPlaylistIsLocal}
-  lang={appLang}
-  onClose={() => (showCreatePlaylistModal = false)}
-  onSubmit={handleCreatePlaylist}
-/>
+{#if showCreatePlaylistModal}
+  {#await import('./components/CreatePlaylistModal.svelte') then { default: CreatePlaylistModal }}
+    <CreatePlaylistModal
+      open={showCreatePlaylistModal}
+      initialIsLocal={createPlaylistIsLocal}
+      lang={appLang}
+      onClose={() => (showCreatePlaylistModal = false)}
+      onSubmit={handleCreatePlaylist}
+    />
+  {/await}
+{/if}
 
 {#if tooltipVisible && tooltipText}
   <div

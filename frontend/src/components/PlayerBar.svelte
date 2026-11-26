@@ -1,8 +1,10 @@
 <script lang="ts">
   import { fade, fly } from 'svelte/transition';
   import { api, formatDuration, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
-  import type { Track } from '../lib/types';
+  import { veloraMarquee } from '../lib/marquee';
+  import type { AudioOutputDevice, Track } from '../lib/types';
   import { tr, type LangCode } from '../lib/i18n';
+  import CoverImage from './CoverImage.svelte';
   import Icon from './Icon.svelte';
 
   interface Props {
@@ -16,7 +18,8 @@
     shuffle: boolean;
     repeatMode: 'off' | 'all' | 'one';
     rightCollapsed: boolean;
-    rightPanelMode?: 'now-playing' | 'queue';
+    rightPanelMode?: 'now-playing' | 'queue' | 'devices';
+    activeOutputDevice?: AudioOutputDevice | null;
     isLyricsOpen?: boolean;
     seekDeltaSec?: number;
     seekDeltaSeq?: number;
@@ -37,6 +40,7 @@
     onOpenTrackDetail?: (track: Track) => void;
     onOpenArtistDetail?: (track: Track) => void;
     onToggleLyrics?: () => void;
+    onToggleDevices?: () => void;
     onOpenMobileNowPlaying?: () => void;
   }
 
@@ -52,6 +56,7 @@
     repeatMode,
     rightCollapsed,
     rightPanelMode = 'now-playing',
+    activeOutputDevice = null,
     isLyricsOpen = false,
     seekDeltaSec = 0,
     seekDeltaSeq = 0,
@@ -71,6 +76,7 @@
     onOpenTrackDetail,
     onOpenArtistDetail,
     onToggleLyrics,
+    onToggleDevices,
     onOpenMobileNowPlaying
   }: Props = $props();
 
@@ -90,14 +96,34 @@
   $effect(() => {
     if (!isPlaying || effectiveDuration <= 0) return;
     let rafId = 0;
-    const tick = () => {
-      const elapsed = (performance.now() - lastSyncedAt) / 1000;
-      // Cap extrapolation at +0.6s past last timeupdate
-      smoothPositionSec = Math.min(effectiveDuration, lastSyncedPos + Math.min(elapsed, 0.6));
+    let lastDrawnAt = 0;
+    const minIntervalMs = waveBar ? 0 : 66;
+    const tick = (now: number) => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        rafId = 0;
+        return;
+      }
+      if (minIntervalMs === 0 || now - lastDrawnAt >= minIntervalMs) {
+        lastDrawnAt = now;
+        const elapsed = (now - lastSyncedAt) / 1000;
+        // Cap extrapolation at +0.6s past last timeupdate
+        smoothPositionSec = Math.min(effectiveDuration, lastSyncedPos + Math.min(elapsed, 0.6));
+      }
       rafId = requestAnimationFrame(tick);
     };
-    rafId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafId);
+    const onVisibility = () => {
+      if (!document.hidden && !rafId) {
+        rafId = requestAnimationFrame(tick);
+      }
+    };
+    if (typeof document === 'undefined' || !document.hidden) {
+      rafId = requestAnimationFrame(tick);
+    }
+    document?.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      cancelAnimationFrame(rafId);
+      document?.removeEventListener('visibilitychange', onVisibility);
+    };
   });
 
   const progressPct = $derived(
@@ -105,48 +131,77 @@
   );
   const remainingSec = $derived(Math.max(0, effectiveDuration - positionSec));
   const displayVolume = $derived(muted ? 0 : volume);
+  const mobileCover = $derived.by(() => {
+    if (!currentTrack) return '';
+    const raw =
+      currentTrack.coverUrl ||
+      (/^[A-Za-z0-9_-]{11}$/.test(currentTrack.externalId ?? '')
+        ? `https://i.ytimg.com/vi/${currentTrack.externalId}/mqdefault.jpg`
+        : '');
+    return resolveCoverUrl(raw, mediaBaseUrl, 96);
+  });
 </script>
 
-<div class="sm:hidden px-2 pb-1.5 shrink-0 select-none">
+<div class="sm:hidden fixed left-0 right-0 bottom-[calc(68px+env(safe-area-inset-bottom,0px))] z-30 px-2 pb-1.5 select-none pointer-events-none">
   <div
-    class="relative rounded-lg overflow-hidden shadow-lg"
-    style="background-color: color-mix(in srgb, var(--md-sys-color-tertiary-container) 36%, var(--md-sys-color-surface-container-high));"
+    class="pointer-events-auto relative w-full rounded-lg overflow-hidden shadow-xl backdrop-blur-md"
+    style="background-color: color-mix(in srgb, var(--md-sys-color-tertiary-container) 42%, color-mix(in srgb, var(--md-sys-color-surface-container-high) 94%, transparent));"
   >
-    <div class="flex items-center justify-between gap-2.5 px-2.5 py-2">
+    <div class="flex items-center justify-between gap-2.5 px-2.5 pt-2 pb-1.5">
       <button
         type="button"
         onclick={() => onOpenMobileNowPlaying?.()}
-        class="flex-1 min-w-0 flex items-center gap-2.5 text-left cursor-pointer rounded-lg px-1 -mx-1 transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+        class="velora-press flex-1 min-w-0 flex items-center gap-2.5 text-left cursor-pointer rounded-lg px-1 -mx-1 transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
       >
         <div class="w-10 h-10 rounded-md overflow-hidden shrink-0 bg-[var(--md-sys-color-surface-container-highest)] flex items-center justify-center">
-          {#if currentTrack && resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl)}
-            {@const mCover = resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl)}
-            <img
-              src={mCover}
-              alt={currentTrack.title}
-              class="block w-full h-full object-cover object-center"
-              class:velora-yt-video-thumb={isYTVideoThumb(mCover)}
-            />
-          {:else}
-            <Icon name="music-note" size={18} />
-          {/if}
+          <CoverImage
+            src={mobileCover}
+            fallbackIcon="music-note"
+            iconSize={18}
+            isVideoThumb={isYTVideoThumb(mobileCover)}
+          />
         </div>
         <div class="min-w-0 flex-1">
-          <div class="text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
-            {currentTrack?.title || tr(lang, 'nav.noSongPlaying')}
+          <div
+            use:veloraMarquee={{ text: currentTrack?.title ?? '' }}
+            class="overflow-hidden text-xs font-bold"
+            style="color: var(--md-sys-color-on-surface);"
+          >
+            <span class="inline-block whitespace-nowrap">
+              {currentTrack?.title || tr(lang, 'nav.noSongPlaying')}
+            </span>
           </div>
-          <div class="text-[11px] truncate" style="color: var(--md-sys-color-on-surface-variant);">
-            {currentTrack?.artistName || 'Velora'}
+          <div
+            use:veloraMarquee={{ text: currentTrack?.artistName ?? '' }}
+            class="overflow-hidden text-[11px]"
+            style="color: var(--md-sys-color-on-surface-variant);"
+          >
+            <span class="inline-block whitespace-nowrap">
+              {currentTrack?.artistName || 'Velora'}
+            </span>
           </div>
         </div>
       </button>
 
-      <div class="flex items-center gap-1 shrink-0">
+      <div class="flex items-center gap-0.5 shrink-0">
+        {#if onToggleFavorite}
+          <button
+            type="button"
+            disabled={!currentTrack}
+            onclick={() => currentTrack && onToggleFavorite(currentTrack.id)}
+            aria-label={tr(lang, 'nav.likeSong')}
+            class="min-w-11 min-h-11 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)] disabled:opacity-40 velora-heart-btn {currentTrack?.isFavorite ? 'is-loved' : ''}"
+            style={currentTrack?.isFavorite ? 'color: var(--md-sys-color-tertiary);' : 'color: var(--md-sys-color-on-surface-variant);'}
+          >
+            <Icon name="heart" weight={currentTrack?.isFavorite ? 'fill' : 'regular'} size={20} />
+          </button>
+        {/if}
+
         <button
           type="button"
           onclick={onTogglePlay}
           aria-label={isPlaying ? tr(lang, 'nav.pause') : tr(lang, 'nav.play')}
-          class="w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+          class="min-w-11 min-h-11 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
           style="color: var(--md-sys-color-on-surface);"
         >
           {#if trackLoading}
@@ -155,12 +210,23 @@
             <Icon name={isPlaying ? 'pause' : 'play'} weight="fill" size={20} />
           {/if}
         </button>
+
+        <button
+          type="button"
+          disabled={!currentTrack}
+          onclick={onNext}
+          aria-label={tr(lang, 'nav.next')}
+          class="min-w-11 min-h-11 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)] disabled:opacity-40"
+          style="color: var(--md-sys-color-on-surface);"
+        >
+          <Icon name="skip-forward" weight="fill" size={20} />
+        </button>
       </div>
     </div>
 
-    <div class="h-[2px] w-full bg-white/15">
+    <div class="mx-2.5 mb-1.5 h-[3px] rounded-full overflow-hidden bg-white/15">
       <div
-        class="h-full transition-[width] duration-200"
+        class="h-full rounded-full transition-[width] duration-200"
         style="width: {progressPct}%; background-color: var(--md-sys-color-on-surface);"
       ></div>
     </div>
@@ -255,7 +321,7 @@
   <div class="h-[68px] px-3 sm:px-6 pb-2 flex items-center justify-between gap-2 sm:gap-4">
     <div class="flex-1 min-w-0 sm:flex-none sm:w-[30%] sm:min-w-[180px] flex items-center gap-2.5 sm:gap-3.5">
       {#if currentTrack}
-        {@const cover = resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl)}
+        {@const cover = resolveCoverUrl(currentTrack.coverUrl, mediaBaseUrl, 96)}
         <button
           type="button"
           onclick={() => onFocusRightCard('album')}
@@ -283,20 +349,22 @@
           <button
             type="button"
             onclick={() => onOpenTrackDetail?.(currentTrack)}
-            class="text-left text-[14px] font-bold leading-snug truncate hover:underline cursor-pointer"
+            use:veloraMarquee={{ text: currentTrack.title }}
+            class="w-full overflow-hidden text-left text-[14px] font-bold leading-snug hover:underline cursor-pointer"
             style="color: var(--md-sys-color-on-surface);"
             title={tr(lang, 'nav.viewTrackDetails')}
           >
-            {currentTrack.title}
+            <span class="inline-block whitespace-nowrap">{currentTrack.title}</span>
           </button>
           <button
             type="button"
             onclick={() => onOpenArtistDetail?.(currentTrack)}
-            class="text-left text-[12px] font-normal leading-snug truncate mt-0.5 hover:underline cursor-pointer"
+            use:veloraMarquee={{ text: currentTrack.artistName }}
+            class="w-full overflow-hidden text-left text-[12px] font-normal leading-snug mt-0.5 hover:underline cursor-pointer"
             style="color: var(--md-sys-color-on-surface-variant);"
             title={tr(lang, 'nav.viewArtistPage')}
           >
-            {currentTrack.artistName}
+            <span class="inline-block whitespace-nowrap">{currentTrack.artistName}</span>
           </button>
         </div>
       {:else}
@@ -410,11 +478,41 @@
           onclick={() => onFocusRightCard('queue')}
           title={rightCollapsed ? tr(lang, 'nav.expandQueue') : tr(lang, 'nav.focusQueue')}
           aria-label={tr(lang, 'nav.focusQueue')}
-          class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer"
+          class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer relative"
           style={!rightCollapsed && rightPanelMode === 'queue' ? 'color: var(--md-sys-color-primary);' : ''}
         >
           <Icon name="queue" weight={!rightCollapsed && rightPanelMode === 'queue' ? 'bold' : 'regular'} size={17} />
+          {#if !rightCollapsed && rightPanelMode === 'queue'}
+            <span
+              class="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
+              style="background-color: var(--md-sys-color-primary);"
+            ></span>
+          {/if}
         </button>
+        {#if onToggleDevices}
+          {@const devIcon =
+            activeOutputDevice?.connType === 'bluetooth' || activeOutputDevice?.connType === 'wired'
+              ? 'headphones'
+              : 'speaker-hifi'}
+          <button
+            type="button"
+            onclick={() => onToggleDevices()}
+            title={activeOutputDevice?.name
+              ? `${tr(lang, 'nav.connectDevice')} · ${activeOutputDevice.name}`
+              : tr(lang, 'nav.outputDevice')}
+            aria-label={tr(lang, 'nav.outputDevice')}
+            class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer relative"
+            style={!rightCollapsed && rightPanelMode === 'devices' ? 'color: var(--md-sys-color-primary);' : ''}
+          >
+            <Icon name={devIcon} weight={!rightCollapsed && rightPanelMode === 'devices' ? 'bold' : 'regular'} size={17} />
+            {#if !rightCollapsed && rightPanelMode === 'devices'}
+              <span
+                class="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
+                style="background-color: var(--md-sys-color-primary);"
+              ></span>
+            {/if}
+          </button>
+        {/if}
         <button
           type="button"
           onclick={() => api.windowMinimize()}

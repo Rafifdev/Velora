@@ -74,6 +74,7 @@
     onOpenYTMusicAlbum?: (yt: YTMusicTrack) => void;
     onOpenTrackAlbum?: (track: Track) => void;
     onPlayShuffled?: (list: Track[], sourceTitle?: string, sourceKey?: string) => void;
+    onBack?: () => void;
     onNavigate?: (route: ViewRoute) => void;
     lang?: LangCode;
   }
@@ -138,6 +139,7 @@
     onOpenYTMusicAlbum,
     onOpenTrackAlbum,
     onPlayShuffled,
+    onBack,
     onNavigate,
     lang = 'en'
   }: Props = $props();
@@ -1145,11 +1147,20 @@
         e.preventDefault();
         runActiveSearch(ytQuery);
       }}
-      class="sm:hidden sticky top-0 z-20 -mx-3 -mt-3 px-3 pt-3 pb-2 border-0 outline-none"
+      class="sm:hidden sticky top-0 z-20 -mx-3 -mt-3 px-3 pt-3 pb-2 border-0 outline-none flex items-center gap-2"
       style="background: linear-gradient(to bottom, var(--md-sys-color-surface) 0%, var(--md-sys-color-surface) 68%, color-mix(in srgb, var(--md-sys-color-surface) 78%, transparent) 86%, transparent 100%);"
     >
+      <button
+        type="button"
+        onclick={() => (onBack ? onBack() : onNavigate?.({ name: 'home' }))}
+        aria-label="Kembali"
+        class="velora-press min-w-11 min-h-11 -ml-1.5 rounded-full flex items-center justify-center shrink-0 cursor-pointer transition-colors hover:bg-[var(--md-sys-color-state-hover)]"
+        style="color: var(--md-sys-color-on-surface);"
+      >
+        <Icon name="arrow-left" size={22} />
+      </button>
       <div
-        class="w-full h-10 px-3 rounded-md border-0 outline-none flex items-center gap-2.5"
+        class="flex-1 min-w-0 h-10 px-3 rounded-md border-0 outline-none flex items-center gap-2.5"
         style="background-color: var(--md-sys-color-surface-container-high);"
       >
         <Icon name="magnifying-glass" size={18} style="color: var(--md-sys-color-on-surface-variant);" class="shrink-0" />

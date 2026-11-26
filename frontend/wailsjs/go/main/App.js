@@ -66,6 +66,10 @@ export function GetArtists(arg1) {
   return window['go']['main']['App']['GetArtists'](arg1);
 }
 
+export function GetAudioOutputs() {
+  return window['go']['main']['App']['GetAudioOutputs']();
+}
+
 export function GetBootstrapData() {
   return window['go']['main']['App']['GetBootstrapData']();
 }
@@ -202,6 +206,10 @@ export function RecordListenProgress(arg1, arg2, arg3) {
   return window['go']['main']['App']['RecordListenProgress'](arg1, arg2, arg3);
 }
 
+export function RefreshTrackLyrics(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['RefreshTrackLyrics'](arg1, arg2, arg3, arg4, arg5);
+}
+
 export function RemoveDownloadedTrack(arg1) {
   return window['go']['main']['App']['RemoveDownloadedTrack'](arg1);
 }
@@ -246,6 +254,10 @@ export function SearchYouTubeMusicPlaylists(arg1) {
   return window['go']['main']['App']['SearchYouTubeMusicPlaylists'](arg1);
 }
 
+export function SetAudioOutput(arg1) {
+  return window['go']['main']['App']['SetAudioOutput'](arg1);
+}
+
 export function SetDynamicIslandAnimSpeed(arg1) {
   return window['go']['main']['App']['SetDynamicIslandAnimSpeed'](arg1);
 }
@@ -276,6 +288,14 @@ export function SetDynamicIslandIdleHideSeconds(arg1) {
 
 export function SetDynamicIslandLanguage(arg1) {
   return window['go']['main']['App']['SetDynamicIslandLanguage'](arg1);
+}
+
+export function SetDynamicIslandLyricOffset(arg1) {
+  return window['go']['main']['App']['SetDynamicIslandLyricOffset'](arg1);
+}
+
+export function SetDynamicIslandLyricSweep(arg1) {
+  return window['go']['main']['App']['SetDynamicIslandLyricSweep'](arg1);
 }
 
 export function SetDynamicIslandOnlyPlaying(arg1) {
@@ -356,6 +376,10 @@ export function ToggleFavoriteYTMusicArtist(arg1, arg2, arg3) {
 
 export function ToggleSaveYTMusicPlaylist(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['ToggleSaveYTMusicPlaylist'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function TrimMemory() {
+  return window['go']['main']['App']['TrimMemory']();
 }
 
 export function UpdateDynamicIslandProgress(arg1, arg2) {

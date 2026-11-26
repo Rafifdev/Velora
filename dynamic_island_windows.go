@@ -74,10 +74,11 @@ type DynamicIslandSyncPayload struct {
 	EqPreset      string                   `json:"eqPreset"`
 	ThemeSeed     string                   `json:"themeSeed"`
 	AccentColor   string                   `json:"accentColor"`
-	StreakDays    int                      `json:"streakDays"`
-	LyricsLoading bool                     `json:"lyricsLoading"`
-	TrackLoading  bool                     `json:"trackLoading"`
-	QueueTitle    string                   `json:"queueTitle"`
+	StreakDays     int                      `json:"streakDays"`
+	LyricsLoading  bool                     `json:"lyricsLoading"`
+	TrackLoading   bool                     `json:"trackLoading"`
+	LyricOffsetSec float64                  `json:"lyricOffsetSec"`
+	QueueTitle     string                   `json:"queueTitle"`
 	QueueIndex    int                      `json:"queueIndex"`
 	Queue         []DynamicIslandQueueItem `json:"queue"`
 }
@@ -499,6 +500,7 @@ type dynamicIslandController struct {
 	winTargetX           float64
 	winVelX              float64
 	lastTickAt           time.Time
+	curTimerMs           uint32
 	hwPolling            bool
 	liquidSkewDp         float64
 	screenW              int
@@ -535,6 +537,7 @@ type dynamicIslandController struct {
 	closedSpinRad        float64
 	showArtist           bool
 	showLyric            bool
+	lyricSweep           bool
 	showHeart            bool
 	showDots             bool
 	showProgress         bool
@@ -553,18 +556,22 @@ type dynamicIslandController struct {
 	coverURL      string
 	isPlaying     bool
 	isFavorite    bool
-	posSec        float64
-	durSec        float64
-	volume        int
-	muted         bool
-	shuffle       bool
-	repeatMode    string
-	eqPreset      string
-	themeSeed     string
-	accentHex     string
-	streakDays    int
-	lyricsLoading bool
-	trackLoading  bool
+	posSec         float64
+	posUpdatedAt   time.Time
+	durSec         float64
+	lyricOffsetSec float64
+	volume         int
+	muted          bool
+	shuffle        bool
+	repeatMode     string
+	eqPreset       string
+	themeSeed      string
+	accentHex      string
+	streakDays     int
+	lyricsLoading  bool
+	lyricsHasPlain bool
+	lyricsSource   string
+	trackLoading   bool
 
 	audioDeviceName string
 	audioConnType   string // "bluetooth", "wired", "speaker"
@@ -711,6 +718,7 @@ func (a *App) initDynamicIsland(ctx context.Context) {
 	closedCoverSpin := false
 	showArtist := true
 	showLyric := true
+	lyricSweep := true
 	showHeart := true
 	showDots := true
 	showProgress := true
@@ -780,6 +788,9 @@ func (a *App) initDynamicIsland(ctx context.Context) {
 			}
 			if v, ok := prefs["dynamicIsland.showLyric"]; ok && v == "false" {
 				showLyric = false
+			}
+			if v, ok := prefs["dynamicIsland.lyricSweep"]; ok && v == "false" {
+				lyricSweep = false
 			}
 			if v, ok := prefs["dynamicIsland.showHeart"]; ok && v == "false" {
 				showHeart = false
@@ -853,6 +864,7 @@ func (a *App) initDynamicIsland(ctx context.Context) {
 		closedCoverSpin:   closedCoverSpin,
 		showArtist:        showArtist,
 		showLyric:         showLyric,
+		lyricSweep:        lyricSweep,
 		showHeart:         showHeart,
 		showDots:           showDots,
 		showProgress:       showProgress,
@@ -928,6 +940,7 @@ type diLocalizedStrings struct {
 	Connected     string
 	Available     string
 	NoLyrics      string
+	NoSyncLyrics  string
 	LoadingLyrics string
 	EmptyQueue    string
 	QueueTitle    string
@@ -939,7 +952,8 @@ func getDIStrings(lang string) diLocalizedStrings {
 		return diLocalizedStrings{
 			Connected:     "Terhubung",
 			Available:     "Tersedia",
-			NoLyrics:      "Lirik tidak ditemukan.",
+			NoLyrics:      "Lirik tidak ditemukan",
+			NoSyncLyrics:  "Lirik tersinkron tidak tersedia",
 			LoadingLyrics: "Memuat lirik…",
 			EmptyQueue:    "Antrean lagu kosong",
 			QueueTitle:    "Antrean",
@@ -948,7 +962,8 @@ func getDIStrings(lang string) diLocalizedStrings {
 		return diLocalizedStrings{
 			Connected:     "Disambung",
 			Available:     "Tersedia",
-			NoLyrics:      "Lirik tidak ditemui.",
+			NoLyrics:      "Lirik tidak ditemui",
+			NoSyncLyrics:  "Lirik segerak tidak tersedia",
 			LoadingLyrics: "Memuatkan lirik…",
 			EmptyQueue:    "Baris gilir kosong",
 			QueueTitle:    "Baris Gilir",
@@ -957,7 +972,8 @@ func getDIStrings(lang string) diLocalizedStrings {
 		return diLocalizedStrings{
 			Connected:     "接続済み",
 			Available:     "利用可能",
-			NoLyrics:      "歌詞が見つかりません。",
+			NoLyrics:      "歌詞が見つかりません",
+			NoSyncLyrics:  "同期歌詞は利用できません",
 			LoadingLyrics: "歌詞を読み込み中…",
 			EmptyQueue:    "再生キューは空です",
 			QueueTitle:    "キュー",
@@ -966,7 +982,8 @@ func getDIStrings(lang string) diLocalizedStrings {
 		return diLocalizedStrings{
 			Connected:     "연결됨",
 			Available:     "사용 가능",
-			NoLyrics:      "가사를 찾을 수 없습니다.",
+			NoLyrics:      "가사를 찾을 수 없습니다",
+			NoSyncLyrics:  "싱크 가사를 사용할 수 없습니다",
 			LoadingLyrics: "가사 불러오는 중…",
 			EmptyQueue:    "대기열이 비어 있습니다",
 			QueueTitle:    "대기열",
@@ -975,7 +992,8 @@ func getDIStrings(lang string) diLocalizedStrings {
 		return diLocalizedStrings{
 			Connected:     "कनेक्टेड",
 			Available:     "उपलब्ध",
-			NoLyrics:      "बोल नहीं मिले।",
+			NoLyrics:      "बोल नहीं मिले",
+			NoSyncLyrics:  "सिंक किए गए बोल उपलब्ध नहीं हैं",
 			LoadingLyrics: "बोल लोड हो रहे हैं…",
 			EmptyQueue:    "कतार खाली है",
 			QueueTitle:    "कतार",
@@ -984,7 +1002,8 @@ func getDIStrings(lang string) diLocalizedStrings {
 		return diLocalizedStrings{
 			Connected:     "Conectado",
 			Available:     "Disponível",
-			NoLyrics:      "Letra não encontrada.",
+			NoLyrics:      "Letra não encontrada",
+			NoSyncLyrics:  "Letra sincronizada indisponível",
 			LoadingLyrics: "Carregando letra…",
 			EmptyQueue:    "Fila vazia",
 			QueueTitle:    "Fila",
@@ -993,7 +1012,8 @@ func getDIStrings(lang string) diLocalizedStrings {
 		return diLocalizedStrings{
 			Connected:     "Verbunden",
 			Available:     "Verfügbar",
-			NoLyrics:      "Keine Songtexte gefunden.",
+			NoLyrics:      "Keine Songtexte gefunden",
+			NoSyncLyrics:  "Synchronisierte Texte nicht verfügbar",
 			LoadingLyrics: "Songtext wird geladen…",
 			EmptyQueue:    "Warteschlange ist leer",
 			QueueTitle:    "Warteschlange",
@@ -1002,7 +1022,8 @@ func getDIStrings(lang string) diLocalizedStrings {
 		return diLocalizedStrings{
 			Connected:     "Connecté",
 			Available:     "Disponible",
-			NoLyrics:      "Paroles introuvables.",
+			NoLyrics:      "Paroles introuvables",
+			NoSyncLyrics:  "Paroles synchronisées indisponibles",
 			LoadingLyrics: "Chargement des paroles…",
 			EmptyQueue:    "File d'attente vide",
 			QueueTitle:    "File d'attente",
@@ -1011,7 +1032,8 @@ func getDIStrings(lang string) diLocalizedStrings {
 		return diLocalizedStrings{
 			Connected:     "Conectado",
 			Available:     "Disponible",
-			NoLyrics:      "Letra no encontrada.",
+			NoLyrics:      "Letra no encontrada",
+			NoSyncLyrics:  "Letra sincronizada no disponible",
 			LoadingLyrics: "Cargando letra…",
 			EmptyQueue:    "La cola está vacía",
 			QueueTitle:    "Cola",
@@ -1020,7 +1042,8 @@ func getDIStrings(lang string) diLocalizedStrings {
 		return diLocalizedStrings{
 			Connected:     "Connected",
 			Available:     "Available",
-			NoLyrics:      "No lyrics found.",
+			NoLyrics:      "No lyrics found",
+			NoSyncLyrics:  "Synced lyrics unavailable",
 			LoadingLyrics: "Loading lyrics…",
 			EmptyQueue:    "Queue is empty",
 			QueueTitle:    "Queue",
@@ -1052,9 +1075,16 @@ func (a *App) SetDynamicIslandShapeSize(compactStyle, size string, opacity int) 
 		opacity = 100
 	}
 	ctrl.mu.Lock()
+	wasCentered := ctrl.dockSide == 0 && math.Abs(ctrl.winTargetX-float64(ctrl.centeredWinXLocked(ctrl.screenLeft, ctrl.screenW))) <= 2.0
 	ctrl.compactStyle = cs
 	ctrl.sizeScale = scale
 	ctrl.opacityPct = opacity
+	if wasCentered && ctrl.screenW > 0 {
+		cX := float64(ctrl.centeredWinXLocked(ctrl.screenLeft, ctrl.screenW))
+		ctrl.winTargetX = cX
+		ctrl.winXFloat = cX
+		ctrl.winX = int(math.Round(cX))
+	}
 	ctrl.mu.Unlock()
 	if ctrl.hwnd != 0 {
 		_, _, _ = procPostMessageW.Call(ctrl.hwnd, diWmAppSync, 0, 0)
@@ -1150,19 +1180,13 @@ func (a *App) SetDynamicIslandScreen(mode string) {
 	ctrl.screenLeft = monLeft
 	ctrl.screenTop = monTop
 	ctrl.screenW = monW
-	u := ctrl.dpiScale
-	if ctrl.sizeScale > 0 {
-		u *= ctrl.sizeScale
-	}
-	if u <= 0 {
-		u = 1.0
-	}
+	u := ctrl.effectiveScaleLocked()
 	if ctrl.pillMode {
 		ctrl.winY = monTop + int(math.Round(10.0*u))
 	} else {
 		ctrl.winY = monTop
 	}
-	centerX := monLeft + (monW-ctrl.physW)/2
+	centerX := ctrl.centeredWinXLocked(monLeft, monW)
 	ctrl.winTargetX = float64(centerX)
 	ctrl.dockSide = 0
 	ctrl.mu.Unlock()
@@ -1362,10 +1386,12 @@ func (a *App) SyncDynamicIsland(p DynamicIslandSyncPayload) {
 	ctrl.isFavorite = p.IsFavorite
 	if p.PositionSec >= 0 {
 		ctrl.posSec = p.PositionSec
+		ctrl.posUpdatedAt = time.Now()
 	}
 	if p.DurationSec >= 0 {
 		ctrl.durSec = p.DurationSec
 	}
+	ctrl.lyricOffsetSec = p.LyricOffsetSec
 	if p.Volume >= 0 && p.Volume <= 100 {
 		ctrl.volume = p.Volume
 	}
@@ -1462,12 +1488,50 @@ func (a *App) UpdateDynamicIslandProgress(positionSec float64, durationSec float
 		return
 	}
 	ctrl.mu.Lock()
+	jumped := math.Abs(positionSec-ctrl.posSec) >= 0.45
 	ctrl.posSec = positionSec
 	ctrl.durSec = durationSec
+	ctrl.posUpdatedAt = time.Now()
+	hwnd := ctrl.hwnd
 	ctrl.mu.Unlock()
+	if jumped && hwnd != 0 {
+		_, _, _ = procPostMessageW.Call(hwnd, diWmAppSync, 0, 0)
+	}
 }
 
-func (a *App) updateDynamicIslandLyrics(synced []sources.LyricLine, _ string) {
+func (a *App) SetDynamicIslandLyricOffset(offsetSec float64) {
+	globalIslandMu.Lock()
+	ctrl := globalIsland
+	globalIslandMu.Unlock()
+	if ctrl == nil {
+		return
+	}
+	ctrl.mu.Lock()
+	ctrl.lyricOffsetSec = offsetSec
+	hwnd := ctrl.hwnd
+	ctrl.mu.Unlock()
+	if hwnd != 0 {
+		_, _, _ = procPostMessageW.Call(hwnd, diWmAppSync, 0, 0)
+	}
+}
+
+func (a *App) SetDynamicIslandLyricSweep(enabled bool) {
+	globalIslandMu.Lock()
+	ctrl := globalIsland
+	globalIslandMu.Unlock()
+	if ctrl == nil {
+		return
+	}
+	ctrl.mu.Lock()
+	ctrl.lyricSweep = enabled
+	hwnd := ctrl.hwnd
+	ctrl.mu.Unlock()
+	if hwnd != 0 {
+		_, _, _ = procPostMessageW.Call(hwnd, diWmAppSync, 0, 0)
+	}
+}
+
+func (a *App) updateDynamicIslandLyrics(synced []sources.LyricLine, plainLyrics string, source string) {
 	globalIslandMu.Lock()
 	ctrl := globalIsland
 	globalIslandMu.Unlock()
@@ -1484,8 +1548,11 @@ func (a *App) updateDynamicIslandLyrics(synced []sources.LyricLine, _ string) {
 			}
 		}
 	}
+	hasPlain := strings.TrimSpace(plainLyrics) != "" && !strings.EqualFold(strings.TrimSpace(source), "fallback")
 	ctrl.mu.Lock()
 	ctrl.lyrics = list
+	ctrl.lyricsHasPlain = hasPlain
+	ctrl.lyricsSource = source
 	ctrl.lyricsLoading = false
 	ctrl.lyricIdx = -1
 	ctrl.prevLyricIdx = -1
@@ -1494,7 +1561,11 @@ func (a *App) updateDynamicIslandLyrics(synced []sources.LyricLine, _ string) {
 	ctrl.lyricCurY = 0
 	ctrl.closedLyricFrom = ""
 	ctrl.closedLyricTo = ""
+	hwnd := ctrl.hwnd
 	ctrl.mu.Unlock()
+	if hwnd != 0 {
+		_, _, _ = procPostMessageW.Call(hwnd, diWmAppSync, 0, 0)
+	}
 }
 
 func (a *App) updateDynamicIslandState(title, artist, coverURL string, isPlaying bool) {
@@ -2051,10 +2122,11 @@ func (c *dynamicIslandController) loadCoverAsync(rawURL string) {
 	miniPx := maxInt(21, int(math.Round(20.8*u)))
 	artMini := resizeCoverBilinear(img, miniPx, miniPx, float64(miniPx)/2.0)
 	dom, hasDom := extractCoverAccentColor(img)
+	thumbRaw := resizeCoverBilinear(img, 96, 96, 0)
 	c.mu.Lock()
 	c.coverLoading = false
 	if c.coverURL == rawURL {
-		c.rawCover = img
+		c.rawCover = thumbRaw
 		c.coverImg = art
 		c.coverImgCircle = artCirc
 		c.coverImgMini = artMini
@@ -2133,6 +2205,9 @@ func (c *dynamicIslandController) loadQueueArtAsync(rawURL string) {
 		c.mu.Lock()
 		c.queueArtCache[rawURL] = art
 		delete(c.queueArtPend, rawURL)
+		if len(c.queueArtCache) > 32 {
+			c.pruneQueueArtCacheLocked()
+		}
 		needMain := c.coverURL == rawURL && c.coverImg == nil
 		c.mu.Unlock()
 		if needMain {
@@ -2142,9 +2217,10 @@ func (c *dynamicIslandController) loadQueueArtAsync(rawURL string) {
 			miniPx := maxInt(21, int(math.Round(20.8*u)))
 			miniArt := resizeCoverBilinear(img, miniPx, miniPx, float64(miniPx)/2.0)
 			dom, hasDom := extractCoverAccentColor(img)
+			thumbRaw := resizeCoverBilinear(img, 96, 96, 0)
 			c.mu.Lock()
 			if c.coverURL == rawURL && c.coverImg == nil {
-				c.rawCover = img
+				c.rawCover = thumbRaw
 				c.coverImg = mainArt
 				c.coverImgCircle = mainArtCirc
 				c.coverImgMini = miniArt
@@ -2160,6 +2236,28 @@ func (c *dynamicIslandController) loadQueueArtAsync(rawURL string) {
 		c.mu.Lock()
 		delete(c.queueArtPend, rawURL)
 		c.mu.Unlock()
+	}
+}
+
+func (c *dynamicIslandController) pruneQueueArtCacheLocked() {
+	if len(c.queueArtCache) <= 32 {
+		return
+	}
+	keep := make(map[string]bool, 32)
+	if c.coverURL != "" {
+		keep[c.coverURL] = true
+	}
+	start := maxInt(0, c.queueIndex-6)
+	end := minInt(len(c.queueItems), start+28)
+	for i := start; i < end; i++ {
+		if u := c.queueItems[i].CoverURL; u != "" {
+			keep[u] = true
+		}
+	}
+	for k := range c.queueArtCache {
+		if !keep[k] {
+			delete(c.queueArtCache, k)
+		}
 	}
 }
 
@@ -2295,12 +2393,9 @@ func (c *dynamicIslandController) runWindowLoop() {
 	_, _, _ = diProcRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
 
 	screenW, _, _ := diProcGetSystemMetrics.Call(0)
-	x := (int(screenW) - physW) / 2
-	if x < 0 {
-		x = 0
-	}
 	c.mu.Lock()
 	c.screenW = int(screenW)
+	x := c.centeredWinXLocked(c.screenLeft, c.screenW)
 	c.winX = x
 	c.winXFloat = float64(x)
 	c.winTargetX = float64(x)
@@ -2618,7 +2713,7 @@ func diWndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 	return ret
 }
 
-func (c *dynamicIslandController) clampWinXLocked(rawX int, withSnap bool) (int, int) {
+func (c *dynamicIslandController) effectiveScaleLocked() float64 {
 	u := c.dpiScale
 	if c.sizeScale > 0 {
 		u *= c.sizeScale
@@ -2626,6 +2721,17 @@ func (c *dynamicIslandController) clampWinXLocked(rawX int, withSnap bool) (int,
 	if u <= 0 {
 		u = 1.0
 	}
+	return u
+}
+
+func (c *dynamicIslandController) centeredWinXLocked(screenLeft, screenW int) int {
+	u := c.effectiveScaleLocked()
+	// Pill horizontal center in DIB coordinates is always (diLogicalW / 2.0) * u.
+	return screenLeft + int(math.Round(float64(screenW)/2.0-(float64(diLogicalW)/2.0)*u))
+}
+
+func (c *dynamicIslandController) clampWinXLocked(rawX int, withSnap bool) (int, int) {
+	u := c.effectiveScaleLocked()
 	screenW := c.screenW
 	if screenW <= 0 {
 		sw, _, _ := diProcGetSystemMetrics.Call(0)
@@ -2640,13 +2746,13 @@ func (c *dynamicIslandController) clampWinXLocked(rawX int, withSnap bool) (int,
 	}
 	minX := screenLeft + marginPx - int(math.Round(nx*u))
 	maxX := screenLeft + screenW - marginPx - int(math.Round((nx+c.curW)*u))
+	centerX := c.centeredWinXLocked(screenLeft, screenW)
 	if maxX < minX {
-		minX = screenLeft + (screenW-c.physW)/2
+		minX = centerX
 		maxX = minX
 	}
 	dock := 0
 	if withSnap {
-		centerX := screenLeft + (screenW-c.physW)/2
 		centerSnapPx := int(math.Round(20.0 * u))
 		edgeSnapPx := int(math.Round(5.0 * u))
 		if rawX >= centerX-centerSnapPx && rawX <= centerX+centerSnapPx {
@@ -3194,7 +3300,7 @@ func (c *dynamicIslandController) hitTestLocked(mxPhys, myPhys int) (int, float6
 		if math.Hypot(rx-38, ry-54) <= 17 {
 			return diHitShuffle, 0, -1
 		}
-		if math.Hypot(rx-385.5, ry-54) <= 17 {
+		if math.Hypot(rx-375.5, ry-54) <= 17 {
 			return diHitPlay, 0, -1
 		}
 		if len(c.queueItems) > 3 && rx >= 393 && rx <= 402 && ry >= 78 && ry <= 242 {
@@ -3329,13 +3435,31 @@ func (c *dynamicIslandController) hitTestLocked(mxPhys, myPhys int) (int, float6
 	return diHitBody, 0, -1
 }
 
-func (c *dynamicIslandController) currentLyricIndexLocked() int {
+func (c *dynamicIslandController) effectivePosLocked(now time.Time) float64 {
+	pos := c.posSec
+	if c.isPlaying && !c.posUpdatedAt.IsZero() {
+		elapsed := now.Sub(c.posUpdatedAt).Seconds()
+		if elapsed > 0 {
+			if elapsed > 0.35 {
+				elapsed = 0.35
+			}
+			pos += elapsed
+		}
+	}
+	if c.durSec > 0 && pos > c.durSec {
+		pos = c.durSec
+	}
+	return pos
+}
+
+func (c *dynamicIslandController) currentLyricIndexAtLocked(now time.Time) int {
 	if len(c.lyrics) == 0 {
 		return -1
 	}
+	effPos := c.effectivePosLocked(now) + 0.05 + c.lyricOffsetSec
 	idx := -1
 	for i, l := range c.lyrics {
-		if c.posSec+0.05 >= l.TimeSec {
+		if effPos >= l.TimeSec {
 			idx = i
 		} else {
 			break
@@ -3344,12 +3468,33 @@ func (c *dynamicIslandController) currentLyricIndexLocked() int {
 	return idx
 }
 
+func (c *dynamicIslandController) currentLyricIndexLocked() int {
+	return c.currentLyricIndexAtLocked(time.Now())
+}
+
 func (c *dynamicIslandController) isClosedLyricActiveLocked() bool {
-	return c.isPlaying && c.showLyric && (c.lyricsOpen || c.compactStyle == "SATU_BARIS") && len(c.lyrics) > 0
+	return c.isPlaying && c.showLyric && (c.lyricsOpen || c.compactStyle == "SATU_BARIS") && c.title != ""
 }
 
 func (c *dynamicIslandController) isLyricPlaybackModeActiveLocked() bool {
-	return c.isPlaying && c.showLyric && (c.lyricsOpen || c.compactStyle == "SATU_BARIS") && (len(c.lyrics) > 0 || c.lyricsLoading)
+	return c.isPlaying && c.showLyric && (c.lyricsOpen || c.compactStyle == "SATU_BARIS") && c.title != ""
+}
+
+func (c *dynamicIslandController) closedLyricMessageLocked(now time.Time, diStr diLocalizedStrings) string {
+	if len(c.lyrics) > 0 {
+		act := c.currentLyricIndexAtLocked(now)
+		if act >= 0 && act < len(c.lyrics) {
+			return strings.TrimSpace(c.lyrics[act].Text)
+		}
+		return "♪  • • •"
+	}
+	if c.lyricsLoading {
+		return diStr.LoadingLyrics
+	}
+	if c.lyricsHasPlain {
+		return diStr.NoSyncLyrics
+	}
+	return diStr.NoLyrics
 }
 
 func (c *dynamicIslandController) resolveTargetModeLocked() string {
@@ -3426,20 +3571,24 @@ func (c *dynamicIslandController) measureTextWidthDp(fam uintptr, txt string, he
 
 func (c *dynamicIslandController) resolveClosedWidthLocked() float64 {
 	if c.isClosedLyricActiveLocked() {
-		txt := ""
-		idx := c.currentLyricIndexLocked()
-		if idx >= 0 && idx < len(c.lyrics) {
-			txt = strings.TrimSpace(c.lyrics[idx].Text)
-		} else if len(c.lyrics) > 0 {
-			txt = "♪  • • •"
+		lang := c.lang
+		if lang == "" {
+			lang = detectSystemLanguage()
 		}
+		txt := c.closedLyricMessageLocked(time.Now(), getDIStrings(lang))
 		if txt != "" {
-			fam := c.famSemiBold
-			if fam == 0 {
-				fam = c.famRegular
+			u := c.effectiveScaleLocked()
+			tw := 0.0
+			if dwW, ok := c.measureClosedLyricWidthDp(txt, u); ok {
+				tw = dwW
+			} else {
+				fam := c.famSemiBold
+				if fam == 0 {
+					fam = c.famRegular
+				}
+				tw = c.measureTextWidthDp(fam, txt, 14.5)
 			}
-			tw := c.measureTextWidthDp(fam, txt, 13.0)
-			w := tw + 86.0
+			w := tw + 96.0
 			if w < 216.0 {
 				w = 216.0
 			} else if w > 560.0 {
@@ -3577,7 +3726,7 @@ func (c *dynamicIslandController) tickAndRender() {
 	}
 
 	c.curW = c.fromW + (c.toW-c.fromW)*whEase
-	if targetMode == diModeClosed && el >= 0.46*spd {
+	if targetMode == diModeClosed && (c.fromH <= 40.0 || el >= 0.30*spd) {
 		dynW := c.resolveClosedWidthLocked()
 		if math.Abs(dynW-c.closedWTo) > 0.5 {
 			c.closedWFrom = c.curW
@@ -3585,7 +3734,11 @@ func (c *dynamicIslandController) tickAndRender() {
 			c.closedWStart = now
 		}
 		if c.closedWTo > 0 {
-			wProg := nusaCssEase(clamp01(now.Sub(c.closedWStart).Seconds() / (0.34 * spd)))
+			wDur := 0.28 * spd
+			if c.closedWTo > c.closedWFrom {
+				wDur = 0.16 * spd
+			}
+			wProg := nusaCssEase(clamp01(now.Sub(c.closedWStart).Seconds() / wDur))
 			c.curW = c.closedWFrom + (c.closedWTo-c.closedWFrom)*wProg
 			c.toW = c.closedWTo
 		}
@@ -3634,7 +3787,7 @@ func (c *dynamicIslandController) tickAndRender() {
 			} else {
 				c.winY = monTop
 			}
-			c.winTargetX = float64(monLeft + (monW-c.physW)/2)
+			c.winTargetX = float64(c.centeredWinXLocked(monLeft, monW))
 			c.winXFloat = c.winTargetX
 			c.dockSide = 0
 		}
@@ -3765,7 +3918,7 @@ func (c *dynamicIslandController) tickAndRender() {
 			c.lyricStart = now
 		}
 		lel := now.Sub(c.lyricStart).Seconds()
-		c.lyricAnimProg = nusaCssEase(clamp01(lel / 0.26))
+		c.lyricAnimProg = nusaCssEase(clamp01(lel / 0.18))
 		c.lyricCurY = c.lyricFromY + (c.lyricToY-c.lyricFromY)*c.lyricAnimProg
 		if !c.lyricDragScroll && !c.lyricManualUntil.IsZero() && now.After(c.lyricManualUntil) {
 			c.lyricTargetOffsetDp = 0
@@ -3781,12 +3934,11 @@ func (c *dynamicIslandController) tickAndRender() {
 	} else if c.activeMode == diModeClosed {
 		curClosedTxt := ""
 		if c.isClosedLyricActiveLocked() {
-			act := c.currentLyricIndexLocked()
-			if act >= 0 && act < len(c.lyrics) {
-				curClosedTxt = strings.TrimSpace(c.lyrics[act].Text)
-			} else if len(c.lyrics) > 0 {
-				curClosedTxt = "♪  • • •"
+			lCode := c.lang
+			if lCode == "" {
+				lCode = detectSystemLanguage()
 			}
+			curClosedTxt = c.closedLyricMessageLocked(now, getDIStrings(lCode))
 		}
 		if curClosedTxt != c.closedLyricTo {
 			c.closedLyricFrom = c.closedLyricTo
@@ -3794,7 +3946,7 @@ func (c *dynamicIslandController) tickAndRender() {
 			c.closedLyricStart = now
 		}
 		cel := now.Sub(c.closedLyricStart).Seconds()
-		c.closedLyricProg = nusaCssEase(clamp01(cel / 0.28))
+		c.closedLyricProg = nusaCssEase(clamp01(cel / 0.16))
 	} else if c.activeMode == diModeQueue {
 		diff := c.queueTargetScrollDp - c.queueScrollDp
 		if math.Abs(diff) < 0.05 {
@@ -3838,7 +3990,39 @@ func (c *dynamicIslandController) tickAndRender() {
 	}
 	curWinX := c.winX
 	curWinY := c.winY
+
+	isAnimating := now.Sub(c.transStart).Seconds() < 0.72*spd ||
+		now.Sub(c.closedLyricStart).Seconds() < 0.24 ||
+		now.Sub(c.closedWStart).Seconds() < 0.34*spd ||
+		now.Sub(c.lyricStart).Seconds() < 0.24 ||
+		c.hovered ||
+		c.winDragActive ||
+		c.seekDragging ||
+		c.queueDragScroll ||
+		c.lyricDragScroll ||
+		math.Abs(c.winXFloat-c.winTargetX) > 0.5 ||
+		math.Abs(c.winVelX) > 0.5 ||
+		(c.isPlaying && (c.closedCoverSpin || c.coverSpin)) ||
+		(c.isPlaying && c.lyricSweep && len(c.lyrics) > 0 && (c.activeMode == diModeLyrics || c.isClosedLyricActiveLocked())) ||
+		(c.activeMode == diModeHeadphones && c.hpListProg > 0.01 && c.hpListProg < 0.99) ||
+		(c.appearProg > 0.01 && c.appearProg < 0.99)
+	desiredTimerMs := uint32(250)
+	if appearProg <= 0.01 && !winShown {
+		desiredTimerMs = 250
+	} else if isAnimating {
+		desiredTimerMs = 15
+	} else if c.isPlaying {
+		desiredTimerMs = 120
+	}
+	updateTimer := desiredTimerMs != c.curTimerMs
+	if updateTimer {
+		c.curTimerMs = desiredTimerMs
+	}
 	c.mu.Unlock()
+
+	if updateTimer && c.hwnd != 0 {
+		_, _, _ = diProcSetTimer.Call(c.hwnd, diTimerID, uintptr(desiredTimerMs), 0)
+	}
 
 	if promoteMoveCur != 0 {
 		_, _, _ = diProcSetCursor.Call(promoteMoveCur)
@@ -3909,13 +4093,14 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	playing := c.isPlaying
 	trackLoading := c.trackLoading
 	isFav := c.isFavorite
-	pos := c.posSec
+	pos := c.effectivePosLocked(now)
 	dur := c.durSec
 	vol := c.volume
 	muted := c.muted
 	eqPreset := c.eqPreset
 	streakDays := c.streakDays
 	lyricsLoading := c.lyricsLoading
+	lyricsHasPlain := c.lyricsHasPlain
 	lyricsOpen := c.lyricsOpen
 	audioDev := c.audioDeviceName
 	connType := c.audioConnType
@@ -3948,6 +4133,11 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	defaultArtMini := c.defaultArtMini
 	lyrics := c.lyrics
 	lyricIdx := c.lyricIdx
+	if mode == diModeClosed || mode == diModeResting {
+		lyricIdx = c.currentLyricIndexAtLocked(now)
+	}
+	effLyricPos := pos + c.lyricOffsetSec
+	lyricSweep := c.lyricSweep
 	prevLyricIdx := c.prevLyricIdx
 	lyricAnimProg := c.lyricAnimProg
 	lyricCurY := c.lyricCurY
@@ -4509,16 +4699,16 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 			if hoverZone == diHitPlay {
 				playBgQ = lerpColor(pal.Accent, color.RGBA{R: 255, G: 255, B: 255, A: 255}, 0.14)
 			}
-			drawFilledPillGdip(g, mapX(385.5)-16.5*u, mapY(54)-16.5*u, 33.0*u, 33.0*u, 16.5*u, rgbaToARGB(playBgQ, contentOp))
+			drawFilledPillGdip(g, mapX(375.5)-16.5*u, mapY(54)-16.5*u, 33.0*u, 33.0*u, 16.5*u, rgbaToARGB(playBgQ, contentOp))
 			onTertiaryQ := color.RGBA{R: 0x34, G: 0x11, B: 0x00, A: 255}
 			if trackLoading {
-				drawLoadingSpinnerGdip(g, mapX(385.5), mapY(54), 13.5*u, rgbaToARGB(onTertiaryQ, contentOp), now)
+				drawLoadingSpinnerGdip(g, mapX(375.5), mapY(54), 13.5*u, rgbaToARGB(onTertiaryQ, contentOp), now)
 			} else {
 				qPlayGlyph := rune(0xE3D0)
 				if playing {
 					qPlayGlyph = 0xE39E
 				}
-				c.drawPhosphorGlyphGdip(g, true, qPlayGlyph, mapX(385.5), mapY(54), 15.5*u, rgbaToARGB(onTertiaryQ, contentOp))
+				c.drawPhosphorGlyphGdip(g, true, qPlayGlyph, mapX(375.5), mapY(54), 15.5*u, rgbaToARGB(onTertiaryQ, contentOp))
 			}
 
 			const qViewTop = 78.0
@@ -4636,16 +4826,16 @@ func (c *dynamicIslandController) renderFrame(now time.Time) {
 	if !c.drawVeloraTextD2D(
 		pix, physW, physH, nx, w, h, u, mode, contentOp, mapX, mapXStatic, mapY, mapW, mapH,
 		title, artist, pos, dur, playing, lyricsOpen, vol, muted, eqPreset, streakDays,
-		audioDev, connType, btBat, sysBat, isBt, audioOutputs, hpListOpen, hpListProg, lyricsLoading, lyrics, lyricIdx, prevLyricIdx, lyricAnimProg, lyricCurY, lyricManualOffsetDp, hoverLyric,
+		audioDev, connType, btBat, sysBat, isBt, audioOutputs, hpListOpen, hpListProg, lyricsLoading, lyricsHasPlain, lyrics, lyricIdx, prevLyricIdx, lyricAnimProg, lyricCurY, lyricManualOffsetDp, hoverLyric,
 		closedLyricFrom, closedLyricTo, closedLyricProg,
-		qTitle, qIndex, qScrollDp, qItems, pal, now.Sub(c.marqueeStart).Seconds(), diLang, qScrolling,
+		qTitle, qIndex, qScrollDp, qItems, pal, now.Sub(c.marqueeStart).Seconds(), diLang, qScrolling, effLyricPos, lyricSweep,
 	) {
 		c.drawVeloraTextGdip(
 			g, nx, w, h, u, mode, contentOp, mapX, mapXStatic, mapY, mapW, mapH,
 			title, artist, pos, dur, playing, lyricsOpen, vol, muted, eqPreset, streakDays,
-			audioDev, connType, btBat, sysBat, isBt, audioOutputs, hpListOpen, hpListProg, lyricsLoading, lyrics, lyricIdx, prevLyricIdx, lyricAnimProg, lyricCurY, lyricManualOffsetDp, hoverLyric,
+			audioDev, connType, btBat, sysBat, isBt, audioOutputs, hpListOpen, hpListProg, lyricsLoading, lyricsHasPlain, lyrics, lyricIdx, prevLyricIdx, lyricAnimProg, lyricCurY, lyricManualOffsetDp, hoverLyric,
 			closedLyricFrom, closedLyricTo, closedLyricProg,
-			qTitle, qIndex, qScrollDp, qItems, pal, now.Sub(c.marqueeStart).Seconds(), diLang,
+			qTitle, qIndex, qScrollDp, qItems, pal, now.Sub(c.marqueeStart).Seconds(), diLang, effLyricPos, lyricSweep,
 		)
 	}
 
@@ -6168,12 +6358,73 @@ func (c *dynamicIslandController) drawPhosphorGlyphGdip(g uintptr, filled bool, 
 	_, _, _ = diProcGdipFillPath.Call(g, brush, path)
 }
 
+func computeLineSweepProgressFromLine(line sources.LyricLine, nextStartSec float64, hasNext bool, currentTimeSec float64) float64 {
+	if len(line.Words) > 0 {
+		eff := currentTimeSec + 0.05
+		totalW := 0.0
+		litW := 0.0
+		for _, w := range line.Words {
+			weight := math.Max(1.0, float64(len([]rune(w.Text)))+0.5)
+			totalW += weight
+			dur := math.Max(0.12, w.DurationSec)
+			if w.DurationSec <= 0 {
+				dur = 0.35
+			}
+			litW += weight * clamp01((eff-w.TimeSec)/dur)
+		}
+		if totalW > 0 {
+			return clamp01(litW / totalW)
+		}
+	}
+	return computeLyricSweepProgress(line.Text, line.TimeSec, nextStartSec, hasNext, currentTimeSec)
+}
+
+func computeLyricSweepProgress(lineText string, startSec, nextStartSec float64, hasNext bool, currentTimeSec float64) float64 {
+	words := strings.Fields(strings.TrimSpace(lineText))
+	wordCount := len(words)
+	if wordCount < 1 {
+		wordCount = 1
+	}
+	charCount := 0
+	for _, w := range words {
+		charCount += len([]rune(w))
+	}
+
+	var singDur float64
+	if hasNext && nextStartSec > startSec {
+		gap := math.Max(0.35, nextStartSec-startSec)
+		maxVocalDur := math.Max(2.2, float64(wordCount)*0.45+float64(charCount)*0.075)
+		singDur = math.Min(gap*0.92, maxVocalDur)
+		if gap < 0.8 {
+			singDur = math.Max(0.35, gap*0.9)
+		}
+	} else {
+		singDur = math.Max(2.0, math.Min(5.0, float64(wordCount)*0.35+float64(charCount)*0.06))
+	}
+
+	elapsed := currentTimeSec + 0.05 - startSec
+	return clamp01(elapsed / singDur)
+}
+
 func (c *dynamicIslandController) drawCenteredVectorTextGdip(
 	g uintptr,
 	fam uintptr,
 	txt string,
 	cx, cy, targetHeightPx, maxWidthPx float64,
 	argb uint32,
+) {
+	c.drawCenteredVectorTextSweepGdip(g, fam, txt, cx, cy, targetHeightPx, maxWidthPx, argb, argb, 1.0, false, 0, 0, 0, 0)
+}
+
+func (c *dynamicIslandController) drawCenteredVectorTextSweepGdip(
+	g uintptr,
+	fam uintptr,
+	txt string,
+	cx, cy, targetHeightPx, maxWidthPx float64,
+	litARGB, dimARGB uint32,
+	sweepProg float64,
+	restoreClip bool,
+	clipX, clipY, clipW, clipH float64,
 ) {
 	if g == 0 || fam == 0 || txt == "" || targetHeightPx <= 1.0 {
 		return
@@ -6232,11 +6483,56 @@ func (c *dynamicIslandController) drawCenteredVectorTextGdip(
 		_, _, _ = diProcGdipDeleteMatrix.Call(matrix)
 	}
 
-	var brush uintptr
-	_, _, _ = diProcGdipCreateSolidFill.Call(uintptr(argb), uintptr(unsafe.Pointer(&brush)))
-	if brush != 0 {
-		_, _, _ = diProcGdipFillPath.Call(g, brush, path)
-		_, _, _ = diProcGdipDeleteBrush.Call(brush)
+	if dimARGB == litARGB || sweepProg >= 0.999 {
+		var brush uintptr
+		_, _, _ = diProcGdipCreateSolidFill.Call(uintptr(litARGB), uintptr(unsafe.Pointer(&brush)))
+		if brush != 0 {
+			_, _, _ = diProcGdipFillPath.Call(g, brush, path)
+			_, _, _ = diProcGdipDeleteBrush.Call(brush)
+		}
+		return
+	}
+
+	var dimBrush uintptr
+	_, _, _ = diProcGdipCreateSolidFill.Call(uintptr(dimARGB), uintptr(unsafe.Pointer(&dimBrush)))
+	if dimBrush != 0 {
+		_, _, _ = diProcGdipFillPath.Call(g, dimBrush, path)
+		_, _, _ = diProcGdipDeleteBrush.Call(dimBrush)
+	}
+
+	if sweepProg <= 0.001 {
+		return
+	}
+
+	leftPx := float64(bounds.X)*scale + tx
+	topPx := float64(bounds.Y)*scale + ty
+	wPx := float64(bounds.Width) * scale
+	hPx := float64(bounds.Height) * scale
+	_, _, _ = diProcGdipSetClipRect.Call(
+		g,
+		uintptr(math.Float32bits(float32(leftPx-2))),
+		uintptr(math.Float32bits(float32(topPx-2))),
+		uintptr(math.Float32bits(float32(wPx*sweepProg+2))),
+		uintptr(math.Float32bits(float32(hPx+4))),
+		1, // CombineModeIntersect
+	)
+	var litBrush uintptr
+	_, _, _ = diProcGdipCreateSolidFill.Call(uintptr(litARGB), uintptr(unsafe.Pointer(&litBrush)))
+	if litBrush != 0 {
+		_, _, _ = diProcGdipFillPath.Call(g, litBrush, path)
+		_, _, _ = diProcGdipDeleteBrush.Call(litBrush)
+	}
+	if restoreClip {
+		_, _, _ = diProcGdipSetClipRect.Call(
+			g,
+			uintptr(math.Float32bits(float32(clipX))),
+			uintptr(math.Float32bits(float32(clipY))),
+			uintptr(math.Float32bits(float32(clipW))),
+			uintptr(math.Float32bits(float32(clipH))),
+			0,
+		)
+	} else {
+		_, _, _ = diProcGdipResetClip.Call(g)
 	}
 }
 
@@ -6263,6 +6559,7 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 	hpListOpen bool,
 	hpListProg float64,
 	lyricsLoading bool,
+	lyricsHasPlain bool,
 	lyrics []sources.LyricLine,
 	lyricIdx int,
 	prevLyricIdx int,
@@ -6280,6 +6577,8 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 	pal veloraBrandPalette,
 	marqueeElapsed float64,
 	diLang string,
+	effLyricPos float64,
+	lyricSweep bool,
 ) {
 	if contentOp <= 0.02 {
 		return
@@ -6449,35 +6748,32 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 		miniPx := maxInt(21, int(math.Round(20.8*u)))
 		topCov := int(math.Round((h/2.0)*u - float64(miniPx)/2.0))
 		cyExact := float64(topCov) + float64(miniPx)/2.0
-		if showLyric && playing && (lyricsOpen || c.compactStyle == "SATU_BARIS") && len(lyrics) > 0 {
+		if showLyric && playing && (lyricsOpen || c.compactStyle == "SATU_BARIS") && title != "" {
 			txtHeightPx := float64(miniPx) * 0.60
+			const closedClipMargin = 38.0
 			_, _, _ = diProcGdipSetClipRect.Call(
 				g,
-				uintptr(math.Float32bits(float32((nx+35.0)*u))),
+				uintptr(math.Float32bits(float32((nx+closedClipMargin)*u))),
 				uintptr(math.Float32bits(0)),
-				uintptr(math.Float32bits(float32((w-70.0)*u))),
+				uintptr(math.Float32bits(float32(math.Max(1.0, (w-closedClipMargin*2.0)*u)))),
 				uintptr(math.Float32bits(float32(h*u))),
 				0,
 			)
+			maxClosedW := math.Max(12.0*u, (w-84.0)*u)
 			if closedLyricProg < 0.99 && closedLyricFrom != "" && closedLyricFrom != closedLyricTo {
 				outOp := contentOp * (1.0 - closedLyricProg)
 				outY := cyExact - 3.0*u*closedLyricProg
 				if outOp > 0.02 {
 					c.drawCenteredVectorTextGdip(
 						g, famSemi, closedLyricFrom,
-						(nx+w/2.0)*u, outY, txtHeightPx, (560.0-80.0)*u,
+						(nx+w/2.0)*u, outY, txtHeightPx, maxClosedW,
 						rgbaToARGB(pal.TextMain, outOp),
 					)
 				}
 			}
 			inTxt := closedLyricTo
 			if inTxt == "" {
-				act := c.currentLyricIndexLocked()
-				if act >= 0 && act < len(lyrics) {
-					inTxt = strings.TrimSpace(lyrics[act].Text)
-				} else if len(lyrics) > 0 {
-					inTxt = "♪  • • •"
-				}
+				inTxt = fallbackClosedLyricText(lyrics, lyricIdx, lyricsLoading, lyricsHasPlain, diStr)
 			}
 			if inTxt != "" {
 				inOp := contentOp
@@ -6486,11 +6782,29 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 					inOp = contentOp * closedLyricProg
 					inY = cyExact + 3.0*u*(1.0-closedLyricProg)
 				}
-				c.drawCenteredVectorTextGdip(
-					g, famSemi, inTxt,
-					(nx+w/2.0)*u, inY, txtHeightPx, (560.0-80.0)*u,
-					rgbaToARGB(pal.TextMain, inOp),
-				)
+				if lyricSweep && len(lyrics) > 0 && lyricIdx >= 0 && lyricIdx < len(lyrics) && inTxt == strings.TrimSpace(lyrics[lyricIdx].Text) {
+					hasNext := lyricIdx+1 < len(lyrics)
+					nextStart := 0.0
+					if hasNext {
+						nextStart = lyrics[lyricIdx+1].TimeSec
+					}
+					swProg := computeLineSweepProgressFromLine(lyrics[lyricIdx], nextStart, hasNext, effLyricPos)
+					c.drawCenteredVectorTextSweepGdip(
+						g, famSemi, inTxt,
+						(nx+w/2.0)*u, inY, txtHeightPx, maxClosedW,
+						rgbaToARGB(pal.TextMain, inOp),
+						rgbaToARGB(pal.TextMain, 0.48*inOp),
+						swProg,
+						true,
+						(nx+closedClipMargin)*u, 0, math.Max(1.0, (w-closedClipMargin*2.0)*u), h*u,
+					)
+				} else {
+					c.drawCenteredVectorTextGdip(
+						g, famSemi, inTxt,
+						(nx+w/2.0)*u, inY, txtHeightPx, maxClosedW,
+						rgbaToARGB(pal.TextMain, inOp),
+					)
+				}
 			}
 			_, _, _ = diProcGdipResetClip.Call(g)
 		} else {
@@ -6614,20 +6928,6 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 		}
 
 		onPrimCont := color.RGBA{R: 0xD8, G: 0xF3, B: 0xFF, A: 255}
-		if len(lyrics) == 0 {
-			msgTitle := diStr.NoLyrics
-			if lyricsLoading {
-				msgTitle = diStr.LoadingLyrics
-			}
-			var bEmpty uintptr
-			_, _, _ = diProcGdipCreateSolidFill.Call(uintptr(rgbaToARGB(onPrimCont, 0.78*contentOp)), uintptr(unsafe.Pointer(&bEmpty)))
-			if bEmpty != 0 {
-				drawStrPhys(msgTitle, f13Semi, bEmpty, sfLeft, mapX(262), mapY(82), mapW(230), 22*u)
-				_, _, _ = diProcGdipDeleteBrush.Call(bEmpty)
-			}
-			return
-		}
-
 		var sfWrap uintptr
 		_, _, _ = diProcGdipCreateStringFormat.Call(0, 0, uintptr(unsafe.Pointer(&sfWrap)))
 		if sfWrap != 0 {
@@ -6646,6 +6946,41 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 		}
 
 		wrapW := mapW(234)
+		if len(lyrics) == 0 {
+			msgTitle := diStr.NoLyrics
+			if lyricsLoading {
+				msgTitle = diStr.LoadingLyrics
+			} else if lyricsHasPlain {
+				msgTitle = diStr.NoSyncLyrics
+			}
+			msgHDp := 22.0
+			if fLyrUniform != 0 && msgTitle != "" {
+				u16, _ := windows.UTF16FromString(msgTitle)
+				layoutRc := diRectF{X: 0, Y: 0, Width: float32(wrapW), Height: float32(106.5 * u)}
+				var boundRc diRectF
+				_, _, _ = diProcGdipMeasureString.Call(
+					g,
+					uintptr(unsafe.Pointer(&u16[0])),
+					uintptr(len(u16)-1),
+					fLyrUniform,
+					uintptr(unsafe.Pointer(&layoutRc)),
+					sfWrap,
+					uintptr(unsafe.Pointer(&boundRc)),
+					0, 0,
+				)
+				if boundRc.Height > 1.0 {
+					msgHDp = float64(boundRc.Height)/u + 2.0
+				}
+			}
+			yMsg := math.Max(42.0, 92.0-msgHDp/2.0)
+			var bEmpty uintptr
+			_, _, _ = diProcGdipCreateSolidFill.Call(uintptr(rgbaToARGB(onPrimCont, contentOp)), uintptr(unsafe.Pointer(&bEmpty)))
+			if bEmpty != 0 {
+				drawStrPhys(msgTitle, fLyrUniform, bEmpty, sfWrap, mapX(260), mapY(yMsg), wrapW, msgHDp*u+4*u)
+				_, _, _ = diProcGdipDeleteBrush.Call(bEmpty)
+			}
+			return
+		}
 		lineTops := make([]float64, len(lyrics))
 		lineHeights := make([]float64, len(lyrics))
 		curTopDp := 0.0
@@ -6782,6 +7117,22 @@ func (c *dynamicIslandController) drawVeloraTextGdip(
 		}
 		_, _, _ = diProcGdipResetClip.Call(g)
 	}
+}
+
+func fallbackClosedLyricText(lyrics []sources.LyricLine, lyricIdx int, lyricsLoading, lyricsHasPlain bool, diStr diLocalizedStrings) string {
+	if len(lyrics) > 0 {
+		if lyricIdx >= 0 && lyricIdx < len(lyrics) {
+			return strings.TrimSpace(lyrics[lyricIdx].Text)
+		}
+		return "♪  • • •"
+	}
+	if lyricsLoading {
+		return diStr.LoadingLyrics
+	}
+	if lyricsHasPlain {
+		return diStr.NoSyncLyrics
+	}
+	return diStr.NoLyrics
 }
 
 func formatMMSS(sec float64) string {

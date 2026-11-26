@@ -207,7 +207,7 @@
           track: t,
           title: t.title,
           artist: t.artistName,
-          cover: resolveCoverUrl(t.coverUrl, mediaBaseUrl),
+          cover: resolveCoverUrl(t.coverUrl, mediaBaseUrl, 96),
           rank: computeSongRank(t.title, t.artistName, normalizedQuery)
         });
       }
@@ -222,7 +222,7 @@
         track: yt,
         title: yt.title,
         artist: yt.artist,
-        cover: resolveCoverUrl(yt.coverUrl, mediaBaseUrl),
+        cover: resolveCoverUrl(yt.coverUrl, mediaBaseUrl, 96),
         rank: computeSongRank(yt.title, yt.artist, normalizedQuery)
       });
     }
@@ -262,7 +262,7 @@
         out.push({
           id: a.id,
           name,
-          avatar: resolveCoverUrl(a.avatarUrl, mediaBaseUrl),
+          avatar: resolveCoverUrl(a.avatarUrl, mediaBaseUrl, 96),
           isFavorite: a.isFavorite,
           rank: prefixRank(name, normalizedQuery)
         });
@@ -280,7 +280,7 @@
         seen.add(key);
         const localMatch = artists.find((a) => a.name.toLowerCase() === key);
         const avatar = localMatch?.avatarUrl
-          ? resolveCoverUrl(localMatch.avatarUrl, mediaBaseUrl)
+          ? resolveCoverUrl(localMatch.avatarUrl, mediaBaseUrl, 96)
           : s.cover;
         out.push({
           id: localMatch?.id ?? null,
@@ -790,7 +790,15 @@
             else if (onOpenJam) onOpenJam();
             else onNavigate({ name: 'preferences' });
           }}
-          title={!jamPrefEnabled ? 'Velora Jam (Izin Nonaktif)' : jamRunning ? 'Velora Jam Remote (Aktif)' : 'Velora Jam Remote'}
+          title={!jamPrefEnabled
+            ? lang === 'en'
+              ? 'Velora Jam (Beta) — Permission disabled'
+              : 'Velora Jam (Beta) — Izin Nonaktif'
+            : jamRunning
+              ? lang === 'en'
+                ? 'Velora Jam (Beta) — Active'
+                : 'Velora Jam (Beta) — Remote (Aktif)'
+              : 'Velora Jam (Beta)'}
           aria-label="Remote QR & Integrations"
           class="relative w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-all duration-300 ease-out hover:brightness-125 {!jamPrefEnabled ? 'opacity-45' : ''}"
           style={!jamPrefEnabled

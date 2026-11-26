@@ -1,8 +1,4 @@
 <script lang="ts">
-  import { Chart, registerables } from 'chart.js';
-
-  Chart.register(...registerables);
-
   interface Props {
     type: 'line' | 'bar';
     labels: string[];
@@ -88,93 +84,101 @@
       return i === curHighlight ? tertiarySolid : primarySolid;
     });
 
-    const chart = new Chart(ctx, {
-      type: curType,
-      data: {
-        labels: curLabels,
-        datasets: [
-          curType === 'line'
-            ? {
-                data: curValues,
-                borderColor: primarySolid,
-                backgroundColor: areaGrad,
-                fill: true,
-                tension: 0.38,
-                borderWidth: 2.5,
-                pointRadius: pointRadii,
-                pointHoverRadius: 6,
-                pointBackgroundColor: pointColors,
-                pointBorderColor: pointColors
-              }
-            : {
-                data: curValues,
-                backgroundColor: barColors,
-                borderRadius: 8,
-                borderSkipped: false,
-                barPercentage: 0.56,
-                categoryPercentage: 0.82
-              }
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: { duration: 420 },
-        interaction: {
-          mode: 'index',
-          intersect: false
-        },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: tooltipBg,
-            titleColor: tooltipFg,
-            bodyColor: tooltipFg,
-            padding: 10,
-            cornerRadius: 10,
-            displayColors: false,
-            callbacks: {
-              label: (item) => {
-                const v = Number(item.raw ?? 0);
-                const sec = curSecondary[item.dataIndex];
-                if (sec !== undefined && curSecUnit) {
-                  return `${v} ${curUnit} • ${sec} ${curSecUnit}`;
+    let chartInstance: { destroy: () => void } | null = null;
+    let cancelled = false;
+
+    void import('chart.js').then(({ Chart, registerables }) => {
+      if (cancelled) return;
+      Chart.register(...registerables);
+      chartInstance = new Chart(ctx, {
+        type: curType,
+        data: {
+          labels: curLabels,
+          datasets: [
+            curType === 'line'
+              ? {
+                  data: curValues,
+                  borderColor: primarySolid,
+                  backgroundColor: areaGrad,
+                  fill: true,
+                  tension: 0.38,
+                  borderWidth: 2.5,
+                  pointRadius: pointRadii,
+                  pointHoverRadius: 6,
+                  pointBackgroundColor: pointColors,
+                  pointBorderColor: pointColors
                 }
-                return `${v} ${curUnit}`;
-              }
-            }
-          }
+              : {
+                  data: curValues,
+                  backgroundColor: barColors,
+                  borderRadius: 8,
+                  borderSkipped: false,
+                  barPercentage: 0.56,
+                  categoryPercentage: 0.82
+                }
+          ]
         },
-        scales: {
-          x: {
-            grid: { display: false },
-            border: { display: false },
-            ticks: {
-              color: tickColor,
-              font: { family: 'Poppins, sans-serif', size: 10.5, weight: 500 },
-              maxRotation: 0,
-              autoSkip: curType === 'line',
-              maxTicksLimit: curType === 'line' ? 7 : 7
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: { duration: 420 },
+          interaction: {
+            mode: 'index',
+            intersect: false
+          },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: tooltipBg,
+              titleColor: tooltipFg,
+              bodyColor: tooltipFg,
+              padding: 10,
+              cornerRadius: 10,
+              displayColors: false,
+              callbacks: {
+                label: (item) => {
+                  const v = Number(item.raw ?? 0);
+                  const sec = curSecondary[item.dataIndex];
+                  if (sec !== undefined && curSecUnit) {
+                    return `${v} ${curUnit} • ${sec} ${curSecUnit}`;
+                  }
+                  return `${v} ${curUnit}`;
+                }
+              }
             }
           },
-          y: {
-            beginAtZero: true,
-            suggestedMax: 5,
-            border: { display: false, dash: [4, 4] },
-            grid: { color: gridColor },
-            ticks: {
-              color: tickColor,
-              font: { family: 'Poppins, sans-serif', size: 10, weight: 500 },
-              maxTicksLimit: 4,
-              precision: 0
+          scales: {
+            x: {
+              grid: { display: false },
+              border: { display: false },
+              ticks: {
+                color: tickColor,
+                font: { family: 'Poppins, sans-serif', size: 10.5, weight: 500 },
+                maxRotation: 0,
+                autoSkip: curType === 'line',
+                maxTicksLimit: 7
+              }
+            },
+            y: {
+              beginAtZero: true,
+              suggestedMax: 5,
+              border: { display: false, dash: [4, 4] },
+              grid: { color: gridColor },
+              ticks: {
+                color: tickColor,
+                font: { family: 'Poppins, sans-serif', size: 10, weight: 500 },
+                maxTicksLimit: 4,
+                precision: 0
+              }
             }
           }
         }
-      }
+      });
     });
 
     return () => {
-      chart.destroy();
+      cancelled = true;
+      chartInstance?.destroy();
     };
   });
 </script>

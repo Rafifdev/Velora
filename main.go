@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"io/fs"
+	"runtime/debug"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -17,6 +18,10 @@ var assets embed.FS
 var trayIcon []byte
 
 func main() {
+	// Tune Go GC to return unused heap pages promptly without hurting audio/UI responsiveness.
+	debug.SetGCPercent(75)
+	debug.SetMemoryLimit(64 * 1024 * 1024)
+
 	app := NewApp()
 	if sub, subErr := fs.Sub(assets, "frontend/dist"); subErr == nil {
 		app.SetFrontendFS(sub)
