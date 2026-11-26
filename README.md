@@ -5,8 +5,8 @@
   <p><strong>Modern Desktop Music Player for Windows with Native Dynamic Island, Synchronized Lyrics, Hybrid Streaming &amp; Velora Jam</strong></p>
 
   <p>
-    <img src="https://img.shields.io/badge/Microsoft%20Store-Velora%20Player-0078D4?style=flat-square&logo=microsoft&logoColor=white" alt="Available on Microsoft Store" />
-    <a href="https://github.com/Rafifdev/Velora/releases/tag/v1.2.0"><img src="https://img.shields.io/badge/Release-v1.2.0-FF9E64?style=flat-square" alt="Latest Release v1.2.0" /></a>
+    <img src="docs/badges/microsoft-store.svg" alt="Available on Microsoft Store" />
+    <a href="https://github.com/Rafifdev/Velora/releases/tag/v1.2.0"><img src="docs/badges/release.svg" alt="Latest Release v1.2.0" /></a>
     <img src="https://img.shields.io/badge/Platform-Windows%2010%20%2F%2011%20(x64)-0078D6?style=flat-square&logo=windows" alt="Platform Windows" />
     <img src="https://img.shields.io/badge/Go-1.24-00ADD8?style=flat-square&logo=go" alt="Go 1.24" />
     <img src="https://img.shields.io/badge/Svelte-5-FF3E00?style=flat-square&logo=svelte" alt="Svelte 5" />
