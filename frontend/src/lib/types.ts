@@ -16,9 +16,20 @@ export interface Track {
   playCount: number;
   isDownloaded?: boolean;
   downloadedAt?: string;
+  downloadGroupKey?: string;
+  downloadGroupTitle?: string;
+  downloadGroupCover?: string;
+  downloadGroupKind?: string;
   globalPlays?: string;
   historyEntryId?: number;
   createdAt: string;
+}
+
+export interface DownloadGroup {
+  key: string;
+  title: string;
+  cover: string;
+  kind: 'playlist' | 'album' | string;
 }
 
 export interface DownloadProgress {
@@ -29,6 +40,45 @@ export interface DownloadProgress {
   status: 'queued' | 'downloading' | 'completed' | 'failed' | 'cancelled' | string;
   progress: number;
   error?: string;
+  groupKey?: string;
+  groupTitle?: string;
+  groupCover?: string;
+  groupKind?: string;
+  groupTotal?: number;
+  groupCompleted?: number;
+  groupProgress?: number;
+}
+
+export interface GroupedDownloadItem {
+  key: string;
+  isGroup: boolean;
+  kind: 'track' | 'playlist' | 'album';
+  trackId: number;
+  trackIds: number[];
+  externalId: string;
+  title: string;
+  subtitle: string;
+  coverUrl: string;
+  status: 'queued' | 'downloading' | 'failed';
+  progress: number;
+  totalCount: number;
+  completedCount: number;
+  error?: string;
+}
+
+export interface GroupedCompletedDownload {
+  key: string;
+  isGroup: boolean;
+  kind: 'music' | 'album' | 'playlist';
+  title: string;
+  subtitle: string;
+  coverUrl: string;
+  tracks: Track[];
+  primaryTrack: Track;
+  totalDurationSec: number;
+  deleted: boolean;
+  sortMs: number;
+  downloadedAt: string;
 }
 
 export interface JamQueueItem {
@@ -224,8 +274,16 @@ export interface UpdateCheckResult {
   hasUpdate: boolean;
   releaseUrl: string;
   downloadUrl: string;
+  storeUrl: string;
+  isStoreApp: boolean;
   releaseNotes: string;
   publishedAt: string;
+}
+
+export interface UpdateProgress {
+  status: 'downloading' | 'installing' | 'restarting' | 'error';
+  progress: number;
+  error?: string;
 }
 
 export interface YTMusicTrack {

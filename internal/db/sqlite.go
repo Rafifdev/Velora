@@ -65,10 +65,14 @@ type Track struct {
 	CoverURL    string `json:"coverUrl"`
 	IsFavorite   bool   `json:"isFavorite"`
 	PlayCount    int    `json:"playCount"`
-	IsDownloaded bool   `json:"isDownloaded"`
-	DownloadedAt string `json:"downloadedAt"`
-	GlobalPlays  string `json:"globalPlays,omitempty"`
-	CreatedAt    string `json:"createdAt"`
+	IsDownloaded       bool   `json:"isDownloaded"`
+	DownloadedAt       string `json:"downloadedAt"`
+	DownloadGroupKey   string `json:"downloadGroupKey,omitempty"`
+	DownloadGroupTitle string `json:"downloadGroupTitle,omitempty"`
+	DownloadGroupCover string `json:"downloadGroupCover,omitempty"`
+	DownloadGroupKind  string `json:"downloadGroupKind,omitempty"`
+	GlobalPlays        string `json:"globalPlays,omitempty"`
+	CreatedAt          string `json:"createdAt"`
 }
 
 type Playlist struct {
@@ -134,6 +138,13 @@ func Open(dbPath string) (*Store, error) {
 	_, _ = conn.Exec(`ALTER TABLE tracks ADD COLUMN is_downloaded INTEGER NOT NULL DEFAULT 0;`)
 	_, _ = conn.Exec(`ALTER TABLE tracks ADD COLUMN downloaded_at TEXT NOT NULL DEFAULT '';`)
 	_, _ = conn.Exec(`ALTER TABLE track_lyrics ADD COLUMN synced_duration_sec INTEGER NOT NULL DEFAULT 0;`)
+	_, _ = conn.Exec(`CREATE TABLE IF NOT EXISTS download_group_tracks (
+		track_id INTEGER PRIMARY KEY,
+		group_key TEXT NOT NULL,
+		group_title TEXT NOT NULL,
+		group_cover TEXT NOT NULL,
+		group_kind TEXT NOT NULL
+	);`)
 	store := &Store{db: conn}
 	store.healLegacyMetadata()
 	return store, nil
@@ -534,10 +545,15 @@ func (s *Store) GetTracks(filter, query string) ([]Track, error) {
 		}
 		tracks = append(tracks, t)
 	}
-	return tracks, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	s.applyDownloadGroups(tracks)
+	return tracks, nil
 }
 
 func (s *Store) DeleteTrack(id int64) error {
+	_, _ = s.db.Exec(`DELETE FROM download_group_tracks WHERE track_id = ?`, id)
 	_, _ = s.db.Exec(`DELETE FROM playlist_tracks WHERE track_id = ?`, id)
 	_, err := s.db.Exec(`DELETE FROM tracks WHERE id = ?`, id)
 	return err
@@ -1222,8 +1238,9 @@ func (s *Store) SeedDefaults() error {
 		"streak_goal_tracks":  "3",
 		"accent_color":        "#FF9E64",
 		"gapless_playback":         "true",
-		"volume":                   "100",
-		"integrations.jam.enabled": "false",
+		"volume":                       "100",
+		"integrations.jam.enabled":     "false",
+		"integrations.discord.enabled": "true",
 		"playback.waveBar":         "false",
 		"playback.prevRestartSec":  "0",
 		"lyrics.textSize":          "0",
@@ -1338,6 +1355,7 @@ func (s *Store) ClearTrackDownloaded(trackID int64) (Track, error) {
 	if trackID <= 0 {
 		return Track{}, fmt.Errorf("invalid track id")
 	}
+	_, _ = s.db.Exec(`DELETE FROM download_group_tracks WHERE track_id = ?`, trackID)
 	_, err := s.db.Exec(
 		`UPDATE tracks
 		 SET is_downloaded = 0,
@@ -1350,6 +1368,66 @@ func (s *Store) ClearTrackDownloaded(trackID int64) (Track, error) {
 		return Track{}, err
 	}
 	return s.GetTrackByID(trackID)
+}
+
+func (s *Store) SetTracksDownloadGroup(trackIDs []int64, groupKey, groupTitle, groupCover, groupKind string) {
+	gk := strings.TrimSpace(groupKey)
+	if gk == "" || len(trackIDs) == 0 {
+		return
+	}
+	gt := strings.TrimSpace(groupTitle)
+	gc := strings.TrimSpace(groupCover)
+	gkind := strings.TrimSpace(groupKind)
+	for _, tid := range trackIDs {
+		if tid <= 0 {
+			continue
+		}
+		_, _ = s.db.Exec(
+			`INSERT OR REPLACE INTO download_group_tracks (track_id, group_key, group_title, group_cover, group_kind) VALUES (?, ?, ?, ?, ?)`,
+			tid, gk, gt, gc, gkind,
+		)
+	}
+}
+
+func (s *Store) ClearTrackDownloadGroup(trackID int64) {
+	if trackID <= 0 {
+		return
+	}
+	_, _ = s.db.Exec(`DELETE FROM download_group_tracks WHERE track_id = ?`, trackID)
+}
+
+func (s *Store) applyDownloadGroups(tracks []Track) {
+	if len(tracks) == 0 {
+		return
+	}
+	rows, err := s.db.Query(`SELECT track_id, group_key, group_title, group_cover, group_kind FROM download_group_tracks`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	type grpMeta struct {
+		key   string
+		title string
+		cover string
+		kind  string
+	}
+	byID := make(map[int64]grpMeta)
+	for rows.Next() {
+		var tid int64
+		var m grpMeta
+		if err := rows.Scan(&tid, &m.key, &m.title, &m.cover, &m.kind); err == nil {
+			byID[tid] = m
+		}
+	}
+	for i := range tracks {
+		if m, ok := byID[tracks[i].ID]; ok {
+			tracks[i].DownloadGroupKey = m.key
+			tracks[i].DownloadGroupTitle = m.title
+			tracks[i].DownloadGroupCover = m.cover
+			tracks[i].DownloadGroupKind = m.kind
+		}
+	}
 }
 
 func (s *Store) GetDownloadedTracks() ([]Track, error) {
@@ -1372,5 +1450,9 @@ func (s *Store) GetDownloadedTracks() ([]Track, error) {
 		}
 		tracks = append(tracks, t)
 	}
-	return tracks, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	s.applyDownloadGroups(tracks)
+	return tracks, nil
 }

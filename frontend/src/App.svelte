@@ -2,7 +2,7 @@
   import { onMount, untrack } from 'svelte';
   import { fade, fly } from 'svelte/transition';
   import { cubicIn, cubicOut } from 'svelte/easing';
-  import { api, isJamRemote, isYTVideoThumb, resolveCoverUrl, safeEventsOn, sendJamCommand } from './lib/api';
+  import { api, groupActiveDownloads, isJamRemote, isYTVideoThumb, resolveCoverUrl, safeEventsOn, sendJamCommand } from './lib/api';
   import { VeloraAudioEngine } from './lib/audioEngine';
   import { getPrefBool, getPrefValue } from './lib/preferences';
   import { getPrefLang, tr } from './lib/i18n';
@@ -10,6 +10,7 @@
     Album,
     Artist,
     AudioOutputDevice,
+    DownloadGroup,
     DownloadProgress,
     FireStreakStatus,
     HomeFilter,
@@ -114,11 +115,24 @@
       (d) => d.status === 'queued' || d.status === 'downloading' || d.status === 'failed'
     )
   );
+  const activeGroupKeys = $derived(
+    new Set(activeDownloadsList.map((d) => (d.groupKey || '').trim()).filter(Boolean))
+  );
+  const downloadedGroupKeys = $derived.by(() => {
+    const keys = new Set<string>();
+    for (const t of tracks) {
+      if (t.isDownloaded && t.downloadGroupKey && !activeGroupKeys.has(t.downloadGroupKey)) {
+        keys.add(t.downloadGroupKey);
+      }
+    }
+    return keys;
+  });
+  const groupedActiveDownloads = $derived(groupActiveDownloads(activeDownloadsList));
   const activeDownloadsCount = $derived(
-    activeDownloadsList.filter((d) => d.status === 'queued' || d.status === 'downloading').length
+    groupedActiveDownloads.filter((d) => d.status === 'queued' || d.status === 'downloading').length
   );
   const downloadProgressPct = $derived.by(() => {
-    const active = activeDownloadsList.filter((d) => d.status === 'queued' || d.status === 'downloading');
+    const active = groupedActiveDownloads.filter((d) => d.status === 'queued' || d.status === 'downloading');
     if (active.length === 0) return 0;
     const sum = active.reduce((acc, d) => acc + Math.max(0, Math.min(100, d.progress || 0)), 0);
     return Math.round(sum / active.length);
@@ -621,6 +635,12 @@
                 tracks: selectedPlaylistDetail.tracks.map((t) => (t.id === p.trackId ? updated : t))
               };
             }
+            if (ytAlbumDetail) {
+              ytAlbumDetail = {
+                ...ytAlbumDetail,
+                tracks: ytAlbumDetail.tracks.map((t) => (t.id === p.trackId ? updated : t))
+              };
+            }
           }
         });
       } else if (p.status === 'cancelled') {
@@ -1013,12 +1033,90 @@
         tracks: selectedPlaylistDetail.tracks.map((t) => (t.id === trackId ? updated : t))
       };
     }
+    if (ytAlbumDetail) {
+      ytAlbumDetail = {
+        ...ytAlbumDetail,
+        tracks: ytAlbumDetail.tracks.map((t) => (t.id === trackId ? updated : t))
+      };
+    }
+  }
+
+  async function handleRemoveDownloadGroup(groupTracks: Track[]) {
+    const ids = groupTracks.map((t) => t.id).filter((id) => id > 0);
+    if (ids.length === 0) return;
+    await api.removeDownloadedTracks(ids);
+    const idSet = new Set(ids);
+    const refreshed = await api.getTracks('all', '');
+    tracks = refreshed;
+    detailTracks = detailTracks.map((t) => (idSet.has(t.id) ? refreshed.find((r) => r.id === t.id) ?? { ...t, isDownloaded: false } : t));
+    if (selectedPlaylistDetail) {
+      selectedPlaylistDetail = {
+        ...selectedPlaylistDetail,
+        tracks: selectedPlaylistDetail.tracks.map((t) =>
+          idSet.has(t.id) ? refreshed.find((r) => r.id === t.id) ?? { ...t, isDownloaded: false } : t
+        )
+      };
+    }
+    if (ytAlbumDetail) {
+      ytAlbumDetail = {
+        ...ytAlbumDetail,
+        tracks: ytAlbumDetail.tracks.map((t) =>
+          idSet.has(t.id) ? refreshed.find((r) => r.id === t.id) ?? { ...t, isDownloaded: false } : t
+        )
+      };
+    }
+  }
+
+  async function handleDownloadCollection(group: DownloadGroup, list: Track[]) {
+    const pending = list.filter((t) => !t.isDownloaded && (t.id > 0 || Boolean(t.externalId)));
+    if (pending.length === 0) return;
+    const hasUnsaved = pending.some((t) => t.id <= 0);
+    await api.downloadCollection(group, pending);
+    if (hasUnsaved) {
+      tracks = await api.getTracks('all', '');
+    }
+    if (group.kind === 'playlist' && group.key.startsWith('playlist:')) {
+      const rawId = group.key.slice('playlist:'.length).trim();
+      const numId = Number(rawId);
+      const alreadySaved = playlists.some(
+        (p) =>
+          (Number.isFinite(numId) && numId > 0 && p.id === numId) ||
+          (rawId !== '' && p.externalId === rawId) ||
+          p.name.trim().toLowerCase() === group.title.trim().toLowerCase()
+      );
+      if (!alreadySaved && rawId) {
+        const trackIds = list
+          .map((t) => {
+            if (t.id > 0) return t.id;
+            const found = tracks.find((trItem) => t.externalId && trItem.externalId === t.externalId);
+            return found?.id ?? 0;
+          })
+          .filter((id) => id > 0);
+        try {
+          await api.toggleSaveYTMusicPlaylist(rawId, group.title, 'YouTube Music', group.cover, trackIds);
+          playlists = await api.getPlaylists(false);
+        } catch {
+        }
+      }
+    }
+    if (isJamRemote) void syncRemoteDownloadStates();
   }
 
   async function handleCancelDownload(trackId: number) {
     await api.cancelDownload(trackId);
     const next = { ...downloadStates };
     delete next[trackId];
+    downloadStates = next;
+  }
+
+  async function handleCancelDownloadGroup(groupKey: string, trackIds: number[]) {
+    await api.cancelDownloadGroup(groupKey);
+    const idSet = new Set(trackIds);
+    const next: Record<number, DownloadProgress> = {};
+    for (const [k, st] of Object.entries(downloadStates)) {
+      if (st.groupKey === groupKey || idSet.has(st.trackId)) continue;
+      next[Number(k)] = st;
+    }
     downloadStates = next;
   }
 
@@ -3633,6 +3731,8 @@
     {jamLoading}
     {jamConnected}
     jamPrefEnabled={getPrefBool(preferences, 'integrations.jam.enabled')}
+    {activeDownloadsCount}
+    {downloadProgressPct}
     saveSearches={getPrefBool(preferences, 'privacy.saveSearches')}
     onOpenJamSettings={() => {
       activePrefTab = 'backup';
@@ -3733,6 +3833,7 @@
           {artists}
           {tracks}
           {playlists}
+          {downloadedGroupKeys}
           {ytShelves}
           {ytResults}
           {ytPlaylistResults}
@@ -3800,7 +3901,9 @@
           onPlayTrack={playTrack}
           onOpenTrackAlbum={openTrackAlbumDetail}
           onCancelDownload={handleCancelDownload}
+          onCancelDownloadGroup={handleCancelDownloadGroup}
           onRemoveDownload={handleRemoveDownload}
+          onRemoveDownloadGroup={handleRemoveDownloadGroup}
         />
         {/await}
       {:else if currentRoute.name === 'library' || (isMobile && (currentRoute.name === 'liked-songs' || currentRoute.name === 'downloaded' || currentRoute.name === 'favorite-albums' || currentRoute.name === 'favorite-artists'))}
@@ -3880,6 +3983,7 @@
           searchStart={(getPrefValue(preferences, 'content.searchStart') as 'song' | 'album' | 'artist' | 'playlist' | 'video') || 'song'}
           {playlists}
           {downloadStates}
+          {downloadedGroupKeys}
           currentTrackId={currentTrack?.id ?? null}
           currentExternalId={currentTrack?.externalId ?? null}
           currentTrackTitle={currentTrack?.title ?? null}
@@ -3915,7 +4019,9 @@
           onDownloadTrack={handleDownloadTrack}
           onDownloadYTMusic={handleDownloadYTMusicTrack}
           onRemoveDownload={handleRemoveDownload}
+          onRemoveDownloadGroup={handleRemoveDownloadGroup}
           onCancelDownload={handleCancelDownload}
+          onCancelDownloadGroup={handleCancelDownloadGroup}
           onOpenAlbum={handleOpenAlbum}
           onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
           onOpenTrackAlbum={openTrackAlbumDetail}
@@ -3942,6 +4048,7 @@
           mode={currentRoute.name}
           {playlists}
           {playlistsLoading}
+          {downloadedGroupKeys}
           detail={selectedPlaylistDetail}
           detailLoading={playlistDetailLoading}
           allTracks={tracks}
@@ -4006,6 +4113,7 @@
           onPlayNext={handleQueuePlayNext}
           onAddToQueue={handleAddToQueue}
           onDownloadTrack={handleDownloadTrack}
+          onDownloadCollection={handleDownloadCollection}
           onRemoveDownload={handleRemoveDownload}
           onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
           onOpenTrackAlbum={openTrackAlbumDetail}
@@ -4013,7 +4121,6 @@
           {downloadProgressPct}
           onNavigate={navigate}
           onBack={goBack}
-          onExportM3U={(pid) => api.exportLocalPlaylistM3U(pid)}
           onImportM3U={async () => {
             const pl = await api.importLocalPlaylistM3U();
             if (pl?.id) {
@@ -4132,6 +4239,7 @@
           onBack={goBack}
           onOpenYTAlbum={(card) => void openYTAlbumCard(card)}
           onDownloadTrack={handleDownloadTrack}
+          onDownloadCollection={handleDownloadCollection}
           onRemoveDownload={handleRemoveDownload}
           onPlayNext={handleQueuePlayNext}
           onAddToQueue={handleAddToQueue}

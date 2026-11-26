@@ -14,6 +14,10 @@ export function CancelDownload(arg1) {
   return window['go']['main']['App']['CancelDownload'](arg1);
 }
 
+export function CancelDownloadGroup(arg1) {
+  return window['go']['main']['App']['CancelDownloadGroup'](arg1);
+}
+
 export function CheckForUpdates() {
   return window['go']['main']['App']['CheckForUpdates']();
 }
@@ -32,6 +36,10 @@ export function CreatePlaylist(arg1, arg2, arg3, arg4) {
 
 export function DeletePlaylist(arg1) {
   return window['go']['main']['App']['DeletePlaylist'](arg1);
+}
+
+export function DownloadCollection(arg1, arg2) {
+  return window['go']['main']['App']['DownloadCollection'](arg1, arg2);
 }
 
 export function DownloadTrack(arg1) {
@@ -178,6 +186,10 @@ export function ImportSpotifyPlaylist(arg1) {
   return window['go']['main']['App']['ImportSpotifyPlaylist'](arg1);
 }
 
+export function InstallUpdate(arg1) {
+  return window['go']['main']['App']['InstallUpdate'](arg1);
+}
+
 export function NotifyDynamicIslandAudioDevice(arg1) {
   return window['go']['main']['App']['NotifyDynamicIslandAudioDevice'](arg1);
 }
@@ -212,6 +224,10 @@ export function RefreshTrackLyrics(arg1, arg2, arg3, arg4, arg5) {
 
 export function RemoveDownloadedTrack(arg1) {
   return window['go']['main']['App']['RemoveDownloadedTrack'](arg1);
+}
+
+export function RemoveDownloadedTracks(arg1) {
+  return window['go']['main']['App']['RemoveDownloadedTracks'](arg1);
 }
 
 export function RemoveSource(arg1) {

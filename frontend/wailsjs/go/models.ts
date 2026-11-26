@@ -211,6 +211,10 @@ export namespace db {
 	    playCount: number;
 	    isDownloaded: boolean;
 	    downloadedAt: string;
+	    downloadGroupKey?: string;
+	    downloadGroupTitle?: string;
+	    downloadGroupCover?: string;
+	    downloadGroupKind?: string;
 	    globalPlays?: string;
 	    createdAt: string;
 	
@@ -237,6 +241,10 @@ export namespace db {
 	        this.playCount = source["playCount"];
 	        this.isDownloaded = source["isDownloaded"];
 	        this.downloadedAt = source["downloadedAt"];
+	        this.downloadGroupKey = source["downloadGroupKey"];
+	        this.downloadGroupTitle = source["downloadGroupTitle"];
+	        this.downloadGroupCover = source["downloadGroupCover"];
+	        this.downloadGroupKind = source["downloadGroupKind"];
 	        this.globalPlays = source["globalPlays"];
 	        this.createdAt = source["createdAt"];
 	    }
@@ -486,6 +494,32 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class DownloadCollectionItem {
+	    trackId: number;
+	    externalId: string;
+	    title: string;
+	    artist: string;
+	    album: string;
+	    durationSec: number;
+	    coverUrl: string;
+	    format: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DownloadCollectionItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.trackId = source["trackId"];
+	        this.externalId = source["externalId"];
+	        this.title = source["title"];
+	        this.artist = source["artist"];
+	        this.album = source["album"];
+	        this.durationSec = source["durationSec"];
+	        this.coverUrl = source["coverUrl"];
+	        this.format = source["format"];
+	    }
+	}
 	export class DynamicIslandQueueItem {
 	    id: number;
 	    externalId: string;
@@ -586,6 +620,8 @@ export namespace main {
 	    hasUpdate: boolean;
 	    releaseUrl: string;
 	    downloadUrl: string;
+	    storeUrl: string;
+	    isStoreApp: boolean;
 	    releaseNotes: string;
 	    publishedAt: string;
 	
@@ -600,6 +636,8 @@ export namespace main {
 	        this.hasUpdate = source["hasUpdate"];
 	        this.releaseUrl = source["releaseUrl"];
 	        this.downloadUrl = source["downloadUrl"];
+	        this.storeUrl = source["storeUrl"];
+	        this.isStoreApp = source["isStoreApp"];
 	        this.releaseNotes = source["releaseNotes"];
 	        this.publishedAt = source["publishedAt"];
 	    }
@@ -699,6 +737,24 @@ export namespace main {
 
 export namespace sources {
 	
+	export class DownloadGroup {
+	    key: string;
+	    title: string;
+	    cover: string;
+	    kind: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DownloadGroup(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.title = source["title"];
+	        this.cover = source["cover"];
+	        this.kind = source["kind"];
+	    }
+	}
 	export class DownloadProgress {
 	    trackId: number;
 	    externalId: string;
@@ -707,6 +763,13 @@ export namespace sources {
 	    status: string;
 	    progress: number;
 	    error?: string;
+	    groupKey?: string;
+	    groupTitle?: string;
+	    groupCover?: string;
+	    groupKind?: string;
+	    groupTotal?: number;
+	    groupCompleted?: number;
+	    groupProgress?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new DownloadProgress(source);
@@ -721,6 +784,13 @@ export namespace sources {
 	        this.status = source["status"];
 	        this.progress = source["progress"];
 	        this.error = source["error"];
+	        this.groupKey = source["groupKey"];
+	        this.groupTitle = source["groupTitle"];
+	        this.groupCover = source["groupCover"];
+	        this.groupKind = source["groupKind"];
+	        this.groupTotal = source["groupTotal"];
+	        this.groupCompleted = source["groupCompleted"];
+	        this.groupProgress = source["groupProgress"];
 	    }
 	}
 	export class LyricWord {

@@ -3,10 +3,11 @@
   import { formatDuration, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
   import { veloraMarquee } from '../lib/marquee';
   import { tr, type LangCode } from '../lib/i18n';
-  import type { Album, Playlist, Track, YTMusicAlbumView, YTMusicCard } from '../lib/types';
+  import type { Album, DownloadGroup, Playlist, Track, YTMusicAlbumView, YTMusicCard } from '../lib/types';
   import CoverImage from './CoverImage.svelte';
   import EqIndicator from './EqIndicator.svelte';
   import Icon from './Icon.svelte';
+  import Skeleton from './Skeleton.svelte';
   import TrackActionMenu from './TrackActionMenu.svelte';
 
   interface Props {
@@ -33,6 +34,7 @@
     onAddToQueue?: (tr: Track) => void;
     onCopyLink?: (tr: Track) => void;
     onDownloadTrack?: (tr: Track) => void;
+    onDownloadCollection?: (group: DownloadGroup, tracks: Track[]) => void;
     onRemoveDownload?: (trackId: number) => void;
     onOpenArtist: (artistId: number) => void;
     onOpenAlbum: (albumId: number) => void;
@@ -86,6 +88,7 @@
     onAddToQueue,
     onCopyLink,
     onDownloadTrack,
+    onDownloadCollection,
     onRemoveDownload,
     onOpenArtist,
     onOpenAlbum,
@@ -570,6 +573,40 @@
               <Icon name="heart" weight={track.isFavorite ? 'fill' : 'regular'} size={18} />
             </button>
           {/if}
+
+          {#if (onDownloadCollection || onDownloadTrack) && listTracks.length > 0}
+            {@const allAlbumDownloaded = listTracks.every((t) => t.isDownloaded)}
+            <button
+              type="button"
+              onclick={() => {
+                if (onDownloadCollection) {
+                  const colId = ytAlbum?.browseId || (album ? String(album.id) : displayTitle);
+                  const colKind = isPlaylistView ? 'playlist' : 'album';
+                  onDownloadCollection(
+                    {
+                      key: `${colKind}:${colId}`,
+                      title: displayTitle,
+                      cover: rawCover || listTracks.find((t) => t.coverUrl)?.coverUrl || '',
+                      kind: colKind
+                    },
+                    listTracks
+                  );
+                } else if (onDownloadTrack) {
+                  for (const t of listTracks) {
+                    if (!t.isDownloaded) onDownloadTrack(t);
+                  }
+                }
+              }}
+              class="velora-press w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110"
+              style="background-color: var(--md-sys-color-surface-container-high); color: {allAlbumDownloaded
+                ? 'var(--md-sys-color-primary)'
+                : 'var(--md-sys-color-on-surface)'};"
+              title={allAlbumDownloaded ? tr(lang, 'nav.downloaded') : tr(lang, 'nav.downloadOffline')}
+              aria-label={allAlbumDownloaded ? tr(lang, 'nav.downloaded') : tr(lang, 'nav.downloadOffline')}
+            >
+              <Icon name={allAlbumDownloaded ? 'check-circle' : 'download'} weight={allAlbumDownloaded ? 'fill' : 'regular'} size={18} />
+            </button>
+          {/if}
         </div>
       </div>
       </div>
@@ -655,6 +692,40 @@
               <Icon name="heart" weight={track.isFavorite ? 'fill' : 'regular'} size={18} />
             </button>
           {/if}
+
+          {#if (onDownloadCollection || onDownloadTrack) && listTracks.length > 0}
+            {@const allAlbumDownloaded = listTracks.every((t) => t.isDownloaded)}
+            <button
+              type="button"
+              onclick={() => {
+                if (onDownloadCollection) {
+                  const colId = ytAlbum?.browseId || (album ? String(album.id) : displayTitle);
+                  const colKind = isPlaylistView ? 'playlist' : 'album';
+                  onDownloadCollection(
+                    {
+                      key: `${colKind}:${colId}`,
+                      title: displayTitle,
+                      cover: rawCover || listTracks.find((t) => t.coverUrl)?.coverUrl || '',
+                      kind: colKind
+                    },
+                    listTracks
+                  );
+                } else if (onDownloadTrack) {
+                  for (const t of listTracks) {
+                    if (!t.isDownloaded) onDownloadTrack(t);
+                  }
+                }
+              }}
+              class="velora-press min-w-11 min-h-11 rounded-full inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110"
+              style="background-color: var(--md-sys-color-surface-container-high); color: {allAlbumDownloaded
+                ? 'var(--md-sys-color-primary)'
+                : 'var(--md-sys-color-on-surface)'};"
+              title={allAlbumDownloaded ? tr(lang, 'nav.downloaded') : tr(lang, 'nav.downloadOffline')}
+              aria-label={allAlbumDownloaded ? tr(lang, 'nav.downloaded') : tr(lang, 'nav.downloadOffline')}
+            >
+              <Icon name={allAlbumDownloaded ? 'check-circle' : 'download'} weight={allAlbumDownloaded ? 'fill' : 'regular'} size={18} />
+            </button>
+          {/if}
         </div>
 
         <div class="flex items-center gap-3">
@@ -718,26 +789,7 @@
           <div></div>
         </div>
 
-        <div class="space-y-1.5 mt-1">
-          {#each [62, 48, 70, 54, 66, 44] as titleW, idx (idx)}
-            <div class="-mx-2 grid grid-cols-[minmax(0,1fr)_52px_32px] md:grid-cols-[minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] gap-4 px-3 py-2.5 items-center rounded-lg">
-              <div class="space-y-1.5 min-w-0">
-                <div class="h-3.5 rounded bg-[var(--md-sys-color-surface-container-highest)]" style="width: {titleW}%;"></div>
-                <div class="h-2.5 w-28 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
-              </div>
-              <div class="hidden md:block">
-                <div class="h-3 w-12 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
-              </div>
-              <div class="hidden md:block">
-                <div class="h-3 w-14 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
-              </div>
-              <div class="flex justify-end pr-1">
-                <div class="h-3 w-9 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
-              </div>
-              <div></div>
-            </div>
-          {/each}
-        </div>
+        <Skeleton variant="track-rows" count={6} />
 
         <div class="mt-8 space-y-4">
           <div class="h-5 w-44 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>

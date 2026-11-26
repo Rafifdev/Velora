@@ -14,6 +14,8 @@ export function AddTrackToPlaylist(arg1:number,arg2:number):Promise<void>;
 
 export function CancelDownload(arg1:number):Promise<void>;
 
+export function CancelDownloadGroup(arg1:string):Promise<void>;
+
 export function CheckForUpdates():Promise<main.UpdateCheckResult>;
 
 export function ClearCache():Promise<number>;
@@ -23,6 +25,8 @@ export function ClearPlayHistory():Promise<void>;
 export function CreatePlaylist(arg1:string,arg2:string,arg3:boolean,arg4:string):Promise<db.Playlist>;
 
 export function DeletePlaylist(arg1:number):Promise<void>;
+
+export function DownloadCollection(arg1:sources.DownloadGroup,arg2:Array<main.DownloadCollectionItem>):Promise<number>;
 
 export function DownloadTrack(arg1:number):Promise<db.Track>;
 
@@ -96,6 +100,8 @@ export function ImportLocalPlaylistM3U():Promise<db.Playlist>;
 
 export function ImportSpotifyPlaylist(arg1:string):Promise<db.Playlist>;
 
+export function InstallUpdate(arg1:string):Promise<void>;
+
 export function NotifyDynamicIslandAudioDevice(arg1:string):Promise<void>;
 
 export function OpenDataFolder():Promise<void>;
@@ -113,6 +119,8 @@ export function RecordListenProgress(arg1:number,arg2:number,arg3:boolean):Promi
 export function RefreshTrackLyrics(arg1:number,arg2:string,arg3:string,arg4:string,arg5:number):Promise<sources.TrackLyrics>;
 
 export function RemoveDownloadedTrack(arg1:number):Promise<db.Track>;
+
+export function RemoveDownloadedTracks(arg1:Array<number>):Promise<void>;
 
 export function RemoveSource(arg1:number):Promise<void>;
 

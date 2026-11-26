@@ -44,7 +44,9 @@ type DynamicIslandSyncPayload struct {
 func (a *App) initDynamicIsland(_ context.Context)                               {}
 func (a *App) shutdownDynamicIsland()                                            {}
 func (a *App) updateDynamicIslandState(_, _, _ string, _ bool)                   {}
-func (a *App) UpdateDynamicIslandProgress(_ float64, _ float64)                  {}
+func (a *App) UpdateDynamicIslandProgress(posSec float64, durSec float64) {
+	a.updateDiscordProgress(posSec, durSec)
+}
 func (a *App) updateDynamicIslandLyrics(_ []sources.LyricLine, _, _ string)      {}
 func (a *App) SetDynamicIslandLyricOffset(_ float64)                             {}
 func (a *App) SetDynamicIslandEnabled(_ bool)                            {}
@@ -61,5 +63,7 @@ func (a *App) SetDynamicIslandPauseHideSeconds(_ int)                    {}
 func (a *App) SetDynamicIslandContent(_, _, _, _, _, _, _, _, _ bool, _ string) {}
 func (a *App) SetDynamicIslandCoverOptions(_ string, _, _ bool)              {}
 func (a *App) SetDynamicIslandLanguage(_ string)                             {}
-func (a *App) SyncDynamicIsland(_ DynamicIslandSyncPayload)              {}
+func (a *App) SyncDynamicIsland(p DynamicIslandSyncPayload) {
+	a.syncDiscordPresence(p)
+}
 func (a *App) NotifyDynamicIslandAudioDevice(_ string)                   {}

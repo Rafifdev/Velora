@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fade, fly, scale } from 'svelte/transition';
-  import { api, formatDuration, resolveCoverUrl } from '../lib/api';
+  import { api, formatDuration, resolveCoverUrl, safeEventsOn } from '../lib/api';
   import {
     PREFERENCE_APP_TABS,
     PREFERENCE_CATEGORIES,
@@ -11,7 +11,7 @@
     type PreferenceItemDef
   } from '../lib/preferences';
   import { getPrefLang, tr } from '../lib/i18n';
-  import type { DailyStreakRow, DownloadProgress, FireStreakStatus, ListeningStats, PlayHistoryItem, Playlist, Track, UpdateCheckResult, ViewRoute } from '../lib/types';
+  import type { DailyStreakRow, DownloadProgress, FireStreakStatus, ListeningStats, PlayHistoryItem, Playlist, Track, UpdateCheckResult, UpdateProgress, ViewRoute } from '../lib/types';
   import CoverImage from '../components/CoverImage.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import EqIndicator from '../components/EqIndicator.svelte';
@@ -370,6 +370,21 @@
   let checkingUpdates = $state(false);
   let updateResult = $state<UpdateCheckResult | null>(null);
   let showUpdateModal = $state(false);
+  let installingUpdate = $state(false);
+  let updateProgress = $state<UpdateProgress | null>(null);
+  let updateError = $state('');
+
+  $effect(() => {
+    const off = safeEventsOn('update:progress', (payload: UpdateProgress) => {
+      if (!payload) return;
+      updateProgress = payload;
+      if (payload.status === 'error') {
+        installingUpdate = false;
+        updateError = payload.error || tr(lang, 'nav.updateCheckFailed');
+      }
+    });
+    return off;
+  });
   let shakingParentId = $state<string | null>(null);
   let shakeTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -465,9 +480,10 @@
       updateResult = res;
       if (res.hasUpdate) {
         updateStatusText = `${tr(lang, 'nav.updateAvailableBadge')} v${res.latestVersion}`;
+        updateError = '';
+        updateProgress = null;
+        installingUpdate = false;
         showUpdateModal = true;
-      } else if (res.releaseUrl?.startsWith('ms-windows-store://')) {
-        updateStatusText = `Microsoft Store (v${res.currentVersion})`;
       } else {
         updateStatusText = `${tr(lang, 'nav.upToDate')} (v${res.currentVersion})`;
       }
@@ -475,6 +491,19 @@
       updateStatusText = tr(lang, 'nav.updateCheckFailed');
     } finally {
       checkingUpdates = false;
+    }
+  }
+
+  async function handleInstallUpdate() {
+    if (installingUpdate || !updateResult?.downloadUrl) return;
+    installingUpdate = true;
+    updateError = '';
+    updateProgress = { status: 'downloading', progress: 0 };
+    try {
+      await api.installUpdate(updateResult.downloadUrl);
+    } catch (err) {
+      installingUpdate = false;
+      updateError = err instanceof Error ? err.message : String(err || tr(lang, 'nav.updateCheckFailed'));
     }
   }
 
@@ -2400,30 +2429,43 @@
     </ModalDialog>
     <ModalDialog
       open={showUpdateModal}
-      onClose={() => (showUpdateModal = false)}
+      onClose={() => {
+        if (!installingUpdate) showUpdateModal = false;
+      }}
       ariaLabelledby="update-modal-title"
       maxWidthClass="max-w-md"
       class="rounded-2xl p-6"
     >
-      <div class="space-y-1.5 mb-4">
-        <div class="flex items-center gap-2">
-          <h2 id="update-modal-title" class="text-lg font-bold tracking-tight">
-            {tr(lang, 'nav.updateAvailableTitle')}
-          </h2>
+      <div class="flex items-start justify-between gap-3 mb-4">
+        <div class="space-y-1.5 min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <h2 id="update-modal-title" class="text-lg font-bold tracking-tight">
+              {tr(lang, 'nav.updateAvailableTitle')}
+            </h2>
+            {#if updateResult}
+              <span
+                class="px-2.5 py-0.5 rounded-full text-[11px] font-bold"
+                style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
+              >
+                v{updateResult.latestVersion}
+              </span>
+            {/if}
+          </div>
           {#if updateResult}
-            <span
-              class="px-2.5 py-0.5 rounded-full text-[11px] font-bold"
-              style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
-            >
-              v{updateResult.latestVersion}
-            </span>
+            <p class="text-xs" style="color: var(--md-sys-color-on-surface-variant);">
+              {tr(lang, 'nav.newVersionAvailable')}: v{updateResult.currentVersion} → v{updateResult.latestVersion}
+            </p>
           {/if}
         </div>
-        {#if updateResult}
-          <p class="text-xs" style="color: var(--md-sys-color-on-surface-variant);">
-            {tr(lang, 'nav.newVersionAvailable')}: v{updateResult.currentVersion} → v{updateResult.latestVersion}
-          </p>
-        {/if}
+        <button
+          type="button"
+          disabled={installingUpdate}
+          onclick={() => (showUpdateModal = false)}
+          aria-label={tr(lang, 'nav.close')}
+          class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer shrink-0 disabled:opacity-40"
+        >
+          <Icon name="x" size={16} />
+        </button>
       </div>
       {#if updateResult?.releaseNotes}
         <div
@@ -2433,26 +2475,100 @@
           {updateResult.releaseNotes}
         </div>
       {/if}
-      <div class="flex items-center justify-end gap-2">
+      {#if installingUpdate || updateProgress}
+        <div
+          class="mb-4 p-3 rounded-xl space-y-2"
+          style="background-color: var(--md-sys-color-surface-container);"
+        >
+          <div class="flex items-center justify-between text-xs font-medium">
+            <span>
+              {#if updateProgress?.status === 'installing'}
+                {tr(lang, 'nav.installingUpdate')}
+              {:else if updateProgress?.status === 'restarting'}
+                {tr(lang, 'nav.restartingApp')}
+              {:else}
+                {tr(lang, 'nav.downloadingUpdate')}
+              {/if}
+            </span>
+            <span>{updateProgress?.progress ?? 0}%</span>
+          </div>
+          <div
+            class="h-1.5 w-full rounded-full overflow-hidden"
+            style="background-color: var(--md-sys-color-surface-container-highest);"
+          >
+            <div
+              class="h-full rounded-full transition-all duration-200"
+              style="width: {Math.max(0, Math.min(100, updateProgress?.progress ?? 0))}%; background-color: var(--md-sys-color-primary);"
+            ></div>
+          </div>
+        </div>
+      {/if}
+      {#if updateError}
+        <p class="text-xs mb-4" style="color: var(--md-sys-color-error);">
+          {updateError}
+        </p>
+      {/if}
+      <div class="flex items-center justify-end gap-2 flex-wrap">
         <button
           type="button"
+          disabled={installingUpdate}
           onclick={() => (showUpdateModal = false)}
-          class="m3-btn-tonal px-4 py-2 text-xs font-semibold rounded-full cursor-pointer"
+          class="m3-btn-tonal px-4 py-2 text-xs font-semibold rounded-full cursor-pointer disabled:opacity-40"
         >
           {tr(lang, 'nav.later')}
         </button>
-        <button
-          type="button"
-          onclick={() => {
-            if (updateResult) {
-              api.openExternalUrl(updateResult.downloadUrl || updateResult.releaseUrl);
-            }
-            showUpdateModal = false;
-          }}
-          class="m3-btn-filled px-5 py-2 text-xs font-semibold rounded-full cursor-pointer"
-        >
-          {tr(lang, 'nav.downloadUpdate')}
-        </button>
+        {#if updateResult?.isStoreApp}
+          <button
+            type="button"
+            onclick={() => {
+              if (updateResult) {
+                api.openExternalUrl(updateResult.storeUrl || 'ms-windows-store://pdp/?ProductId=9PN43QQ19SS9');
+              }
+              showUpdateModal = false;
+            }}
+            class="m3-btn-filled px-5 py-2 text-xs font-semibold rounded-full cursor-pointer"
+          >
+            {tr(lang, 'nav.openMicrosoftStore')}
+          </button>
+        {:else}
+          {#if updateResult?.storeUrl}
+            <button
+              type="button"
+              disabled={installingUpdate}
+              onclick={() => {
+                if (updateResult?.storeUrl) {
+                  api.openExternalUrl(updateResult.storeUrl);
+                }
+              }}
+              class="m3-btn-tonal px-4 py-2 text-xs font-semibold rounded-full cursor-pointer disabled:opacity-40"
+            >
+              {tr(lang, 'nav.openMicrosoftStore')}
+            </button>
+          {/if}
+          {#if updateResult?.downloadUrl}
+            <button
+              type="button"
+              disabled={installingUpdate}
+              onclick={handleInstallUpdate}
+              class="m3-btn-filled px-5 py-2 text-xs font-semibold rounded-full cursor-pointer disabled:opacity-50"
+            >
+              {tr(lang, 'nav.installAndRestart')}
+            </button>
+          {:else}
+            <button
+              type="button"
+              onclick={() => {
+                if (updateResult) {
+                  api.openExternalUrl(updateResult.releaseUrl);
+                }
+                showUpdateModal = false;
+              }}
+              class="m3-btn-filled px-5 py-2 text-xs font-semibold rounded-full cursor-pointer"
+            >
+              {tr(lang, 'nav.downloadUpdate')}
+            </button>
+          {/if}
+        {/if}
       </div>
     </ModalDialog>
     <ModalDialog

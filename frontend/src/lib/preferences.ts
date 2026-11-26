@@ -536,6 +536,18 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
     fr: ['Adresse distante', 'Ouvrez cette adresse dans le navigateur d’un autre appareil pour contrôler la lecture.'],
     es: ['Dirección remota', 'Abre esta dirección en el navegador de otro dispositivo para controlar la reproducción.']
   },
+  'integrations.discord.enabled': {
+    en: ['Discord Rich Presence', 'Show the song you are currently listening to on your Discord profile status.'],
+    id: ['Discord Rich Presence', 'Tampilkan lagu yang sedang didengarkan beserta bar durasi di status profil Discord.'],
+    ms: ['Discord Rich Presence', 'Paparkan lagu yang sedang didengar pada status profil Discord anda.'],
+    ja: ['Discord Rich Presence', '再生中の楽曲と再生バーをDiscordのプロフィールステータスに表示します。'],
+    ko: ['Discord Rich Presence', '현재 듣고 있는 곡과 진행 바를 Discord 프로필 상태에 표시합니다.'],
+    hi: ['Discord Rich Presence', 'आप जो गाना सुन रहे हैं उसे अपनी Discord प्रोफ़ाइल स्थिति पर दिखाएं।'],
+    pt: ['Discord Rich Presence', 'Mostra a música que você está ouvindo no status do seu perfil do Discord.'],
+    de: ['Discord Rich Presence', 'Zeigt den aktuell gehörten Song in deinem Discord-Profilstatus an.'],
+    fr: ['Discord Rich Presence', 'Affiche le titre en cours d’écoute sur votre statut de profil Discord.'],
+    es: ['Discord Rich Presence', 'Muestra la canción que estás escuchando en el estado de tu perfil de Discord.']
+  },
 
   'system.mediaKeys': {
     en: ['Media keys', 'Play, pause, next, and previous keys on keyboard or headset work from any window.'],
@@ -1414,6 +1426,15 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     group: 'grp.keysShortcuts',
     title: 'Media keys',
     description: 'Hardware play/pause/next/prev keys.',
+    widget: 'toggle',
+    defaultValue: 'true'
+  },
+  {
+    id: 'integrations.discord.enabled',
+    category: 'system',
+    group: 'grp.integrations',
+    title: 'Discord Rich Presence',
+    description: 'Show the song you are currently listening to on your Discord profile status.',
     widget: 'toggle',
     defaultValue: 'true'
   },

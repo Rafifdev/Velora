@@ -1,19 +1,22 @@
 <script lang="ts">
   import { extractDominantColor, formatDuration, formatTotalMinutes, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
   import { veloraMarquee } from '../lib/marquee';
-  import type { Playlist, PlaylistDetail, Track, ViewRoute, YTMusicTrack } from '../lib/types';
+  import type { DownloadGroup, Playlist, PlaylistDetail, Track, ViewRoute, YTMusicTrack } from '../lib/types';
   import { tr, type LangCode } from '../lib/i18n';
   import CoverImage from '../components/CoverImage.svelte';
+  import DownloadedBadge from '../components/DownloadedBadge.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import EqIndicator from '../components/EqIndicator.svelte';
   import Icon from '../components/Icon.svelte';
   import ModalDialog from '../components/ModalDialog.svelte';
+  import Skeleton from '../components/Skeleton.svelte';
   import TrackActionMenu from '../components/TrackActionMenu.svelte';
 
   interface Props {
     mode: 'playlists' | 'local-playlists' | 'playlist-detail';
     playlists: Playlist[];
     playlistsLoading?: boolean;
+    downloadedGroupKeys?: Set<string>;
     detail: PlaylistDetail | null;
     detailLoading?: boolean;
     allTracks: Track[];
@@ -45,10 +48,10 @@
     onAddToQueue?: (track: Track) => void;
     onCopyLink?: (track: Track) => void;
     onDownloadTrack?: (track: Track) => void;
+    onDownloadCollection?: (group: DownloadGroup, tracks: Track[]) => void;
     onRemoveDownload?: (trackId: number) => void;
     onOpenArtist?: (artistId: number) => void;
     onOpenTrackAlbum?: (track: Track) => void;
-    onExportM3U: (playlistId: number) => void;
     onImportM3U: () => void;
     onImportSpotify?: (url: string) => Promise<void>;
     activeDownloadsCount?: number;
@@ -62,6 +65,7 @@
     mode,
     playlists,
     playlistsLoading = false,
+    downloadedGroupKeys = new Set<string>(),
     detail,
     detailLoading = false,
     allTracks,
@@ -93,10 +97,10 @@
     onAddToQueue,
     onCopyLink,
     onDownloadTrack,
+    onDownloadCollection,
     onRemoveDownload,
     onOpenArtist,
     onOpenTrackAlbum,
-    onExportM3U,
     onImportM3U,
     onImportSpotify,
     activeDownloadsCount = 0,
@@ -110,7 +114,7 @@
   let editName = $state('');
   let editDesc = $state('');
   let dragIndex = $state<number | null>(null);
-  let tabFilter = $state<'all' | 'local' | 'ytmusic'>('all');
+  let tabFilter = $state<'all' | 'local' | 'ytmusic' | 'downloaded'>('all');
   let playlistQuery = $state('');
   let mobileSearchOpen = $state(false);
   let recSeed = $state(Math.floor(Math.random() * 100000));
@@ -232,12 +236,20 @@
     }).format(d);
   }
 
+  function isPlaylistDownloaded(p: Playlist): boolean {
+    if (downloadedGroupKeys.has(`playlist:${p.id}`)) return true;
+    if (p.externalId && downloadedGroupKeys.has(`playlist:${p.externalId}`)) return true;
+    return false;
+  }
+
   const visiblePlaylists = $derived(
     playlists.filter((p) => {
       if (mode === 'local-playlists' || tabFilter === 'local') {
         if (!p.isLocal) return false;
-      } else if (tabFilter === 'ytmusic' && p.isLocal) {
-        return false;
+      } else if (tabFilter === 'ytmusic') {
+        if (p.isLocal) return false;
+      } else if (tabFilter === 'downloaded') {
+        if (!isPlaylistDownloaded(p)) return false;
       }
       const q = playlistQuery.trim().toLowerCase();
       if (q && !p.name.toLowerCase().includes(q) && !(p.description || '').toLowerCase().includes(q)) {
@@ -348,29 +360,7 @@
         </div>
         <div></div>
       </div>
-      <div class="space-y-1.5">
-        {#each [62, 48, 70, 54, 66, 44, 58] as titleW, idx (idx)}
-          <div class="-mx-2 grid grid-cols-[minmax(0,1fr)_52px_32px] md:grid-cols-[minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] gap-4 px-3 py-2 items-center rounded-lg">
-            <div class="flex items-center gap-3 min-w-0">
-              <div class="w-10 h-10 rounded-md bg-[var(--md-sys-color-surface-container-highest)] shrink-0"></div>
-              <div class="space-y-1.5 min-w-0 flex-1">
-                <div class="h-3.5 rounded bg-[var(--md-sys-color-surface-container-highest)]" style="width: {titleW}%;"></div>
-                <div class="h-2.5 w-28 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
-              </div>
-            </div>
-            <div class="hidden md:block">
-              <div class="h-3 w-14 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
-            </div>
-            <div class="hidden md:block">
-              <div class="h-3 w-20 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
-            </div>
-            <div class="flex justify-end pr-1">
-              <div class="h-3 w-8 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
-            </div>
-            <div></div>
-          </div>
-        {/each}
-      </div>
+      <Skeleton variant="track-rows" count={7} />
     </div>
   </div>
 {:else if mode === 'playlist-detail' && detail}
@@ -516,16 +506,34 @@
                 {/if}
               </button>
 
-              {#if pl.isLocal}
+              {#if (onDownloadCollection || onDownloadTrack)}
+                {@const allPlDownloaded = detail.tracks.length > 0 && detail.tracks.every((t) => t.isDownloaded)}
                 <button
                   type="button"
-                  onclick={() => onExportM3U(pl.id)}
-                  title="Export .M3U"
-                  aria-label="Export .M3U"
-                  class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors"
-                  style="color: var(--md-sys-color-on-surface);"
+                  disabled={detail.tracks.length === 0}
+                  onclick={() => {
+                    if (onDownloadCollection) {
+                      onDownloadCollection(
+                        {
+                          key: `playlist:${pl.id}`,
+                          title: pl.name,
+                          cover: pl.coverUrl || detail.tracks.find((t) => t.coverUrl)?.coverUrl || '',
+                          kind: 'playlist'
+                        },
+                        detail.tracks
+                      );
+                    } else if (onDownloadTrack) {
+                      for (const t of detail.tracks) {
+                        if (!t.isDownloaded) onDownloadTrack(t);
+                      }
+                    }
+                  }}
+                  title={allPlDownloaded ? tr(lang, 'nav.downloaded') : tr(lang, 'nav.downloadOffline')}
+                  aria-label={allPlDownloaded ? tr(lang, 'nav.downloaded') : tr(lang, 'nav.downloadOffline')}
+                  class="velora-press w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors disabled:opacity-40"
+                  style="color: {allPlDownloaded ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-on-surface)'};"
                 >
-                  <Icon name="download" size={18} />
+                  <Icon name={allPlDownloaded ? 'check-circle' : 'download'} weight={allPlDownloaded ? 'fill' : 'regular'} size={18} />
                 </button>
               {/if}
 
@@ -545,16 +553,34 @@
 
         <div class="sm:hidden flex items-center justify-between gap-3">
           <div class="flex items-center gap-3">
-            {#if pl.isLocal}
+            {#if (onDownloadCollection || onDownloadTrack)}
+              {@const allPlDownloaded = detail.tracks.length > 0 && detail.tracks.every((t) => t.isDownloaded)}
               <button
                 type="button"
-                onclick={() => onExportM3U(pl.id)}
-                title="Export .M3U"
-                aria-label="Export .M3U"
-                class="min-w-11 min-h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors"
-                style="color: var(--md-sys-color-on-surface);"
+                disabled={detail.tracks.length === 0}
+                onclick={() => {
+                  if (onDownloadCollection) {
+                    onDownloadCollection(
+                      {
+                        key: `playlist:${pl.id}`,
+                        title: pl.name,
+                        cover: pl.coverUrl || detail.tracks.find((t) => t.coverUrl)?.coverUrl || '',
+                        kind: 'playlist'
+                      },
+                      detail.tracks
+                    );
+                  } else if (onDownloadTrack) {
+                    for (const t of detail.tracks) {
+                      if (!t.isDownloaded) onDownloadTrack(t);
+                    }
+                  }
+                }}
+                title={allPlDownloaded ? tr(lang, 'nav.downloaded') : tr(lang, 'nav.downloadOffline')}
+                aria-label={allPlDownloaded ? tr(lang, 'nav.downloaded') : tr(lang, 'nav.downloadOffline')}
+                class="velora-press min-w-11 min-h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors disabled:opacity-40"
+                style="color: {allPlDownloaded ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-on-surface)'};"
               >
-                <Icon name="download" size={18} />
+                <Icon name={allPlDownloaded ? 'check-circle' : 'download'} weight={allPlDownloaded ? 'fill' : 'regular'} size={18} />
               </button>
             {/if}
 
@@ -990,13 +1016,14 @@
         {#each [
           { id: 'all', label: tr(lang, 'nav.all') },
           { id: 'ytmusic', label: tr(lang, 'nav.savedPlaylists') },
-          { id: 'local', label: tr(lang, 'nav.localPlaylists') }
+          { id: 'local', label: tr(lang, 'nav.localPlaylists') },
+          { id: 'downloaded', label: tr(lang, 'nav.downloaded') }
         ] as tab (tab.id)}
           <button
             type="button"
             onclick={(e) => {
               (e.currentTarget as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
-              tabFilter = tab.id as 'all' | 'local' | 'ytmusic';
+              tabFilter = tab.id as 'all' | 'local' | 'ytmusic' | 'downloaded';
             }}
             class="shrink-0 whitespace-nowrap min-h-9 px-4 py-1.5 rounded-full text-xs font-semibold cursor-pointer transition-all hover:brightness-110"
             style={tabFilter === tab.id
@@ -1009,15 +1036,7 @@
       </div>
 
       {#if playlistsLoading && playlists.length === 0}
-        <div class="velora-playlist-grid-7 animate-pulse">
-          {#each Array.from({ length: 14 }) as _, idx (idx)}
-            <div class="w-full min-w-0 flex flex-col gap-2.5 p-2.5">
-              <div class="velora-card-artwork bg-[var(--md-sys-color-surface-container-highest)]"></div>
-              <div class="h-3.5 w-3/4 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
-              <div class="h-2.5 w-1/2 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
-            </div>
-          {/each}
-        </div>
+        <Skeleton variant="card-grid" count={14} gridClass="velora-playlist-grid-7" />
       {:else if visiblePlaylists.length === 0}
         <EmptyState
           icon="playlist"
@@ -1050,7 +1069,7 @@
                   class="min-w-0 flex-1 flex items-center gap-3.5 text-left cursor-pointer"
                 >
                   <div
-                    class="w-14 h-14 rounded-xl overflow-hidden shrink-0 flex items-center justify-center shadow-sm"
+                    class="relative w-14 h-14 rounded-xl overflow-hidden shrink-0 flex items-center justify-center shadow-sm"
                     style={cover
                       ? 'background-color: var(--md-sys-color-surface-container-high);'
                       : `background: linear-gradient(135deg, color-mix(in srgb, ${cardTint} 55%, var(--md-sys-color-primary-container)) 0%, color-mix(in srgb, ${cardTint} 85%, var(--md-sys-color-surface-container-highest)) 100%);`}
@@ -1059,6 +1078,9 @@
                       <CoverImage src={cover} fallbackIcon="playlist" iconSize={24} isVideoThumb={isYTVideoThumb(cover)} />
                     {:else}
                       <Icon name="playlist" weight="fill" size={24} class="text-white/95" />
+                    {/if}
+                    {#if isPlaylistDownloaded(pl)}
+                      <DownloadedBadge title={tr(lang, 'nav.downloaded')} class="top-1 right-1 !w-5 !h-5" />
                     {/if}
                   </div>
 
@@ -1118,6 +1140,9 @@
                     <Icon name="playlist" weight="fill" size={44} class="text-white/95 drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]" />
                   {/if}
                 </button>
+                {#if isPlaylistDownloaded(pl)}
+                  <DownloadedBadge title={tr(lang, 'nav.downloaded')} />
+                {/if}
                 <button
                   type="button"
                   onclick={() => (onPlayPlaylist ? onPlayPlaylist(pl.id) : onOpenPlaylist(pl.id))}

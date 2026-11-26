@@ -74,7 +74,6 @@
     { id: 'liked-songs', label: tr(lang, 'nav.favoriteMusic'), icon: 'music-note' },
     { id: 'favorite-artists', label: tr(lang, 'nav.favoriteArtists'), icon: 'user' },
     { id: 'playlists', label: tr(lang, 'nav.playlists'), icon: 'playlist', count: playlistsCount },
-    { id: 'downloaded', label: tr(lang, 'nav.downloaded'), icon: 'download', count: downloadedCount },
     { id: 'history', label: tr(lang, 'nav.history'), icon: 'clock-counter-clockwise' },
     { id: 'listening-stats', label: tr(lang, 'nav.stats'), icon: 'chart-bar' }
   ]);
@@ -82,7 +81,11 @@
   function isActive(name: string): boolean {
     if (name === 'home') return currentRoute.name === 'home';
     if (name === 'favorite-albums') {
-      return currentRoute.name === 'favorite-albums' || currentRoute.name === 'album-detail';
+      return (
+        currentRoute.name === 'favorite-albums' ||
+        currentRoute.name === 'album-detail' ||
+        (currentRoute.name === 'yt-album-detail' && currentRoute.kind !== 'playlist')
+      );
     }
     if (name === 'favorite-artists') {
       return currentRoute.name === 'favorite-artists' || currentRoute.name === 'artist-detail';
@@ -91,7 +94,8 @@
       return (
         currentRoute.name === 'playlists' ||
         currentRoute.name === 'local-playlists' ||
-        currentRoute.name === 'playlist-detail'
+        currentRoute.name === 'playlist-detail' ||
+        (currentRoute.name === 'yt-album-detail' && currentRoute.kind === 'playlist')
       );
     }
     if (name === 'history') {

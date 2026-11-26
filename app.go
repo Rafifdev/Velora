@@ -24,6 +24,7 @@ import (
 
 	"velora/internal/audio"
 	"velora/internal/db"
+	"velora/internal/discord"
 	"velora/internal/jam"
 	"velora/internal/sources"
 	"velora/internal/stats"
@@ -57,6 +58,7 @@ type App struct {
 	deezerClient  *sources.DeezerClient
 	downloader    *sources.DownloadManager
 	jamSrv       *jam.Server
+	discordRPC   *discord.Client
 	frontendFS   fs.FS
 	trayIcon     []byte
 	trayCtrl     *tray.Controller
@@ -119,20 +121,26 @@ func (a *App) startup(ctx context.Context) {
 	a.ytClient = sources.NewYTMusicClient()
 	a.spotifyClient = sources.NewSpotifyClient()
 	a.deezerClient = sources.NewDeezerClient()
+	discordEnabled := true
+	discordClientID := ""
 	if prefs, pErr := a.store.GetPreferences(); pErr == nil {
 		a.closeToTray.Store(prefs["system.closeToTray"] == "true")
 		a.spotifyClient.SetCredentials(prefs["integrations.spotify.clientId"], prefs["integrations.spotify.clientSecret"])
+		discordEnabled = prefs["integrations.discord.enabled"] != "false"
+		discordClientID = prefs["integrations.discord.clientId"]
 		lang := prefs["content.language"]
 		if strings.TrimSpace(lang) == "" {
 			lang = detectSystemLanguage()
 		}
 		a.applyContentLocale(prefs["content.country"], lang)
 	}
+	a.discordRPC = discord.NewClient(discordEnabled, discordClientID)
 	a.downloader = sources.NewDownloadManager(store, a.ytClient, a.downloadsDir, func(eventName string, data any) {
 		if a.ctx != nil {
 			runtime.EventsEmit(a.ctx, eventName, data)
 		}
 	})
+	a.downloader.SetTrackResolver(a.ensureTrackPlayableExternalID)
 	a.startYTMusicHomePrefetch()
 	go a.ensureStoreDesktopShortcut()
 	a.player = audio.NewPlayerController(store, a.ytClient, a.artworkDir)
@@ -449,7 +457,13 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 func (a *App) shutdown(ctx context.Context) {
 	setSystemKeepAwake(false)
 	var wg sync.WaitGroup
-	wg.Add(4)
+	wg.Add(5)
+	go func() {
+		defer wg.Done()
+		if a.discordRPC != nil {
+			a.discordRPC.Shutdown()
+		}
+	}()
 	go func() {
 		defer wg.Done()
 		a.shutdownTaskbar()
@@ -1512,6 +1526,12 @@ func (a *App) SavePreferences(prefs map[string]string) error {
 	if v, ok := prefs["system.closeToTray"]; ok {
 		a.closeToTray.Store(strings.EqualFold(strings.TrimSpace(v), "true"))
 	}
+	if v, ok := prefs["integrations.discord.enabled"]; ok && a.discordRPC != nil {
+		a.discordRPC.SetEnabled(!strings.EqualFold(strings.TrimSpace(v), "false"))
+	}
+	if id, ok := prefs["integrations.discord.clientId"]; ok && a.discordRPC != nil {
+		a.discordRPC.SetClientID(id)
+	}
 	if daysStr, ok := prefs["privacy.historyDays"]; ok {
 		if d, err := strconv.Atoi(daysStr); err == nil && d > 0 {
 			_ = a.store.PrunePlayHistory(d)
@@ -1612,6 +1632,8 @@ type UpdateCheckResult struct {
 	HasUpdate      bool   `json:"hasUpdate"`
 	ReleaseURL     string `json:"releaseUrl"`
 	DownloadURL    string `json:"downloadUrl"`
+	StoreURL       string `json:"storeUrl"`
+	IsStoreApp     bool   `json:"isStoreApp"`
 	ReleaseNotes   string `json:"releaseNotes"`
 	PublishedAt    string `json:"publishedAt"`
 }
@@ -1707,20 +1729,93 @@ func isNewerVersion(latest, current string) bool {
 	return false
 }
 
-func (a *App) CheckForUpdates() (UpdateCheckResult, error) {
+const veloraLatestReleaseAPI = "https://api.github.com/repos/Rafifdev/Velora/releases/latest"
+
+type githubReleaseAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+}
+
+type githubReleasePayload struct {
+	TagName     string               `json:"tag_name"`
+	HTMLURL     string               `json:"html_url"`
+	Body        string               `json:"body"`
+	PublishedAt string               `json:"published_at"`
+	Assets      []githubReleaseAsset `json:"assets"`
+}
+
+func selectWindowsUpdateAsset(assets []githubReleaseAsset) string {
+	var fallbackSetup string
+	for _, asset := range assets {
+		lower := strings.ToLower(strings.TrimSpace(asset.Name))
+		if !strings.HasSuffix(lower, ".exe") || strings.TrimSpace(asset.BrowserDownloadURL) == "" {
+			continue
+		}
+		if lower == "velora.exe" || (!strings.Contains(lower, "setup") && !strings.Contains(lower, "installer")) {
+			return strings.TrimSpace(asset.BrowserDownloadURL)
+		}
+		if fallbackSetup == "" {
+			fallbackSetup = strings.TrimSpace(asset.BrowserDownloadURL)
+		}
+	}
+	return fallbackSetup
+}
+
+func checkForUpdatesFromURL(endpoint string) (UpdateCheckResult, error) {
 	storeURL := getMicrosoftStoreURL()
+	storeApp := isStorePackage()
 	res := UpdateCheckResult{
 		CurrentVersion: veloraAppVersion,
 		LatestVersion:  veloraAppVersion,
-		ReleaseURL:     storeURL,
-		DownloadURL:    storeURL,
+		ReleaseURL:     "https://github.com/Rafifdev/Velora/releases/latest",
+		StoreURL:       storeURL,
+		IsStoreApp:     storeApp,
 	}
-	if storeURL != "" {
-		if err := a.OpenExternalURL(storeURL); err != nil {
-			return res, err
-		}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return res, err
 	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "Velora/"+veloraAppVersion)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return res, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return res, fmt.Errorf("release check failed with HTTP %d", resp.StatusCode)
+	}
+
+	var payload githubReleasePayload
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return res, err
+	}
+
+	latest := strings.TrimPrefix(strings.TrimSpace(payload.TagName), "v")
+	latest = strings.TrimPrefix(latest, "V")
+	if latest != "" {
+		res.LatestVersion = latest
+	}
+	if strings.TrimSpace(payload.HTMLURL) != "" {
+		res.ReleaseURL = strings.TrimSpace(payload.HTMLURL)
+	}
+	res.ReleaseNotes = strings.TrimSpace(payload.Body)
+	res.PublishedAt = strings.TrimSpace(payload.PublishedAt)
+	res.DownloadURL = selectWindowsUpdateAsset(payload.Assets)
+	res.HasUpdate = isNewerVersion(res.LatestVersion, veloraAppVersion)
 	return res, nil
+}
+
+func (a *App) CheckForUpdates() (UpdateCheckResult, error) {
+	return checkForUpdatesFromURL(veloraLatestReleaseAPI)
+}
+
+func (a *App) InstallUpdate(downloadURL string) error {
+	return installAndRestartWindows(a, downloadURL)
 }
 
 func (a *App) OpenDataFolder() error {
@@ -1817,20 +1912,23 @@ func (a *App) WindowClose() {
 	go a.forceQuitApp()
 }
 
+type DownloadCollectionItem struct {
+	TrackID     int64  `json:"trackId"`
+	ExternalID  string `json:"externalId"`
+	Title       string `json:"title"`
+	Artist      string `json:"artist"`
+	Album       string `json:"album"`
+	DurationSec int    `json:"durationSec"`
+	CoverURL    string `json:"coverUrl"`
+	Format      string `json:"format"`
+}
+
 func (a *App) DownloadTrack(trackID int64) (db.Track, error) {
 	tr, err := a.store.GetTrackByID(trackID)
 	if err != nil {
 		return db.Track{}, err
 	}
-	ctx := a.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if resolved, rErr := a.ensureTrackPlayableExternalID(ctx, tr); rErr == nil {
-		tr = resolved
-	} else if isHybridTrackID(tr.ExternalID) {
-		return db.Track{}, rErr
-	}
+	a.store.ClearTrackDownloadGroup(tr.ID)
 	return a.downloader.Enqueue(tr)
 }
 
@@ -1839,20 +1937,59 @@ func (a *App) DownloadYTMusicTrack(yt sources.YTMusicTrack) (db.Track, error) {
 	if err != nil {
 		return db.Track{}, err
 	}
-	ctx := a.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if resolved, rErr := a.ensureTrackPlayableExternalID(ctx, tr); rErr == nil {
-		tr = resolved
-	} else if isHybridTrackID(tr.ExternalID) {
-		return db.Track{}, rErr
-	}
+	a.store.ClearTrackDownloadGroup(tr.ID)
 	return a.downloader.Enqueue(tr)
+}
+
+func (a *App) DownloadCollection(group sources.DownloadGroup, items []DownloadCollectionItem) (int, error) {
+	if len(items) == 0 {
+		return 0, nil
+	}
+	batch := make([]db.Track, 0, len(items))
+	for _, it := range items {
+		if it.TrackID > 0 {
+			if tr, err := a.store.GetTrackByID(it.TrackID); err == nil {
+				batch = append(batch, tr)
+			}
+			continue
+		}
+		if strings.TrimSpace(it.ExternalID) != "" {
+			tr, err := a.SaveYTMusicTrack(sources.YTMusicTrack{
+				VideoID:     it.ExternalID,
+				Title:       it.Title,
+				Artist:      it.Artist,
+				Album:       it.Album,
+				DurationSec: it.DurationSec,
+				CoverURL:    it.CoverURL,
+				Format:      it.Format,
+			})
+			if err == nil {
+				batch = append(batch, tr)
+			}
+		}
+	}
+	if len(batch) == 0 {
+		return 0, nil
+	}
+	a.downloader.EnqueueBatch(batch, group)
+	return len(batch), nil
+}
+
+func (a *App) CancelDownloadGroup(groupKey string) {
+	a.downloader.CancelGroup(groupKey)
 }
 
 func (a *App) RemoveDownloadedTrack(trackID int64) (db.Track, error) {
 	return a.downloader.Remove(trackID)
+}
+
+func (a *App) RemoveDownloadedTracks(trackIDs []int64) error {
+	for _, id := range trackIDs {
+		if id > 0 {
+			_, _ = a.downloader.Remove(id)
+		}
+	}
+	return nil
 }
 
 func (a *App) CancelDownload(trackID int64) {
@@ -1913,6 +2050,32 @@ func (a *App) GetJamStatus() jam.Status {
 func (a *App) UpdateJamState(snap jam.PlaybackSnapshot) {
 	if a.jamSrv != nil {
 		a.jamSrv.UpdateState(snap)
+	}
+}
+
+func (a *App) syncDiscordPresence(p DynamicIslandSyncPayload) {
+	if a.discordRPC == nil {
+		return
+	}
+	extID := ""
+	if p.QueueIndex >= 0 && p.QueueIndex < len(p.Queue) {
+		extID = p.Queue[p.QueueIndex].ExternalID
+	}
+	a.discordRPC.UpdatePresence(discord.TrackPresence{
+		Title:       p.Title,
+		Artist:      p.Artist,
+		Album:       p.Album,
+		CoverURL:    p.CoverURL,
+		ExternalID:  extID,
+		IsPlaying:   p.IsPlaying,
+		PositionSec: p.PositionSec,
+		DurationSec: p.DurationSec,
+	})
+}
+
+func (a *App) updateDiscordProgress(positionSec, durationSec float64) {
+	if a.discordRPC != nil {
+		a.discordRPC.UpdateProgress(positionSec, durationSec)
 	}
 }
 

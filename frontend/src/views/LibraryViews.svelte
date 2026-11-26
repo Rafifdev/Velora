@@ -1,11 +1,13 @@
 <script lang="ts">
-  import { formatDuration, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
+  import { formatDuration, groupActiveDownloads, groupCompletedDownloads, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
   import type { Album, Artist, DownloadProgress, Playlist, Track, ViewRoute, YTMusicArtistView, YTMusicCard, YTMusicTrack } from '../lib/types';
   import { tr, type LangCode } from '../lib/i18n';
   import CoverImage from '../components/CoverImage.svelte';
+  import DownloadedBadge from '../components/DownloadedBadge.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import EqIndicator from '../components/EqIndicator.svelte';
   import Icon from '../components/Icon.svelte';
+  import Skeleton from '../components/Skeleton.svelte';
   import TrackTable from '../components/TrackTable.svelte';
 
   interface Props {
@@ -35,6 +37,7 @@
     searchStart?: 'song' | 'album' | 'artist' | 'playlist' | 'video';
     playlists: Playlist[];
     downloadStates?: Record<number, DownloadProgress>;
+    downloadedGroupKeys?: Set<string>;
     currentTrackId: number | null;
     currentExternalId?: string | null;
     currentTrackTitle?: string | null;
@@ -68,7 +71,9 @@
     onDownloadTrack?: (track: Track) => void;
     onDownloadYTMusic?: (yt: YTMusicTrack) => void;
     onRemoveDownload?: (trackId: number) => void;
+    onRemoveDownloadGroup?: (tracks: Track[]) => void;
     onCancelDownload?: (trackId: number) => void;
+    onCancelDownloadGroup?: (groupKey: string, trackIds: number[]) => void;
     onOpenAlbum: (albumId: number) => void;
     onOpenArtist: (artistId: number) => void;
     onOpenYTMusicAlbum?: (yt: YTMusicTrack) => void;
@@ -100,6 +105,7 @@
     searchStart = 'song',
     playlists,
     downloadStates = {},
+    downloadedGroupKeys = new Set<string>(),
     currentTrackId,
     currentExternalId = null,
     currentTrackTitle = null,
@@ -133,7 +139,9 @@
     onDownloadTrack,
     onDownloadYTMusic,
     onRemoveDownload,
+    onRemoveDownloadGroup,
     onCancelDownload,
+    onCancelDownloadGroup,
     onOpenAlbum,
     onOpenArtist,
     onOpenYTMusicAlbum,
@@ -193,11 +201,27 @@
   let prevSearchMode = false;
   let albumsScrolled = $state(false);
   let artistsScrolled = $state(false);
+  let downloadCategoryFilter = $state<'all' | 'music' | 'album' | 'playlist'>('all');
   const downloadedTracks = $derived(tracks.filter((t) => t.isDownloaded));
   const activeDownloads = $derived(
     Object.values(downloadStates).filter(
       (d) => d.status === 'queued' || d.status === 'downloading' || d.status === 'failed'
     )
+  );
+  const groupedActiveDownloads = $derived(groupActiveDownloads(activeDownloads));
+  const groupedCompletedDownloads = $derived(
+    groupCompletedDownloads(downloadedTracks, [], activeDownloads)
+  );
+  const downloadCategoryCounts = $derived({
+    all: groupedCompletedDownloads.length,
+    music: groupedCompletedDownloads.filter((e) => e.kind === 'music').length,
+    album: groupedCompletedDownloads.filter((e) => e.kind === 'album').length,
+    playlist: groupedCompletedDownloads.filter((e) => e.kind === 'playlist').length
+  });
+  const filteredCompletedDownloads = $derived(
+    downloadCategoryFilter === 'all'
+      ? groupedCompletedDownloads
+      : groupedCompletedDownloads.filter((e) => e.kind === downloadCategoryFilter)
   );
 
   $effect(() => {
@@ -517,16 +541,33 @@
       class="relative z-10 px-6 sm:px-8 pt-5 pb-8 flex-1 flex flex-col gap-5"
       style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-primary-container) 48%, var(--md-sys-color-surface-container-low)) 0%, color-mix(in srgb, var(--md-sys-color-primary-container) 28%, var(--md-sys-color-surface-container-low)) 120px, color-mix(in srgb, var(--md-sys-color-primary-container) 11%, var(--md-sys-color-surface-container-low)) 240px, var(--md-sys-color-surface-container-low) 340px);"
     >
-      {#if activeDownloads.length > 0}
-        <div class="rounded-xl p-4 space-y-2.5 bg-[var(--md-sys-color-surface-container)]">
+      {#if groupedActiveDownloads.length > 0}
+        <div class="rounded-xl p-4 space-y-3 bg-[var(--md-sys-color-surface-container)]">
           <div class="text-xs font-bold uppercase tracking-wider text-[var(--md-sys-color-primary)]">
-            {tr(lang, 'nav.downloading')} ({activeDownloads.length})
+            {tr(lang, 'nav.downloading')} ({groupedActiveDownloads.length})
           </div>
-          {#each activeDownloads as dl (dl.trackId)}
+          {#each groupedActiveDownloads as dl (dl.key)}
+            {@const pct = Math.max(0, Math.min(100, Math.round(dl.progress || 0)))}
+            {@const dlCover = dl.coverUrl ? resolveCoverUrl(dl.coverUrl, mediaBaseUrl, 96) : ''}
+            {@const fallbackIcon = dl.kind === 'playlist' ? 'playlist' : dl.kind === 'album' ? 'vinyl-record' : 'music-note'}
             <div class="flex items-center gap-3 text-xs">
+              {#if dl.isGroup || dlCover}
+                <div
+                  class="w-10 h-10 rounded-lg overflow-hidden shrink-0 flex items-center justify-center bg-[var(--md-sys-color-surface-container-highest)]"
+                >
+                  <CoverImage src={dlCover} {fallbackIcon} iconSize={18} isVideoThumb={isYTVideoThumb(dlCover)} />
+                </div>
+              {/if}
               <div class="min-w-0 flex-1">
                 <div class="font-semibold truncate text-[var(--md-sys-color-on-surface)]">
-                  {dl.title} <span class="font-normal opacity-70">• {dl.artist}</span>
+                  {dl.title}
+                  {#if dl.isGroup}
+                    <span class="font-normal opacity-70 tabular-nums">
+                      • {dl.completedCount} / {dl.totalCount} {tr(lang, 'nav.songs').toLowerCase()}
+                    </span>
+                  {:else if dl.subtitle}
+                    <span class="font-normal opacity-70">• {dl.subtitle}</span>
+                  {/if}
                 </div>
                 {#if dl.status === 'failed'}
                   <div class="text-[11px] text-[var(--md-sys-color-error)] mt-0.5 truncate">
@@ -536,22 +577,26 @@
                   <div class="mt-1.5 h-1.5 w-full rounded-full overflow-hidden bg-[var(--md-sys-color-surface-container-highest)]">
                     <div
                       class="h-full rounded-full transition-all duration-200 bg-[var(--md-sys-color-primary)]"
-                      style="width: {Math.max(4, Math.min(100, Math.round(dl.progress || 0)))}%;"
+                      style="width: {Math.max(4, pct)}%;"
                     ></div>
                   </div>
                 {/if}
               </div>
               <span class="tabular-nums text-[11px] font-semibold w-10 text-right text-[var(--md-sys-color-on-surface-variant)]">
-                {dl.status === 'failed' ? 'Error' : `${Math.round(dl.progress || 0)}%`}
+                {dl.status === 'failed' ? 'Error' : `${pct}%`}
               </span>
-              {#if onCancelDownload && dl.status !== 'failed'}
+              {#if dl.isGroup ? onCancelDownloadGroup : onCancelDownload}
                 <button
                   type="button"
-                  onclick={() => onCancelDownload(dl.trackId)}
+                  onclick={() =>
+                    dl.isGroup && onCancelDownloadGroup
+                      ? onCancelDownloadGroup(dl.key, dl.trackIds)
+                      : onCancelDownload?.(dl.trackId)}
                   title={tr(lang, 'nav.cancelDownload')}
-                  class="m3-icon-btn w-7 h-7 flex items-center justify-center cursor-pointer"
+                  aria-label={tr(lang, 'nav.cancelDownload')}
+                  class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer shrink-0"
                 >
-                  <Icon name="x" size={14} />
+                  <Icon name="x" size={16} />
                 </button>
               {/if}
             </div>
@@ -559,7 +604,7 @@
         </div>
       {/if}
 
-      {#if downloadedTracks.length === 0 && activeDownloads.length === 0}
+      {#if groupedCompletedDownloads.length === 0 && groupedActiveDownloads.length === 0}
         <EmptyState
           icon="download"
           iconWeight="fill"
@@ -576,31 +621,99 @@
             {tr(lang, 'nav.exploreSongs')}
           </button>
         </EmptyState>
-      {:else if downloadedTracks.length > 0}
-        <TrackTable
-          tracks={downloadedTracks}
-          {currentTrackId}
-          {currentExternalId}
-          {currentTrackTitle}
-          {currentTrackArtist}
-          {isPlaying}
-          {onTogglePlay}
-          {mediaBaseUrl}
-          {accentColor}
-          {playlists}
-          {downloadStates}
-          {onPlayTrack}
-          {onPlayNext}
-          {onAddToQueue}
-          {onCopyLink}
-          onToggleFavorite={onToggleFavoriteTrack}
-          {onAddToPlaylist}
-          {onDownloadTrack}
-          {onRemoveDownload}
-          {onOpenArtist}
-          {onOpenTrackAlbum}
-          {lang}
-        />
+      {:else if groupedCompletedDownloads.length > 0}
+        <div class="flex flex-wrap items-center gap-2">
+          {#each [
+            { id: 'all', label: tr(lang, 'nav.all'), count: downloadCategoryCounts.all },
+            { id: 'music', label: tr(lang, 'nav.music'), count: downloadCategoryCounts.music },
+            { id: 'album', label: tr(lang, 'nav.album'), count: downloadCategoryCounts.album },
+            { id: 'playlist', label: tr(lang, 'nav.playlist'), count: downloadCategoryCounts.playlist }
+          ] as pill (pill.id)}
+            {@const active = downloadCategoryFilter === pill.id}
+            <button
+              type="button"
+              onclick={() => (downloadCategoryFilter = pill.id as 'all' | 'music' | 'album' | 'playlist')}
+              class="px-4 py-1.5 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+              style={active
+                ? 'background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);'
+                : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);'}
+            >
+              <span>{pill.label}</span>
+              <span class="opacity-70 tabular-nums">{pill.count}</span>
+            </button>
+          {/each}
+        </div>
+
+        <div class="space-y-2">
+          {#each filteredCompletedDownloads as entry (entry.key)}
+            {@const item = entry.primaryTrack}
+            {@const cover = resolveCoverUrl(entry.coverUrl, mediaBaseUrl, 96)}
+            {@const fallbackIcon = entry.kind === 'playlist' ? 'playlist' : entry.kind === 'album' ? 'vinyl-record' : 'music-note'}
+            <div
+              class="rounded-xl px-4 py-3 flex items-center gap-3.5"
+              style="background-color: var(--md-sys-color-surface-container);"
+            >
+              <div
+                class="w-12 h-12 rounded-lg overflow-hidden shrink-0 flex items-center justify-center bg-[var(--md-sys-color-surface-container-highest)]"
+              >
+                <CoverImage src={cover} {fallbackIcon} iconSize={20} isVideoThumb={isYTVideoThumb(cover)} />
+              </div>
+
+              <div class="min-w-0 flex-1 space-y-1">
+                <div class="flex items-center gap-2 min-w-0">
+                  <button
+                    type="button"
+                    onclick={() => onPlayTrack(item, entry.isGroup ? entry.tracks : downloadedTracks)}
+                    class="text-sm font-semibold leading-tight truncate text-left cursor-pointer hover:underline"
+                    style="color: var(--md-sys-color-on-surface);"
+                  >
+                    {entry.title}
+                  </button>
+                  <span
+                    class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide shrink-0"
+                    style="background-color: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface-variant);"
+                  >
+                    {entry.kind === 'album' ? tr(lang, 'nav.album') : entry.kind === 'playlist' ? tr(lang, 'nav.playlist') : tr(lang, 'nav.music')}
+                  </span>
+                </div>
+
+                <div class="text-xs truncate tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
+                  {#if entry.isGroup}
+                    {entry.tracks.length} {tr(lang, 'nav.songs').toLowerCase()}{entry.totalDurationSec > 0 ? ` • ${formatDuration(entry.totalDurationSec)}` : ''}
+                  {:else}
+                    {item.artistName}{item.durationSec > 0 ? ` • ${formatDuration(item.durationSec)}` : ''}{item.format ? ` • ${item.format}` : ''}
+                  {/if}
+                </div>
+              </div>
+
+              <div class="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onclick={() => onPlayTrack(item, entry.isGroup ? entry.tracks : downloadedTracks)}
+                  title={tr(lang, 'nav.play')}
+                  aria-label={tr(lang, 'nav.play')}
+                  class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer shrink-0"
+                >
+                  <Icon name="play" weight="fill" size={15} />
+                </button>
+                {#if entry.isGroup ? onRemoveDownloadGroup : onRemoveDownload}
+                  <button
+                    type="button"
+                    onclick={() =>
+                      entry.isGroup && onRemoveDownloadGroup
+                        ? onRemoveDownloadGroup(entry.tracks)
+                        : onRemoveDownload?.(item.id)}
+                    title={tr(lang, 'nav.removeDownload')}
+                    aria-label={tr(lang, 'nav.removeDownload')}
+                    class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer shrink-0"
+                  >
+                    <Icon name="x" size={16} />
+                  </button>
+                {/if}
+              </div>
+            </div>
+          {/each}
+        </div>
       {/if}
     </div>
   </div>
@@ -692,6 +805,9 @@
                     <Icon name="vinyl-record" weight="fill" size={44} style="color: var(--md-sys-color-on-primary-container); opacity: 0.55;" />
                   {/if}
                 </button>
+                {#if downloadedGroupKeys.has(`album:${al.id}`) || (al.externalId && downloadedGroupKeys.has(`album:${al.externalId}`))}
+                  <DownloadedBadge title={tr(lang, 'nav.downloaded')} class="top-2 right-2" />
+                {/if}
                 <button
                   type="button"
                   onclick={() => (onPlayAlbum ? onPlayAlbum(al.id) : onOpenAlbum(al.id))}
@@ -1025,9 +1141,14 @@
           </h2>
 
           {#if artistTracks.length === 0}
-            <p class="text-xs py-4" style="color: var(--md-sys-color-on-surface-variant);">
-              {tr(lang, 'nav.noPopularTracks')}
-            </p>
+            <EmptyState
+              icon="music-note"
+              iconWeight="regular"
+              iconSize={32}
+              title={tr(lang, 'nav.noPopularTracks')}
+              titleClass="text-sm font-medium"
+              class="py-8 text-center flex flex-col items-center justify-center"
+            />
           {:else}
             <TrackTable
               tracks={visibleTracks}
@@ -1091,6 +1212,9 @@
                 >
                   <div class="velora-card-artwork mb-2.5 flex items-center justify-center bg-[var(--md-sys-color-surface-container-high)]">
                     <CoverImage src={aCover} fallbackIcon="vinyl-record" iconSize={38} />
+                    {#if alb.browseId && downloadedGroupKeys.has(`album:${alb.browseId}`)}
+                      <DownloadedBadge title={tr(lang, 'nav.downloaded')} />
+                    {/if}
                   </div>
                   <div class="text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
                     {alb.title}
@@ -1289,22 +1413,16 @@
 
       {#if activeSearchTab === 'album'}
         {#if ytLoading && ytAlbumResults.length === 0}
-          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 animate-pulse">
-            {#each [0, 1, 2, 3, 4] as idx (idx)}
-              <div class="p-3 rounded-xl space-y-2.5 bg-[var(--md-sys-color-surface-container-high)]">
-                <div class="aspect-square rounded-lg bg-[var(--md-sys-color-surface-container-highest)]"></div>
-                <div class="h-3.5 w-3/4 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
-                <div class="h-3 w-1/2 rounded bg-[var(--md-sys-color-surface-container)]"></div>
-              </div>
-            {/each}
-          </div>
+          <Skeleton variant="card-grid" count={5} />
         {:else if ytAlbumResults.length === 0}
-          <div
-            class="p-6 rounded-xl text-xs flex items-center gap-2"
-            style="background-color: var(--md-sys-color-surface-container-low); color: var(--md-sys-color-on-surface-variant);"
-          >
-            <Icon name="disc" size={16} /> {tr(lang, 'nav.noAlbumResultsHint')}
-          </div>
+          <EmptyState
+            icon="disc"
+            iconWeight="regular"
+            iconSize={28}
+            title={tr(lang, 'nav.noAlbumResultsHint')}
+            titleClass="text-xs font-medium"
+            class="p-6 rounded-xl flex flex-col items-center justify-center text-center bg-[var(--md-sys-color-surface-container-low)]"
+          />
         {:else}
           <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {#each ytAlbumResults as card (card.id)}
@@ -1343,21 +1461,16 @@
         {/if}
       {:else if activeSearchTab === 'artist'}
         {#if ytLoading && ytArtistResults.length === 0}
-          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 animate-pulse">
-            {#each [0, 1, 2, 3, 4] as idx (idx)}
-              <div class="p-3 rounded-xl space-y-2.5 bg-[var(--md-sys-color-surface-container-high)]">
-                <div class="aspect-square rounded-full bg-[var(--md-sys-color-surface-container-highest)]"></div>
-                <div class="h-3.5 w-3/4 mx-auto rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
-              </div>
-            {/each}
-          </div>
+          <Skeleton variant="card-grid" count={5} circle={true} />
         {:else if ytArtistResults.length === 0}
-          <div
-            class="p-6 rounded-xl text-xs flex items-center gap-2"
-            style="background-color: var(--md-sys-color-surface-container-low); color: var(--md-sys-color-on-surface-variant);"
-          >
-            <Icon name="user" size={16} /> {tr(lang, 'nav.noArtistResultsHint')}
-          </div>
+          <EmptyState
+            icon="user"
+            iconWeight="regular"
+            iconSize={28}
+            title={tr(lang, 'nav.noArtistResultsHint')}
+            titleClass="text-xs font-medium"
+            class="p-6 rounded-xl flex flex-col items-center justify-center text-center bg-[var(--md-sys-color-surface-container-low)]"
+          />
         {:else}
           <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {#each ytArtistResults as card (card.id)}
@@ -1378,21 +1491,16 @@
         {/if}
       {:else if activeSearchTab === 'playlist'}
         {#if ytLoading && ytPlaylistResults.length === 0}
-          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 animate-pulse">
-            {#each [0, 1, 2, 3, 4] as idx (idx)}
-              <div class="p-3 rounded-xl space-y-2.5 bg-[var(--md-sys-color-surface-container-high)]">
-                <div class="aspect-square rounded-lg bg-[var(--md-sys-color-surface-container-highest)]"></div>
-                <div class="h-3.5 w-3/4 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
-              </div>
-            {/each}
-          </div>
+          <Skeleton variant="card-grid" count={5} />
         {:else if ytPlaylistResults.length === 0}
-          <div
-            class="p-6 rounded-xl text-xs flex items-center gap-2"
-            style="background-color: var(--md-sys-color-surface-container-low); color: var(--md-sys-color-on-surface-variant);"
-          >
-            <Icon name="playlist" size={16} /> {tr(lang, 'nav.noPlaylistResultsHint')}
-          </div>
+          <EmptyState
+            icon="playlist"
+            iconWeight="regular"
+            iconSize={28}
+            title={tr(lang, 'nav.noPlaylistResultsHint')}
+            titleClass="text-xs font-medium"
+            class="p-6 rounded-xl flex flex-col items-center justify-center text-center bg-[var(--md-sys-color-surface-container-low)]"
+          />
         {:else}
           <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {#each ytPlaylistResults as card (card.id)}
@@ -1593,9 +1701,14 @@
         {tr(lang, 'nav.veloraLibraryResults')} ({searchMatchedLocal.length})
       </h2>
       {#if searchMatchedLocal.length === 0}
-        <div class="p-6 rounded-lg text-xs flex items-center gap-2" style="background-color: var(--md-sys-color-surface-container-low); color: var(--md-sys-color-on-surface-variant);">
-          <Icon name="music-note" size={16} /> {tr(lang, 'nav.noLocalLibraryMatch')}
-        </div>
+        <EmptyState
+          icon="music-note"
+          iconWeight="regular"
+          iconSize={28}
+          title={tr(lang, 'nav.noLocalLibraryMatch')}
+          titleClass="text-xs font-medium"
+          class="p-6 rounded-lg flex flex-col items-center justify-center text-center bg-[var(--md-sys-color-surface-container-low)]"
+        />
       {:else}
         <TrackTable
           tracks={searchMatchedLocal}

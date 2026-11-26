@@ -1,9 +1,8 @@
 <script lang="ts">
-  import { formatDuration, resolveCoverUrl } from '../lib/api';
+  import { formatDuration, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
   import { tr, type LangCode } from '../lib/i18n';
   import type { DownloadProgress, Playlist, Track } from '../lib/types';
   import CoverImage from './CoverImage.svelte';
-  import EqIndicator from './EqIndicator.svelte';
   import Icon from './Icon.svelte';
   import TrackActionMenu from './TrackActionMenu.svelte';
 
@@ -39,10 +38,8 @@
     currentExternalId = null,
     currentTrackTitle = null,
     currentTrackArtist = null,
-    isPlaying,
     mediaBaseUrl,
     playlists,
-    downloadStates = {},
     onPlayTrack,
     onTogglePlay,
     onPlayNext,
@@ -103,152 +100,88 @@
   });
 </script>
 
-<div class="w-full">
+<div class="w-full space-y-1">
   <div
-    class="hidden sm:grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[1.4fr_1fr_92px_96px] gap-2 sm:gap-3 px-2 sm:px-3.5 py-2 text-[11px] font-bold uppercase tracking-wider"
+    class="-mx-2 hidden sm:grid grid-cols-[minmax(0,1fr)_52px_32px] md:grid-cols-[minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] items-center gap-4 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider"
     style="color: var(--md-sys-color-on-surface-variant);"
   >
-    <div>{tr(lang, 'nav.titleCol')}</div>
-    <div class="hidden sm:block">{tr(lang, 'nav.albumCol')}</div>
-    <div class="hidden sm:block">{tr(lang, 'nav.sourceCol')}</div>
-    <div class="text-right">{tr(lang, 'nav.timeCol')}</div>
+    <span>{tr(lang, 'nav.titleCol')}</span>
+    <span class="hidden md:block">{tr(lang, 'nav.playsCol')}</span>
+    <span class="hidden md:block">{tr(lang, 'nav.albumCol')}</span>
+    <span class="flex justify-end pr-1">
+      <Icon name="clock" size={14} />
+    </span>
+    <span></span>
   </div>
 
-  <div class="space-y-0.5 mt-1">
+  <div class="space-y-0.5" role="list">
     {#each tracks as item (item.id)}
       {@const active = activeRowTrackId === item.id}
       {@const cover = resolveCoverUrl(item.coverUrl, mediaBaseUrl)}
+      {@const menuOpen = openMenuTrackId === item.id}
       <div
-        class="velora-track-row group grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[1.4fr_1fr_92px_96px] gap-2 sm:gap-3 px-2 sm:px-3.5 py-2 items-center rounded-lg transition-colors duration-150 {active
-          ? 'bg-[var(--md-sys-color-state-hover)]'
+        role="listitem"
+        class="group relative -mx-2 grid grid-cols-[minmax(0,1fr)_52px_32px] md:grid-cols-[minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] items-center gap-3 sm:gap-4 px-3 py-2.5 sm:py-2 min-h-14 sm:min-h-0 rounded-lg transition-colors duration-150 {active
+          ? 'bg-[var(--md-sys-color-state-active)]'
           : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
         style="color: var(--md-sys-color-on-surface);"
       >
-
-        <div class="flex items-center gap-3 min-w-0 text-left">
+        <button
+          type="button"
+          onclick={() => handleRowPlayClick(item, active)}
+          class="flex items-center gap-3 min-w-0 text-left cursor-pointer"
+        >
           {#if showCover}
-            <button
-              type="button"
-              onclick={() => handleRowPlayClick(item, active)}
-              aria-label="{tr(lang, 'nav.play')} {item.title}"
-              class="shrink-0 cursor-pointer"
+            <div class="w-10 h-10 rounded-md overflow-hidden shrink-0">
+              <CoverImage src={cover} fallbackIcon="vinyl-record" iconSize={16} isVideoThumb={isYTVideoThumb(cover)} />
+            </div>
+          {/if}
+          <div class="min-w-0 pr-4">
+            <div
+              class="text-xs font-bold line-clamp-2 whitespace-normal leading-snug"
+              style={active ? 'color: var(--md-sys-color-primary);' : ''}
             >
-              <div class="w-10 h-10 rounded-md overflow-hidden shrink-0">
-                <CoverImage
-                  src={cover}
-                  fallbackIcon="vinyl-record"
-                  iconSize={18}
-                />
-              </div>
-            </button>
-          {/if}
-          <div class="min-w-0 flex-1">
-            {#if onOpenTrackAlbum}
-              <button
-                type="button"
-                onclick={() => onOpenTrackAlbum(item)}
-                class="block max-w-full text-left text-xs font-bold truncate hover:underline cursor-pointer {active ? 'text-[var(--md-sys-color-primary)]' : ''}"
-              >
-                {item.title}
-              </button>
-            {:else}
-              <button
-                type="button"
-                onclick={() => handleRowPlayClick(item, active)}
-                class="block max-w-full text-left text-xs font-bold truncate cursor-pointer {active ? 'text-[var(--md-sys-color-primary)]' : ''}"
-              >
-                {item.title}
-              </button>
-            {/if}
-            <div class="text-[11px] truncate opacity-75">{item.artistName}</div>
+              {item.title}
+            </div>
+            <div class="flex items-center gap-1.5 text-[11px] truncate opacity-75 mt-0.5">
+              {#if item.isDownloaded}
+                <Icon name="check-circle" weight="fill" size={12} class="text-[var(--md-sys-color-primary)] shrink-0" />
+              {/if}
+              <span class="truncate">{item.artistName}</span>
+            </div>
           </div>
+        </button>
+
+        <div class="hidden md:block text-xs tabular-nums truncate opacity-75">
+          {item.globalPlays || '-'}
         </div>
 
-        <div class="hidden sm:block text-xs truncate opacity-70">
-          {item.albumTitle}
+        <div class="hidden md:block text-xs truncate opacity-75">
+          {item.albumTitle || '-'}
         </div>
 
-        <div class="hidden sm:block">
-          <span
-            class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold"
-            style="background-color: rgba(255, 255, 255, 0.08); color: var(--md-sys-color-on-surface-variant);"
-          >
-            {item.isDownloaded ? tr(lang, 'nav.offlineSource') : item.sourceType === 'ytmusic' ? 'YT Music' : tr(lang, 'nav.localSource')}
-          </span>
-        </div>
+        <span class="text-[11px] font-medium tabular-nums text-right opacity-75 pr-1">
+          {formatDuration(item.durationSec)}
+        </span>
 
-        <div class="flex items-center justify-end gap-1.5 relative">
-          {#if onDownloadTrack || onRemoveDownload}
-            {@const dlState = downloadStates[item.id]}
-            {@const isDlActive = dlState && (dlState.status === 'queued' || dlState.status === 'downloading')}
-            {#if isDlActive}
-              <span
-                class="inline-flex items-center justify-center w-7 h-7 text-[10px] font-bold tabular-nums text-[var(--md-sys-color-primary)]"
-                title="{tr(lang, 'nav.downloading')} ({Math.round(dlState.progress || 0)}%)"
-              >
-                {Math.round(dlState.progress || 0)}%
-              </span>
-            {:else if item.isDownloaded}
-              <button
-                type="button"
-                onclick={() => onRemoveDownload?.(item.id)}
-                title={tr(lang, 'nav.savedOfflineRemoveHint')}
-                aria-label="{tr(lang, 'nav.removeDownload')} {item.title}"
-                class="m3-icon-btn w-7 h-7 flex items-center justify-center transition cursor-pointer text-[var(--md-sys-color-primary)] opacity-90 hover:opacity-100"
-              >
-                <Icon name="check-circle" weight="fill" size={15} />
-              </button>
-            {:else if onDownloadTrack}
-              <button
-                type="button"
-                onclick={() => onDownloadTrack(item)}
-                title={tr(lang, 'nav.downloadOffline')}
-                aria-label="{tr(lang, 'nav.downloadOffline')} {item.title}"
-                class="m3-icon-btn w-7 h-7 flex items-center justify-center opacity-0 group-hover:opacity-100 transition cursor-pointer"
-              >
-                <Icon name="download" size={15} />
-              </button>
-            {/if}
-          {/if}
-
-          <button
-            type="button"
-            onclick={() => onToggleFavorite(item.id)}
-            aria-label="{tr(lang, 'nav.likeSong')} {item.title}"
-            class="m3-icon-btn velora-heart-btn w-7 h-7 flex items-center justify-center cursor-pointer {item.isFavorite
-              ? 'is-loved opacity-100 text-[var(--md-sys-color-tertiary)]'
-              : 'opacity-0 group-hover:opacity-100'}"
-          >
-            <Icon
-              name="heart"
-              weight={item.isFavorite ? 'fill' : 'regular'}
-              size={15}
-            />
-          </button>
-
-          <TrackActionMenu
-            track={item}
-            open={openMenuTrackId === item.id}
-            {playlists}
-            {lang}
-            triggerClass={openMenuTrackId === item.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 transition'}
-            onToggleOpen={() => (openMenuTrackId = openMenuTrackId === item.id ? null : item.id)}
-            onClose={() => (openMenuTrackId = null)}
-            {onPlayNext}
-            {onAddToQueue}
-            {onAddToPlaylist}
-            {onToggleFavorite}
-            {onDownloadTrack}
-            {onRemoveDownload}
-            {onOpenArtist}
-            {onOpenTrackAlbum}
-            {onCopyLink}
-          />
-
-          <span class="text-[11px] tabular-nums w-9 text-right opacity-75">
-            {formatDuration(item.durationSec)}
-          </span>
-        </div>
+        <TrackActionMenu
+          track={item}
+          open={menuOpen}
+          {playlists}
+          {lang}
+          triggerClass="w-8 h-8 {menuOpen ? 'opacity-100' : 'opacity-65 hover:opacity-100'}"
+          onToggleOpen={() => (openMenuTrackId = menuOpen ? null : item.id)}
+          onClose={() => (openMenuTrackId = null)}
+          {onPlayNext}
+          {onAddToQueue}
+          {onAddToPlaylist}
+          {onToggleFavorite}
+          {onDownloadTrack}
+          {onRemoveDownload}
+          {onOpenArtist}
+          {onOpenTrackAlbum}
+          {onCopyLink}
+        />
       </div>
     {/each}
   </div>
