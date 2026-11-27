@@ -88,6 +88,8 @@ type StreamInfo struct {
 	UserAgent     string
 	ContentLength int64
 	DurationSec   int
+	LoudnessDb    float64
+	HasLoudness   bool
 }
 
 type cachedStream struct {
@@ -96,6 +98,8 @@ type cachedStream struct {
 	UserAgent     string
 	ContentLength int64
 	DurationSec   int
+	LoudnessDb    float64
+	HasLoudness   bool
 	ExpiresAt     time.Time
 }
 
@@ -2002,10 +2006,22 @@ func (c *YTMusicClient) GetTrackAlbumDetail(ctx context.Context, videoID, browse
 	cover := strings.TrimSpace(fallbackCover)
 
 	isPlaylistBrowse := albumBrowseID != "" &&
+		(strings.HasPrefix(albumBrowseID, "VL") ||
+			strings.HasPrefix(albumBrowseID, "PL") ||
+			strings.HasPrefix(albumBrowseID, "RD") ||
+			strings.HasPrefix(albumBrowseID, "dz:playlist:") ||
+			strings.HasPrefix(albumBrowseID, "sp:playlist:"))
+
+	if !isPlaylistBrowse &&
+		albumBrowseID != "" &&
 		!strings.HasPrefix(albumBrowseID, "MPREb_") &&
 		!strings.HasPrefix(albumBrowseID, "OLAK") &&
 		!strings.HasPrefix(albumBrowseID, "dz:album:") &&
-		!strings.HasPrefix(albumBrowseID, "sp:album:")
+		!strings.HasPrefix(albumBrowseID, "sp:album:") &&
+		strings.TrimSpace(videoID) == "" {
+		videoID = albumBrowseID
+		albumBrowseID = ""
+	}
 
 	if !strings.HasPrefix(albumBrowseID, "MPREb_") && !isPlaylistBrowse && strings.TrimSpace(videoID) != "" {
 		if tree, err := c.postInnerTube(ctx, "next", map[string]any{
@@ -3289,6 +3305,8 @@ func (c *YTMusicClient) ResolveStreamWindow(ctx context.Context, videoID, qualit
 				UserAgent:     hit.UserAgent,
 				ContentLength: hit.ContentLength,
 				DurationSec:   hit.DurationSec,
+				LoudnessDb:    hit.LoudnessDb,
+				HasLoudness:   hit.HasLoudness,
 			}, nil
 		}
 		c.mu.RUnlock()
@@ -3303,6 +3321,8 @@ func (c *YTMusicClient) ResolveStreamWindow(ctx context.Context, videoID, qualit
 				UserAgent:     info.UserAgent,
 				ContentLength: info.ContentLength,
 				DurationSec:   info.DurationSec,
+				LoudnessDb:    info.LoudnessDb,
+				HasLoudness:   info.HasLoudness,
 				ExpiresAt:     time.Now().Add(4 * time.Hour),
 			}
 			c.mu.Unlock()
@@ -3345,6 +3365,32 @@ func (c *YTMusicClient) ResolveStreamWindow(ctx context.Context, videoID, qualit
 	}
 
 	return StreamInfo{}, fmt.Errorf("could not resolve stream for %s", videoID)
+}
+
+func (c *YTMusicClient) ResolveTrackLoudness(ctx context.Context, videoID, quality string) (float64, bool) {
+	videoID = strings.TrimSpace(videoID)
+	if videoID == "" {
+		return 0, false
+	}
+	if quality == "" {
+		quality = "high"
+	}
+	c.mu.RLock()
+	if hit, ok := c.cache[videoID+":"+quality]; ok && hit.HasLoudness {
+		c.mu.RUnlock()
+		return hit.LoudnessDb, true
+	}
+	for k, hit := range c.cache {
+		if strings.HasPrefix(k, videoID+":") && hit.HasLoudness {
+			c.mu.RUnlock()
+			return hit.LoudnessDb, true
+		}
+	}
+	c.mu.RUnlock()
+	if info, err := c.ResolveStreamWindow(ctx, videoID, quality, 0); err == nil && info.HasLoudness {
+		return info.LoudnessDb, true
+	}
+	return 0, false
 }
 
 type innerTubePlayerClient struct {
@@ -3436,15 +3482,21 @@ func (c *YTMusicClient) resolveViaInnerTube(ctx context.Context, videoID, qualit
 			VideoDetails struct {
 				LengthSeconds string `json:"lengthSeconds"`
 			} `json:"videoDetails"`
+			PlayerConfig struct {
+				AudioConfig struct {
+					LoudnessDb *float64 `json:"loudnessDb"`
+				} `json:"audioConfig"`
+			} `json:"playerConfig"`
 			StreamingData struct {
 				AdaptiveFormats []struct {
-					Itag            int    `json:"itag"`
-					URL             string `json:"url"`
-					MimeType        string `json:"mimeType"`
-					Bitrate         int    `json:"bitrate"`
-					AudioSampleRate string `json:"audioSampleRate"`
-					AudioChannels   int    `json:"audioChannels"`
-					ContentLength   string `json:"contentLength"`
+					Itag            int      `json:"itag"`
+					URL             string   `json:"url"`
+					MimeType        string   `json:"mimeType"`
+					Bitrate         int      `json:"bitrate"`
+					AudioSampleRate string   `json:"audioSampleRate"`
+					AudioChannels   int      `json:"audioChannels"`
+					ContentLength   string   `json:"contentLength"`
+					LoudnessDb      *float64 `json:"loudnessDb"`
 				} `json:"adaptiveFormats"`
 			} `json:"streamingData"`
 		}
@@ -3464,6 +3516,7 @@ func (c *YTMusicClient) resolveViaInnerTube(ctx context.Context, videoID, qualit
 		bestURL := ""
 		bestMime := "audio/mp4"
 		var bestLen int64
+		var formatLoudness *float64
 		bestScore := -1
 
 		for _, f := range data.StreamingData.AdaptiveFormats {
@@ -3506,16 +3559,28 @@ func (c *YTMusicClient) resolveViaInnerTube(ctx context.Context, videoID, qualit
 				bestURL = f.URL
 				bestMime = strings.Split(f.MimeType, ";")[0]
 				bestLen, _ = strconv.ParseInt(f.ContentLength, 10, 64)
+				formatLoudness = f.LoudnessDb
 			}
 		}
 
 		if bestURL != "" {
+			var loudnessDb float64
+			var hasLoudness bool
+			if data.PlayerConfig.AudioConfig.LoudnessDb != nil {
+				loudnessDb = *data.PlayerConfig.AudioConfig.LoudnessDb
+				hasLoudness = true
+			} else if formatLoudness != nil {
+				loudnessDb = *formatLoudness
+				hasLoudness = true
+			}
 			return StreamInfo{
 				URL:           bestURL,
 				MimeType:      bestMime,
 				UserAgent:     cl.UserAgent,
 				ContentLength: bestLen,
 				DurationSec:   durSec,
+				LoudnessDb:    loudnessDb,
+				HasLoudness:   hasLoudness,
 			}, nil
 		}
 		lastErr = fmt.Errorf("no direct audio stream found")

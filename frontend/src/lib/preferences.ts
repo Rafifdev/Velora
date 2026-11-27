@@ -159,6 +159,42 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
     fr: ['Normaliser le volume', 'Maintient un niveau sonore constant entre les différents titres.'],
     es: ['Normalizar volumen', 'Mantiene un nivel de volumen uniforme entre distintas canciones.']
   },
+  'playback.normalizeLevel': {
+    en: ['Volume level', 'Adjust target loudness for your environment (-19, -14, or -11 LUFS).'],
+    id: ['Tingkat volume', 'Sesuaikan target kenyaringan dengan lingkunganmu (-19, -14, atau -11 LUFS).'],
+    ms: ['Tahap kelantangan', 'Laraskan sasaran kenyaringan untuk persekitaran anda (-19, -14, atau -11 LUFS).'],
+    ja: ['音量レベル', '環境に合わせてターゲット音量を調整します（-19 / -14 / -11 LUFS）。'],
+    ko: ['음량 수준', '주변 환경에 맞게 목표 음량을 조절합니다(-19, -14 또는 -11 LUFS).'],
+    hi: ['वॉल्यूम स्तर', 'अपने वातावरण के अनुसार लक्ष्य लाउडनेस समायोजित करें (-19, -14, या -11 LUFS)।'],
+    pt: ['Nível de volume', 'Ajuste o volume alvo para o seu ambiente (-19, -14 ou -11 LUFS).'],
+    de: ['Lautstärkepegel', 'Passe die Ziel-Lautheit an deine Umgebung an (-19, -14 oder -11 LUFS).'],
+    fr: ['Niveau sonore', 'Ajustez le volume cible selon votre environnement (-19, -14 ou -11 LUFS).'],
+    es: ['Nivel de volumen', 'Ajusta el volumen objetivo según tu entorno (-19, -14 o -11 LUFS).']
+  },
+  'playback.spatial8d': {
+    en: ['8D Stereo Audio', '360° binaural HRTF orbital spatialization with concert hall ambience.'],
+    id: ['Audio Stereo 8D', 'Efek spasial binaural HRTF 360° yang berputar dengan nuansa ruang konser.'],
+    ms: ['Audio Stereo 8D', 'Ruang binaural HRTF 360° berputar dengan suasana dewan konsert.'],
+    ja: ['8D ステレオオーディオ', 'コンサートホールの響きを伴う360°バイノーラルHRTF空間音響。'],
+    ko: ['8D 스테레오 오디오', '콘서트홀 공간감을 더한 360° 바이노럴 HRTF 회전 음향 효과입니다.'],
+    hi: ['8D स्टीरियो ऑडियो', 'कंसर्ट हॉल एम्बिएंस के साथ 360° बाइनॉरल HRTF ऑर्बिटल स्पैशियलाइज़ेशन।'],
+    pt: ['Áudio Estéreo 8D', 'Espacialização binaural HRTF 360° com ambiência de sala de concerto.'],
+    de: ['8D-Stereo-Audio', '360°-Binaural-HRTF-Raumklang mit Konzertsaal-Atmosphäre.'],
+    fr: ['Audio Stéréo 8D', 'Spatialisation binaurale HRTF à 360° avec ambiance salle de concert.'],
+    es: ['Audio Estéreo 8D', 'Espacialización binaural HRTF 360° con ambiente de sala de conciertos.']
+  },
+  'playback.spatial8dSpeed': {
+    en: ['8D rotation speed', 'Control how fast the 360° soundstage orbits around your head.'],
+    id: ['Kecepatan putaran 8D', 'Atur seberapa cepat suara berputar 360° mengelilingi kepala.'],
+    ms: ['Kelajuan putaran 8D', 'Kawal kelajuan pentas bunyi 360° berputar di sekeliling kepala.'],
+    ja: ['8D 回転速度', '360°サウンドステージの回転速度を調整します。'],
+    ko: ['8D 회전 속도', '360° 사운드가 머리 주위를 회전하는 속도를 조절합니다.'],
+    hi: ['8D रोटेशन गति', '360° साउंडस्टेज के घूमने की गति नियंत्रित करें।'],
+    pt: ['Velocidade de rotação 8D', 'Controle a velocidade da órbita sonora 360° ao redor da cabeça.'],
+    de: ['8D-Rotationsgeschwindigkeit', 'Steuert, wie schnell der 360°-Klang um deinen Kopf kreist.'],
+    fr: ['Vitesse de rotation 8D', 'Contrôle la vitesse de rotation de la scène sonore à 360°.'],
+    es: ['Velocidad de rotación 8D', 'Controla qué tan rápido gira el sonido 360° alrededor de tu cabeza.']
+  },
   'playback.waveBar': {
     en: ['Wavy progress bar', 'Display an animated wave along the playback progress bar.'],
     id: ['Bilah progres bergelombang', 'Tampilkan garis bergelombang bergerak pada bilah progres pemutaran.'],
@@ -437,6 +473,18 @@ const ITEM_TEXT: Record<string, LocalizedPair> = {
     de: ['Audio- und Cover-Cache leeren', 'Löscht temporäre Streaming-Dateien und Coverbilder, um Speicherplatz freizugeben.'],
     fr: ['Vider le cache audio et pochettes', 'Supprime les fichiers de flux temporaires et les pochettes pour libérer de l’espace.'],
     es: ['Borrar caché de audio y portadas', 'Elimina archivos temporales de transmisión y portadas para liberar espacio.']
+  },
+  'storage.clearDownloads': {
+    en: ['Delete all downloads', 'Remove all downloaded songs, albums, and playlists from offline storage.'],
+    id: ['Hapus semua unduhan', 'Hapus seluruh lagu, album, dan playlist yang sudah diunduh dari penyimpanan offline.'],
+    ms: ['Padamkan semua muat turun', 'Padamkan semua lagu, album, dan senarai main yang dimuat turun daripada storan luar talian.'],
+    ja: ['すべてのダウンロードを削除', 'オフライン保存されたすべての曲、アルバム、プレイリストを削除します。'],
+    ko: ['모든 다운로드 삭제', '오프라인 저장소에서 다운로드한 모든 노래, 앨범, 재생목록을 삭제합니다.'],
+    hi: ['सभी डाउनलोड हटाएं', 'ऑफ़लाइन स्टोरेज से डाउनलोड किए गए सभी गाने, एल्बम और प्लेलिस्ट हटाएं।'],
+    pt: ['Excluir todos os downloads', 'Remove todas as músicas, álbuns e playlists baixados do armazenamento offline.'],
+    de: ['Alle Downloads löschen', 'Entfernt alle heruntergeladenen Songs, Alben und Playlists aus dem Offline-Speicher.'],
+    fr: ['Supprimer tous les téléchargements', 'Supprime tous les titres, albums et playlists téléchargés du stockage hors ligne.'],
+    es: ['Eliminar todas las descargas', 'Elimina todas las canciones, álbumes y listas descargadas del almacenamiento sin conexión.']
   },
   'storage.cacheLimit': {
     en: ['Cache limit', 'Maximum number of recent songs kept in cache (up to ~1 GB).'],
@@ -1054,6 +1102,21 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     defaultValue: 'true'
   },
   {
+    id: 'playback.normalizeLevel',
+    category: 'player',
+    group: 'grp.playback',
+    title: 'Volume level',
+    description: 'Adjust target loudness for your environment (-19, -14, or -11 LUFS).',
+    widget: 'segmented',
+    defaultValue: 'normal',
+    options: [
+      { value: 'quiet', label: 'opt.quiet' },
+      { value: 'normal', label: 'opt.normal' },
+      { value: 'loud', label: 'opt.loud' }
+    ],
+    visibleWhen: { id: 'playback.audioNormalize', equals: 'true' }
+  },
+  {
     id: 'playback.waveBar',
     category: 'player',
     group: 'grp.playback',
@@ -1083,14 +1146,38 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     title: 'Equalizer sound profile',
     description: 'Live 5-band equalizer sound character.',
     widget: 'select',
-    defaultValue: 'spotify',
+    defaultValue: 'flat',
     options: [
-      { value: 'spotify', label: 'opt.eqStudio' },
       { value: 'flat', label: 'opt.eqFlat' },
+      { value: 'spotify', label: 'opt.eqStudio' },
       { value: 'bass', label: 'opt.eqBass' },
       { value: 'vocal', label: 'opt.eqVocal' },
       { value: 'electronic', label: 'opt.eqElectronic' }
     ]
+  },
+  {
+    id: 'playback.spatial8d',
+    category: 'player',
+    group: 'grp.sound',
+    title: '8D Stereo Audio',
+    description: '360° binaural HRTF orbital spatialization with concert hall ambience.',
+    widget: 'toggle',
+    defaultValue: 'false'
+  },
+  {
+    id: 'playback.spatial8dSpeed',
+    category: 'player',
+    group: 'grp.sound',
+    title: '8D rotation speed',
+    description: 'Control how fast the 360° soundstage orbits around your head.',
+    widget: 'segmented',
+    defaultValue: 'normal',
+    options: [
+      { value: 'slow', label: 'opt.slow' },
+      { value: 'normal', label: 'opt.normal' },
+      { value: 'fast', label: 'opt.fast' }
+    ],
+    visibleWhen: { id: 'playback.spatial8d', equals: 'true' }
   },
   {
     id: 'playback.crossfadeSec',
@@ -1356,6 +1443,16 @@ export const PREFERENCE_SETTINGS: PreferenceItemDef[] = [
     description: 'Save liked songs for offline playback.',
     widget: 'toggle',
     defaultValue: 'false'
+  },
+  {
+    id: 'storage.clearDownloads',
+    category: 'storage',
+    group: 'grp.downloads',
+    title: 'Delete all downloads',
+    description: 'Remove all downloaded tracks from offline storage.',
+    widget: 'action',
+    defaultValue: '',
+    actionLabel: 'nav.clear'
   },
   {
     id: 'storage.clearCacheOnExit',

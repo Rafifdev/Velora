@@ -30,7 +30,7 @@ func TestResolveStreamWindowAndStartTime(t *testing.T) {
 				} else {
 					seenStartTimes = append(seenStartTimes, 0)
 				}
-				respJSON := `{"playabilityStatus":{"status":"OK"},"videoDetails":{"lengthSeconds":"213"},"streamingData":{"adaptiveFormats":[{"url":"https://example.com/audio.webm","mimeType":"audio/webm; codecs=\"opus\"","bitrate":150000,"contentLength":"3614812"}]}}`
+				respJSON := `{"playabilityStatus":{"status":"OK"},"videoDetails":{"lengthSeconds":"213"},"playerConfig":{"audioConfig":{"loudnessDb":3.13}},"streamingData":{"adaptiveFormats":[{"url":"https://example.com/audio.webm","mimeType":"audio/webm; codecs=\"opus\"","bitrate":150000,"contentLength":"3614812"}]}}`
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Body:       io.NopCloser(bytes.NewBufferString(respJSON)),
@@ -48,6 +48,9 @@ func TestResolveStreamWindowAndStartTime(t *testing.T) {
 	}
 	if info0.ContentLength != 3614812 || info0.DurationSec != 213 || info0.MimeType != "audio/webm" {
 		t.Fatalf("unexpected StreamInfo: %+v", info0)
+	}
+	if !info0.HasLoudness || info0.LoudnessDb != 3.13 {
+		t.Fatalf("expected HasLoudness=true and LoudnessDb=3.13, got %+v", info0)
 	}
 
 	if _, err := yt.ResolveStreamWindow(ctx, "5F28ye50-Kc", "high", 0); err != nil {

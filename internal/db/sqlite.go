@@ -145,6 +145,12 @@ func Open(dbPath string) (*Store, error) {
 		group_cover TEXT NOT NULL,
 		group_kind TEXT NOT NULL
 	);`)
+	_, _ = conn.Exec(`CREATE TABLE IF NOT EXISTS track_loudness (
+		track_id INTEGER PRIMARY KEY,
+		external_id TEXT NOT NULL DEFAULT '',
+		loudness_db REAL NOT NULL
+	);`)
+	_, _ = conn.Exec(`CREATE INDEX IF NOT EXISTS idx_track_loudness_ext ON track_loudness(external_id);`)
 	store := &Store{db: conn}
 	store.healLegacyMetadata()
 	return store, nil
@@ -237,6 +243,13 @@ func (s *Store) healLegacyMetadata() {
 	if wordSyncV1 == 0 {
 		_, _ = s.db.Exec(`DELETE FROM track_lyrics WHERE source IN ('qqmusic', 'netease', 'kugou', 'lrclib', 'lrclib-search');`)
 		_, _ = s.db.Exec(`INSERT OR REPLACE INTO preferences (key, value) VALUES ('internal.lyricsWordSyncV1', '1');`)
+	}
+
+	var spotifyFlatDefaultV1 int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM preferences WHERE key = 'internal.spotifyFlatDefaultV1' AND value = '1'`).Scan(&spotifyFlatDefaultV1)
+	if spotifyFlatDefaultV1 == 0 {
+		_, _ = s.db.Exec(`UPDATE preferences SET value = 'flat' WHERE key = 'playback.eqPreset' AND value = 'spotify';`)
+		_, _ = s.db.Exec(`INSERT OR REPLACE INTO preferences (key, value) VALUES ('internal.spotifyFlatDefaultV1', '1');`)
 	}
 
 	rows, err := s.db.Query(`SELECT id, artist_name, album_title, duration_sec, cover_url, source_type, external_id FROM tracks WHERE source_type = 'ytmusic' AND (artist_name LIKE '%•%' OR artist_name LIKE '%·%')`)
@@ -1243,6 +1256,10 @@ func (s *Store) SeedDefaults() error {
 		"integrations.discord.enabled": "true",
 		"playback.waveBar":         "false",
 		"playback.prevRestartSec":  "0",
+		"playback.eqPreset":        "flat",
+		"playback.normalizeLevel":  "normal",
+		"playback.spatial8d":       "false",
+		"playback.spatial8dSpeed":  "normal",
 		"lyrics.textSize":          "0",
 		"lyrics.sweep":             "true",
 		"lyrics.blurOthers":        "false",
@@ -1396,6 +1413,18 @@ func (s *Store) ClearTrackDownloadGroup(trackID int64) {
 	_, _ = s.db.Exec(`DELETE FROM download_group_tracks WHERE track_id = ?`, trackID)
 }
 
+func (s *Store) ClearAllDownloadedTracks() error {
+	_, _ = s.db.Exec(`DELETE FROM download_group_tracks`)
+	_, err := s.db.Exec(
+		`UPDATE tracks
+		 SET is_downloaded = 0,
+		     downloaded_at = '',
+		     file_path = CASE WHEN source_type = 'ytmusic' THEN '' ELSE file_path END
+		 WHERE is_downloaded = 1`,
+	)
+	return err
+}
+
 func (s *Store) applyDownloadGroups(tracks []Track) {
 	if len(tracks) == 0 {
 		return
@@ -1455,4 +1484,38 @@ func (s *Store) GetDownloadedTracks() ([]Track, error) {
 	}
 	s.applyDownloadGroups(tracks)
 	return tracks, nil
+}
+
+func (s *Store) SaveTrackLoudness(trackID int64, externalID string, loudnessDb float64) {
+	ext := strings.TrimSpace(externalID)
+	if trackID <= 0 && ext == "" {
+		return
+	}
+	if trackID > 0 {
+		_, _ = s.db.Exec(
+			`INSERT OR REPLACE INTO track_loudness (track_id, external_id, loudness_db) VALUES (?, ?, ?)`,
+			trackID, ext, loudnessDb,
+		)
+		return
+	}
+	_, _ = s.db.Exec(
+		`UPDATE track_loudness SET loudness_db = ? WHERE external_id = ?`,
+		loudnessDb, ext,
+	)
+}
+
+func (s *Store) GetTrackLoudness(trackID int64, externalID string) (float64, bool) {
+	var ldb float64
+	if trackID > 0 {
+		if err := s.db.QueryRow(`SELECT loudness_db FROM track_loudness WHERE track_id = ?`, trackID).Scan(&ldb); err == nil {
+			return ldb, true
+		}
+	}
+	ext := strings.TrimSpace(externalID)
+	if ext != "" {
+		if err := s.db.QueryRow(`SELECT loudness_db FROM track_loudness WHERE external_id = ? LIMIT 1`, ext).Scan(&ldb); err == nil {
+			return ldb, true
+		}
+	}
+	return 0, false
 }

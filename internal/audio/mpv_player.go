@@ -102,7 +102,7 @@ func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Headers", "Range, Content-Type")
-		w.Header().Set("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges")
+		w.Header().Set("Access-Control-Expose-Headers", "Content-Range, Content-Length, Accept-Ranges, X-Velora-Loudness-Db")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -344,6 +344,15 @@ func (p *PlayerController) handleYTMedia(w http.ResponseWriter, r *http.Request)
 	if err != nil || info.URL == "" {
 		http.Error(w, "stream unavailable", http.StatusBadGateway)
 		return
+	}
+
+	if info.HasLoudness && p.store != nil {
+		if tr, dbErr := p.store.GetTrackByExternalID(videoID); dbErr == nil && tr.ID > 0 {
+			p.store.SaveTrackLoudness(tr.ID, videoID, info.LoudnessDb)
+		}
+	}
+	if info.HasLoudness {
+		w.Header().Set("X-Velora-Loudness-Db", strconv.FormatFloat(info.LoudnessDb, 'f', 2, 64))
 	}
 
 	if r.Method == http.MethodHead {
