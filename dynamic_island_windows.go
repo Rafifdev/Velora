@@ -6282,10 +6282,10 @@ func formatEqPresetLabel(eq string) string {
 		return "Vocal Clarity EQ"
 	case "electronic":
 		return "Electronic EQ"
-	case "flat":
-		return "Flat Studio EQ"
+	case "spotify":
+		return "Velora Studio EQ"
 	default:
-		return "Spotify Studio EQ"
+		return "Flat Studio EQ"
 	}
 }
 
