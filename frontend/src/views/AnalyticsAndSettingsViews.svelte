@@ -2290,7 +2290,7 @@
               class="px-2.5 py-0.5 rounded-full text-[11px] font-bold"
               style="background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);"
             >
-              v1.0.0
+              v1.3.0
             </span>
           </div>
           <p class="text-xs" style="color: var(--md-sys-color-on-surface-variant);">
