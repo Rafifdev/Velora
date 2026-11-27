@@ -23,7 +23,7 @@
     onToggleFavorite?: (trackId: number, track?: Track) => void;
     onDownloadTrack?: (track: Track) => void;
     onRemoveDownload?: (trackId: number) => void;
-    onOpenArtist?: (artistId: number) => void;
+    onOpenArtist?: (artistId: number, track?: Track) => void;
     onOpenTrackAlbum?: (track: Track) => void;
     onCopyLink?: (track: Track) => void;
   }
@@ -72,6 +72,14 @@
     };
   }
 
+  const availablePlaylists = $derived(
+    excludePlaylistId != null ? playlists.filter((p) => p.id !== excludePlaylistId) : playlists
+  );
+
+  const canOpenArtist = $derived(
+    Boolean(onOpenArtist && (track.artistId > 0 || track.artistName?.trim()))
+  );
+
   const estimatedMenuHeight = $derived.by(() => {
     let items = 1; // Copy link always shown
     if (onPlayNext) items++;
@@ -80,7 +88,7 @@
     if (onRemoveFromPlaylist) items++;
     if (onToggleFavorite) items++;
     if ((track.isDownloaded && onRemoveDownload) || onDownloadTrack) items++;
-    if (onOpenArtist && track.artistId > 0) items++;
+    if (canOpenArtist) items++;
     if (onOpenTrackAlbum) items++;
     const submenuCount = availablePlaylists.length + (onCreatePlaylist ? 1 : 0);
     const submenuExtra = showPlaylistSubmenu
@@ -136,12 +144,8 @@
     };
   }
 
-  const availablePlaylists = $derived(
-    excludePlaylistId != null ? playlists.filter((p) => p.id !== excludePlaylistId) : playlists
-  );
-
   const hasBottomSection = $derived(
-    Boolean((onOpenArtist && track.artistId > 0) || onOpenTrackAlbum || true)
+    Boolean(canOpenArtist || onOpenTrackAlbum || true)
   );
 
   $effect.pre(() => {
@@ -263,8 +267,8 @@
         <button
           type="button"
           onclick={() => {
-            onPlayNext(track);
             onClose();
+            onPlayNext(track);
           }}
           class="w-full min-h-10 sm:min-h-0 flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
         >
@@ -277,8 +281,8 @@
         <button
           type="button"
           onclick={() => {
-            onAddToQueue(track);
             onClose();
+            onAddToQueue(track);
           }}
           class="w-full min-h-10 sm:min-h-0 flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
         >
@@ -310,8 +314,8 @@
                 <button
                   type="button"
                   onclick={() => {
-                    onCreatePlaylist(track);
                     onClose();
+                    onCreatePlaylist(track);
                   }}
                   class="w-full min-h-10 sm:min-h-0 flex items-center gap-2 text-left px-3 py-1.5 rounded-md hover:bg-[var(--md-sys-color-state-hover)] transition-colors duration-150 cursor-pointer font-semibold text-[var(--md-sys-color-primary)]"
                 >
@@ -324,8 +328,8 @@
                   <button
                     type="button"
                     onclick={() => {
-                      onAddToPlaylist(otherPl.id, track.id, track);
                       onClose();
+                      onAddToPlaylist(otherPl.id, track.id, track);
                     }}
                     class="w-full min-h-10 sm:min-h-0 text-left px-3 py-1.5 rounded-md hover:bg-[var(--md-sys-color-state-hover)] transition-colors duration-150 truncate cursor-pointer opacity-90"
                   >
@@ -342,8 +346,8 @@
         <button
           type="button"
           onclick={() => {
-            onRemoveFromPlaylist(track.id);
             onClose();
+            onRemoveFromPlaylist(track.id);
           }}
           class="w-full min-h-10 sm:min-h-0 flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
         >
@@ -356,8 +360,8 @@
         <button
           type="button"
           onclick={() => {
-            onToggleFavorite(track.id, track);
             onClose();
+            onToggleFavorite(track.id, track);
           }}
           class="w-full min-h-10 sm:min-h-0 flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
         >
@@ -375,8 +379,8 @@
         <button
           type="button"
           onclick={() => {
-            onRemoveDownload(track.id);
             onClose();
+            onRemoveDownload(track.id);
           }}
           class="w-full min-h-10 sm:min-h-0 flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
         >
@@ -387,8 +391,8 @@
         <button
           type="button"
           onclick={() => {
-            onDownloadTrack(track);
             onClose();
+            onDownloadTrack(track);
           }}
           class="w-full min-h-10 sm:min-h-0 flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
         >
@@ -401,12 +405,12 @@
         <div class="my-1 h-px opacity-15" style="background-color: var(--md-sys-color-on-surface);"></div>
       {/if}
 
-      {#if onOpenArtist && track.artistId > 0}
+      {#if canOpenArtist}
         <button
           type="button"
           onclick={() => {
-            onOpenArtist(track.artistId);
             onClose();
+            onOpenArtist?.(track.artistId, track);
           }}
           class="w-full min-h-10 sm:min-h-0 flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
         >
@@ -419,8 +423,8 @@
         <button
           type="button"
           onclick={() => {
-            onOpenTrackAlbum(track);
             onClose();
+            onOpenTrackAlbum(track);
           }}
           class="w-full min-h-10 sm:min-h-0 flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-[var(--md-sys-color-state-hover)] cursor-pointer text-left"
         >

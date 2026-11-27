@@ -9,6 +9,7 @@ import type {
   PlaylistDetail,
   Source,
   Track,
+  TrackLoudnessResult,
   TrackLyrics,
   AudioOutputDevice,
   DownloadGroup,
@@ -323,6 +324,11 @@ export const api = {
   async getStreamUrl(trackId: number): Promise<string> {
     return appBridge().GetStreamURL(trackId);
   },
+  async getTrackLoudness(trackId: number, externalId = ''): Promise<TrackLoudnessResult> {
+    const fn = appBridge()?.GetTrackLoudness;
+    if (!fn) return { loudnessDb: 0, hasLoudness: false };
+    return await fn(trackId, externalId);
+  },
   async playerControl(action: string, value = 0, mode = ''): Promise<any> {
     return appBridge().PlayerControl(action, value, mode);
   },
@@ -356,6 +362,11 @@ export const api = {
   },
   async clearCache(): Promise<number> {
     return appBridge().ClearCache();
+  },
+  async clearAllDownloads(): Promise<number> {
+    const fn = appBridge()?.ClearAllDownloads;
+    if (!fn) return 0;
+    return await fn();
   },
   async getDataDir(): Promise<string> {
     return (await appBridge()?.GetDataDir?.()) || '';
@@ -420,6 +431,9 @@ export const api = {
   async downloadTrack(trackId: number): Promise<Track> {
     return appBridge().DownloadTrack(trackId);
   },
+  async retryDownloadTrack(trackId: number, group: DownloadGroup): Promise<Track> {
+    return appBridge().RetryDownloadTrack(trackId, group);
+  },
   async downloadYTMusicTrack(track: YTMusicTrack): Promise<Track> {
     return appBridge().DownloadYTMusicTrack(track);
   },
@@ -438,6 +452,18 @@ export const api = {
   },
   async cancelDownloadGroup(groupKey: string): Promise<void> {
     return appBridge().CancelDownloadGroup(groupKey);
+  },
+  async pauseDownload(trackId: number): Promise<void> {
+    return appBridge()?.PauseDownload?.(trackId);
+  },
+  async resumeDownload(trackId: number): Promise<void> {
+    return appBridge()?.ResumeDownload?.(trackId);
+  },
+  async pauseDownloadGroup(groupKey: string): Promise<void> {
+    return appBridge()?.PauseDownloadGroup?.(groupKey);
+  },
+  async resumeDownloadGroup(groupKey: string): Promise<void> {
+    return appBridge()?.ResumeDownloadGroup?.(groupKey);
   },
   async removeDownloadedTrack(trackId: number): Promise<Track> {
     return appBridge().RemoveDownloadedTrack(trackId);
@@ -770,10 +796,13 @@ export function groupActiveDownloads(list: DownloadProgress[]): GroupedDownloadI
         title: dl.title,
         subtitle: dl.artist,
         coverUrl: '',
-        status: dl.status === 'failed' ? 'failed' : dl.status === 'queued' ? 'queued' : 'downloading',
+        status: dl.status === 'failed' ? 'failed' : dl.status === 'paused' ? 'paused' : dl.status === 'queued' ? 'queued' : 'downloading',
         progress: Math.max(0, Math.min(100, dl.progress || 0)),
         totalCount: 1,
         completedCount: 0,
+        downloadedBytes: dl.downloadedBytes || 0,
+        totalBytes: dl.totalBytes || 0,
+        speedBps: dl.speedBps || 0,
         error: dl.error
       });
       continue;
@@ -794,7 +823,10 @@ export function groupActiveDownloads(list: DownloadProgress[]): GroupedDownloadI
         status: 'queued',
         progress: 0,
         totalCount: dl.groupTotal || 1,
-        completedCount: dl.groupCompleted || 0
+        completedCount: dl.groupCompleted || 0,
+        downloadedBytes: dl.groupDownloadedBytes || 0,
+        totalBytes: dl.groupTotalBytes || 0,
+        speedBps: dl.groupSpeedBps || 0
       };
       entry = { item, items: [] };
       groups.set(gk, entry);
@@ -813,6 +845,11 @@ export function groupActiveDownloads(list: DownloadProgress[]): GroupedDownloadI
     }
     entry.item.totalCount = Math.max(entry.item.totalCount, dl.groupTotal || 0, entry.items.length);
     entry.item.completedCount = Math.max(entry.item.completedCount, dl.groupCompleted || 0);
+    entry.item.downloadedBytes = Math.max(entry.item.downloadedBytes, dl.groupDownloadedBytes || 0);
+    entry.item.totalBytes = Math.max(entry.item.totalBytes, dl.groupTotalBytes || 0);
+    if ((dl.groupSpeedBps || 0) > 0) {
+      entry.item.speedBps = dl.groupSpeedBps || 0;
+    }
     if (dl.status === 'failed' && !entry.item.error && dl.error) {
       entry.item.error = dl.error;
     }
@@ -820,8 +857,9 @@ export function groupActiveDownloads(list: DownloadProgress[]): GroupedDownloadI
 
   for (const { item, items } of groups.values()) {
     const hasDownloading = items.some((d) => d.status === 'downloading');
+    const hasPaused = items.some((d) => d.status === 'paused');
     const hasQueued = items.some((d) => d.status === 'queued');
-    item.status = hasDownloading ? 'downloading' : hasQueued ? 'queued' : 'failed';
+    item.status = hasDownloading ? 'downloading' : hasPaused ? 'paused' : hasQueued ? 'queued' : 'failed';
 
     const maxGroupProgress = items.reduce((m, d) => Math.max(m, d.groupProgress || 0), 0);
     if (maxGroupProgress > 0) {
@@ -912,22 +950,73 @@ export function groupCompletedDownloads(
     }
   }
 
+  const deletedGroups = new Map<string, GroupedCompletedDownload>();
   for (const del of deletedTracks) {
     const rawDate = del.downloadedAt || del.createdAt;
-    out.push({
-      key: `del:${del.id}`,
-      isGroup: false,
-      kind: 'music',
-      title: del.title,
-      subtitle: del.artistName,
-      coverUrl: del.coverUrl,
-      tracks: [del],
-      primaryTrack: del,
-      totalDurationSec: del.durationSec || 0,
-      deleted: true,
-      sortMs: Date.now(),
-      downloadedAt: rawDate
-    });
+    if (del.deletedReason === 'failed') {
+      out.push({
+        key: `failed:${del.id || del.externalId || Math.random()}`,
+        isGroup: false,
+        kind: 'music',
+        title: del.title,
+        subtitle: del.artistName,
+        coverUrl: del.coverUrl || del.downloadGroupCover || '',
+        tracks: [del],
+        primaryTrack: del,
+        totalDurationSec: del.durationSec || 0,
+        deleted: true,
+        deletedReason: 'failed',
+        sortMs: Date.now(),
+        downloadedAt: rawDate
+      });
+      continue;
+    }
+    const gk = (del.downloadGroupKey || '').trim();
+    if (!gk) {
+      out.push({
+        key: `del:${del.id}`,
+        isGroup: false,
+        kind: 'music',
+        title: del.title,
+        subtitle: del.artistName,
+        coverUrl: del.coverUrl,
+        tracks: [del],
+        primaryTrack: del,
+        totalDurationSec: del.durationSec || 0,
+        deleted: true,
+        deletedReason: del.deletedReason || 'deleted',
+        sortMs: Date.now(),
+        downloadedAt: rawDate
+      });
+      continue;
+    }
+
+    let dgrp = deletedGroups.get(gk);
+    if (!dgrp) {
+      if (groups.has(`group:${gk}`) || groups.has(gk)) {
+        continue;
+      }
+      const kind = del.downloadGroupKind === 'album' ? 'album' : 'playlist';
+      dgrp = {
+        key: `delgroup:${gk}`,
+        isGroup: true,
+        kind,
+        title: del.downloadGroupTitle || del.albumTitle || del.title,
+        subtitle: del.artistName,
+        coverUrl: del.downloadGroupCover || del.coverUrl,
+        tracks: [],
+        primaryTrack: del,
+        totalDurationSec: 0,
+        deleted: true,
+        deletedReason: del.deletedReason || 'deleted',
+        sortMs: Date.now(),
+        downloadedAt: rawDate
+      };
+      deletedGroups.set(gk, dgrp);
+      out.push(dgrp);
+    }
+    dgrp.tracks.push(del);
+    dgrp.totalDurationSec += del.durationSec || 0;
   }
 
   out.sort((a, b) => b.sortMs - a.sortMs);

@@ -3,7 +3,7 @@
   import { fade, fly } from 'svelte/transition';
   import { cubicIn, cubicOut } from 'svelte/easing';
   import { api, groupActiveDownloads, isJamRemote, isYTVideoThumb, resolveCoverUrl, safeEventsOn, sendJamCommand } from './lib/api';
-  import { VeloraAudioEngine } from './lib/audioEngine';
+  import { VeloraAudioEngine, type NormalizeLevel, type Spatial8DSpeed } from './lib/audioEngine';
   import { getPrefBool, getPrefValue } from './lib/preferences';
   import { getPrefLang, tr } from './lib/i18n';
   import type {
@@ -13,6 +13,7 @@
     DownloadGroup,
     DownloadProgress,
     FireStreakStatus,
+    GroupedCompletedDownload,
     HomeFilter,
     JamCommand,
     JamStatus,
@@ -45,10 +46,12 @@
   let tracks = $state<Track[]>([]);
   let trackLoading = $state(false);
   let networkToast = $state('');
+  let networkToastIcon = $state<'wifi-slash' | 'check-circle'>('wifi-slash');
   let networkToastTimer: ReturnType<typeof setTimeout> | undefined;
 
-  function showNetworkToast(msg: string) {
+  function showNetworkToast(msg: string, icon: 'wifi-slash' | 'check-circle' = 'wifi-slash') {
     if (networkToastTimer) clearTimeout(networkToastTimer);
+    networkToastIcon = icon;
     networkToast = msg;
     networkToastTimer = setTimeout(() => {
       networkToast = '';
@@ -107,12 +110,14 @@
 
   const SPLASH_SEEN_KEY = 'velora.splashShownOnce';
   let showSplash = $state(
-    typeof localStorage !== 'undefined' ? localStorage.getItem(SPLASH_SEEN_KEY) !== '1' : false
+    isJamRemote
+      ? (typeof localStorage !== 'undefined' ? localStorage.getItem(SPLASH_SEEN_KEY) !== '1' : false)
+      : true
   );
   let sessionDeletedDownloadTracks = $state<Track[]>([]);
   const activeDownloadsList = $derived(
     Object.values(downloadStates).filter(
-      (d) => d.status === 'queued' || d.status === 'downloading' || d.status === 'failed'
+      (d) => d.status === 'queued' || d.status === 'downloading' || d.status === 'paused' || d.status === 'failed'
     )
   );
   const activeGroupKeys = $derived(
@@ -179,6 +184,36 @@
   let navStack = $state<ViewRoute[]>([{ name: 'home' }]);
   let navIndex = $state(0);
   const currentRoute = $derived(navStack[navIndex] || { name: 'home' });
+  const activeSidebarSection = $derived.by(() => {
+    for (let i = navIndex; i >= 0; i--) {
+      const r = navStack[i];
+      if (!r) continue;
+      if (i > 0 && navStack[i - 1]?.name === 'downloads') {
+        if (r.name === 'playlist-detail' || (r.name === 'yt-album-detail' && r.kind === 'playlist')) {
+          return 'playlists';
+        }
+        if (
+          r.name === 'album-detail' ||
+          (r.name === 'yt-album-detail' && r.kind !== 'playlist') ||
+          (r.name === 'track-detail' && !r.singleTrack)
+        ) {
+          return 'favorite-albums';
+        }
+        if (r.name === 'track-detail' && r.singleTrack) {
+          return 'liked-songs';
+        }
+      }
+      if (r.name === 'home') return 'home';
+      if (r.name === 'favorite-albums') return 'favorite-albums';
+      if (r.name === 'liked-songs') return 'liked-songs';
+      if (r.name === 'favorite-artists') return 'favorite-artists';
+      if (r.name === 'playlists' || r.name === 'local-playlists') return 'playlists';
+      if (r.name === 'history') return 'history';
+      if (r.name === 'listening-stats' || r.name === 'fire-streak') return 'listening-stats';
+      if (r.name === 'preferences') return 'preferences';
+    }
+    return 'home';
+  });
   const routeTransitionKey = $derived.by(() => {
     const r = currentRoute;
     if (r.name === 'artist-detail') return `artist-detail:${r.artistId ?? r.browseId ?? r.artistName ?? ''}`;
@@ -344,8 +379,15 @@
   });
 
   $effect(() => {
-    audioEngine.setPreset(getPrefValue(preferences, 'playback.eqPreset'));
-    audioEngine.setNormalize(getPrefBool(preferences, 'playback.audioNormalize'));
+    audioEngine.setPreset(getPrefValue(preferences, 'playback.eqPreset') || 'flat');
+    audioEngine.setNormalize(
+      getPrefBool(preferences, 'playback.audioNormalize'),
+      (getPrefValue(preferences, 'playback.normalizeLevel') || 'normal') as NormalizeLevel
+    );
+    audioEngine.setSpatial8D(
+      getPrefBool(preferences, 'playback.spatial8d'),
+      (getPrefValue(preferences, 'playback.spatial8dSpeed') || 'normal') as Spatial8DSpeed
+    );
   });
 
   $effect(() => {
@@ -586,8 +628,8 @@
         const base = muted ? 0 : volume;
         handleVolumeChange(Math.max(0, base - 5));
       } else if (action === 'cycle-eq') {
-        const eqOrder = ['spotify', 'bass', 'vocal', 'electronic', 'flat'];
-        const curEq = getPrefValue(preferences, 'playback.eqPreset') || 'spotify';
+        const eqOrder = ['flat', 'spotify', 'bass', 'vocal', 'electronic'];
+        const curEq = getPrefValue(preferences, 'playback.eqPreset') || 'flat';
         const nextEq = eqOrder[(eqOrder.indexOf(curEq) + 1) % eqOrder.length];
         void patchPrefs({ 'playback.eqPreset': nextEq });
       }
@@ -618,35 +660,68 @@
     window.addEventListener('beforeunload', onBeforeUnload);
     window.addEventListener('velora:lyric-offset', onLyricOffsetChange);
     navigator.mediaDevices?.addEventListener?.('devicechange', onMediaDeviceChange);
+    let dlRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const pendingCompletedIds = new Set<number>();
+    const flushCompletedDownloadRefresh = () => {
+      dlRefreshTimer = null;
+      const doneIds = new Set(pendingCompletedIds);
+      pendingCompletedIds.clear();
+      void api.getTracks('all', '').then((list) => {
+        tracks = list;
+        if (doneIds.size === 0) return;
+        const byId = new Map(list.map((t) => [t.id, t]));
+        const byExt = new Map(list.filter((t) => t.externalId).map((t) => [t.externalId, t]));
+        const matchTrack = (t: Track): Track =>
+          doneIds.has(t.id)
+            ? (byId.get(t.id) ?? (t.externalId ? byExt.get(t.externalId) : undefined) ?? t)
+            : (t.externalId && byExt.has(t.externalId) && doneIds.has(byExt.get(t.externalId)!.id)
+                ? byExt.get(t.externalId)!
+                : t);
+        detailTracks = detailTracks.map(matchTrack);
+        if (selectedPlaylistDetail) {
+          selectedPlaylistDetail = {
+            ...selectedPlaylistDetail,
+            tracks: selectedPlaylistDetail.tracks.map(matchTrack)
+          };
+        }
+        if (ytAlbumDetail) {
+          ytAlbumDetail = {
+            ...ytAlbumDetail,
+            tracks: ytAlbumDetail.tracks.map(matchTrack)
+          };
+        }
+        if (ytArtistDetail) {
+          ytArtistDetail = {
+            ...ytArtistDetail,
+            topTracks: ytArtistDetail.topTracks.map(matchTrack)
+          };
+        }
+      });
+    };
+
     const offDownload = safeEventsOn('download:progress', (p: DownloadProgress) => {
       if (!p || !p.trackId) return;
       if (p.status === 'completed') {
         const next = { ...downloadStates };
         delete next[p.trackId];
         downloadStates = next;
-        void api.getTracks('all', '').then((list) => {
-          tracks = list;
-          const updated = list.find((t) => t.id === p.trackId);
-          if (updated) {
-            detailTracks = detailTracks.map((t) => (t.id === p.trackId ? updated : t));
-            if (selectedPlaylistDetail) {
-              selectedPlaylistDetail = {
-                ...selectedPlaylistDetail,
-                tracks: selectedPlaylistDetail.tracks.map((t) => (t.id === p.trackId ? updated : t))
-              };
-            }
-            if (ytAlbumDetail) {
-              ytAlbumDetail = {
-                ...ytAlbumDetail,
-                tracks: ytAlbumDetail.tracks.map((t) => (t.id === p.trackId ? updated : t))
-              };
-            }
-          }
-        });
+        delete retriedDownloadGroups[p.trackId];
+        sessionDeletedDownloadTracks = sessionDeletedDownloadTracks.filter(
+          (d) => !(p.trackId > 0 && d.id === p.trackId) && !(Boolean(p.externalId) && d.externalId === p.externalId)
+        );
+        pendingCompletedIds.add(p.trackId);
+        if (!dlRefreshTimer) {
+          dlRefreshTimer = setTimeout(flushCompletedDownloadRefresh, 150);
+        }
       } else if (p.status === 'cancelled') {
         const next = { ...downloadStates };
         delete next[p.trackId];
         downloadStates = next;
+      } else if (p.status === 'failed') {
+        const next = { ...downloadStates };
+        delete next[p.trackId];
+        downloadStates = next;
+        recordFailedDownload(p);
       } else {
         downloadStates = { ...downloadStates, [p.trackId]: p };
       }
@@ -777,7 +852,7 @@
     if (isJamRemote) return;
     const tr = currentTrack;
     const cover = tr ? resolveCoverUrl(tr.coverUrl, mediaBaseUrl, 120) : '';
-    const eqPreset = getPrefValue(preferences, 'playback.eqPreset') || 'spotify';
+    const eqPreset = getPrefValue(preferences, 'playback.eqPreset') || 'flat';
     const qIdx = resolveActiveQueueIndex(tr, queue);
     const qStart = qIdx > 20 && queue.length > 80 ? Math.min(qIdx - 20, queue.length - 80) : 0;
     lastDIQueueOffset = qStart;
@@ -964,12 +1039,73 @@
     }
   }
 
+  let retriedDownloadGroups: Record<number, DownloadGroup> = {};
+
+  function findKnownTrackMeta(trackId: number, externalId?: string): Track | undefined {
+    const matches = (t: Track) =>
+      (trackId > 0 && t.id === trackId) || (Boolean(externalId) && t.externalId === externalId);
+    const candidates = [
+      tracks.find(matches),
+      selectedPlaylistDetail?.tracks.find(matches),
+      ytAlbumDetail?.tracks.find(matches),
+      ytArtistDetail?.topTracks.find(matches)
+    ].filter((t): t is Track => Boolean(t));
+    if (candidates.length === 0) return undefined;
+    return candidates.find((t) => Boolean(t.coverUrl) && t.durationSec > 0) ?? candidates[0];
+  }
+
+  function recordFailedDownload(p: DownloadProgress) {
+    const existing = findKnownTrackMeta(p.trackId, p.externalId);
+    const retriedGrp = retriedDownloadGroups[p.trackId];
+    const alreadyRecorded = sessionDeletedDownloadTracks.some(
+      (d) =>
+        (p.trackId > 0 && d.id === p.trackId) ||
+        (Boolean(p.externalId) && d.externalId === p.externalId)
+    );
+    if (alreadyRecorded) return;
+    const base: Track = existing ?? {
+      id: p.trackId,
+      title: p.title,
+      artistId: 0,
+      artistName: p.artist,
+      albumId: 0,
+      albumTitle: '',
+      durationSec: 0,
+      format: '',
+      bitrate: 0,
+      sourceType: 'ytmusic',
+      filePath: '',
+      externalId: p.externalId,
+      coverUrl: '',
+      isFavorite: false,
+      playCount: 0,
+      createdAt: new Date().toISOString()
+    };
+    sessionDeletedDownloadTracks = [
+      {
+        ...base,
+        isDownloaded: false,
+        deletedReason: 'failed',
+        downloadGroupKey: p.groupKey || retriedGrp?.key || existing?.downloadGroupKey || '',
+        downloadGroupTitle: p.groupTitle || retriedGrp?.title || existing?.downloadGroupTitle || '',
+        downloadGroupCover: p.groupCover || retriedGrp?.cover || existing?.downloadGroupCover || '',
+        downloadGroupKind: p.groupKind || retriedGrp?.kind || existing?.downloadGroupKind || ''
+      },
+      ...sessionDeletedDownloadTracks
+    ];
+  }
+
   async function syncRemoteDownloadStates() {
     try {
       const list = await api.getDownloadStates();
       const next: Record<number, DownloadProgress> = {};
       for (const item of list || []) {
-        if (item && item.trackId && item.status !== 'completed' && item.status !== 'cancelled') {
+        if (!item || !item.trackId) continue;
+        if (item.status === 'failed') {
+          recordFailedDownload(item);
+          continue;
+        }
+        if (item.status !== 'completed' && item.status !== 'cancelled') {
           next[item.trackId] = item;
         }
       }
@@ -992,15 +1128,45 @@
     return () => clearInterval(timer);
   });
 
+  async function handleRetryFailedDownload(entry: GroupedCompletedDownload) {
+    const tr = entry?.primaryTrack;
+    if (!tr) return;
+    const idSet = new Set(entry.tracks.map((t) => t.id).filter((id) => id > 0));
+    const extSet = new Set(entry.tracks.map((t) => t.externalId).filter(Boolean));
+    sessionDeletedDownloadTracks = sessionDeletedDownloadTracks.filter(
+      (d) => !(d.id > 0 && idSet.has(d.id)) && !(Boolean(d.externalId) && extSet.has(d.externalId))
+    );
+    const grp: DownloadGroup = {
+      key: tr.downloadGroupKey || '',
+      title: tr.downloadGroupTitle || '',
+      cover: tr.downloadGroupCover || '',
+      kind: tr.downloadGroupKind === 'album' ? 'album' : 'playlist'
+    };
+    if (tr.id > 0) {
+      if (grp.key) {
+        retriedDownloadGroups[tr.id] = grp;
+      }
+      showNetworkToast(appLang === 'id' ? 'Mencoba mengunduh ulang...' : 'Retrying download...', 'check-circle');
+      await api.retryDownloadTrack(tr.id, grp);
+      if (isJamRemote) void syncRemoteDownloadStates();
+      return;
+    }
+    await handleDownloadTrack(tr);
+  }
+
   async function handleDownloadTrack(tr: Track) {
     if (!tr) return;
+    sessionDeletedDownloadTracks = sessionDeletedDownloadTracks.filter(
+      (d) => !(tr.id > 0 && d.id === tr.id) && !(Boolean(tr.externalId) && d.externalId === tr.externalId)
+    );
+    showNetworkToast(appLang === 'id' ? 'Mengunduh lagu...' : 'Downloading track...', 'check-circle');
     if (tr.id > 0) {
       await api.downloadTrack(tr.id);
       if (isJamRemote) void syncRemoteDownloadStates();
       return;
     }
     if (tr.externalId) {
-      await api.downloadYTMusicTrack({
+      const saved = await api.downloadYTMusicTrack({
         videoId: tr.externalId,
         title: tr.title,
         artist: tr.artistName,
@@ -1009,6 +1175,9 @@
         coverUrl: tr.coverUrl,
         format: tr.format || 'OPUS'
       });
+      if (saved && saved.id > 0) {
+        syncTrackAcrossViews(0, tr.externalId, (t) => ({ ...t, id: saved.id }));
+      }
       if (isJamRemote) void syncRemoteDownloadStates();
     }
   }
@@ -1019,31 +1188,27 @@
     if (isJamRemote) void syncRemoteDownloadStates();
   }
 
-  async function handleRemoveDownload(trackId: number) {
+  async function handleRemoveDownload(trackId: number, rememberDeleted = true) {
     const existing = tracks.find((t) => t.id === trackId);
+    syncTrackAcrossViews(trackId, existing?.externalId, (t) => ({ ...t, isDownloaded: false }));
     const updated = await api.removeDownloadedTrack(trackId);
-    if (existing && !sessionDeletedDownloadTracks.some((d) => d.id === trackId)) {
-      sessionDeletedDownloadTracks = [existing, ...sessionDeletedDownloadTracks];
+    if (rememberDeleted && existing && !sessionDeletedDownloadTracks.some((d) => d.id === trackId)) {
+      sessionDeletedDownloadTracks = [{ ...existing, deletedReason: 'deleted' }, ...sessionDeletedDownloadTracks];
     }
-    tracks = tracks.map((t) => (t.id === trackId ? updated : t));
-    detailTracks = detailTracks.map((t) => (t.id === trackId ? updated : t));
-    if (selectedPlaylistDetail) {
-      selectedPlaylistDetail = {
-        ...selectedPlaylistDetail,
-        tracks: selectedPlaylistDetail.tracks.map((t) => (t.id === trackId ? updated : t))
-      };
-    }
-    if (ytAlbumDetail) {
-      ytAlbumDetail = {
-        ...ytAlbumDetail,
-        tracks: ytAlbumDetail.tracks.map((t) => (t.id === trackId ? updated : t))
-      };
-    }
+    syncTrackAcrossViews(trackId, updated?.externalId ?? existing?.externalId, () => updated);
   }
 
-  async function handleRemoveDownloadGroup(groupTracks: Track[]) {
+  async function handleRemoveDownloadGroup(groupTracks: Track[], rememberDeleted = true) {
     const ids = groupTracks.map((t) => t.id).filter((id) => id > 0);
     if (ids.length === 0) return;
+    if (rememberDeleted) {
+      const toRemember = groupTracks
+        .filter((gt) => gt.id > 0 && !sessionDeletedDownloadTracks.some((d) => d.id === gt.id))
+        .map((gt) => ({ ...gt, deletedReason: 'deleted' as const }));
+      if (toRemember.length > 0) {
+        sessionDeletedDownloadTracks = [...toRemember, ...sessionDeletedDownloadTracks];
+      }
+    }
     await api.removeDownloadedTracks(ids);
     const idSet = new Set(ids);
     const refreshed = await api.getTracks('all', '');
@@ -1068,56 +1233,195 @@
   }
 
   async function handleDownloadCollection(group: DownloadGroup, list: Track[]) {
-    const pending = list.filter((t) => !t.isDownloaded && (t.id > 0 || Boolean(t.externalId)));
-    if (pending.length === 0) return;
-    const hasUnsaved = pending.some((t) => t.id <= 0);
-    await api.downloadCollection(group, pending);
+    const isAlreadyDownloaded = (t: Track): boolean => {
+      if (t.isDownloaded) return true;
+      return tracks.some(
+        (trItem) =>
+          trItem.isDownloaded &&
+          ((t.id > 0 && trItem.id === t.id) || (Boolean(t.externalId) && trItem.externalId === t.externalId))
+      );
+    };
+    const pending = list.filter((t) => !isAlreadyDownloaded(t) && (t.id > 0 || Boolean(t.externalId)));
+    if (pending.length === 0) {
+      if (list.length > 0 && list.some((t) => isAlreadyDownloaded(t))) {
+        showNetworkToast(
+          group.kind === 'playlist'
+            ? tr(appLang, 'nav.playlistAlreadyDownloaded')
+            : tr(appLang, 'nav.albumAlreadyDownloaded'),
+          'check-circle'
+        );
+      }
+      return;
+    }
+    const toSend = list.filter((t) => t.id > 0 || Boolean(t.externalId));
+    const reDlSet = new Set(toSend.map((t) => t.id).filter((id) => id > 0));
+    if (reDlSet.size > 0) {
+      sessionDeletedDownloadTracks = sessionDeletedDownloadTracks.filter((d) => !reDlSet.has(d.id));
+    }
+    showNetworkToast(
+      group.kind === 'playlist'
+        ? tr(appLang, 'nav.playlistDownloadStarted')
+        : tr(appLang, 'nav.albumDownloadStarted'),
+      'check-circle'
+    );
+    const hasUnsaved = toSend.some((t) => t.id <= 0);
+    await api.downloadCollection(group, toSend);
     if (hasUnsaved) {
       tracks = await api.getTracks('all', '');
-    }
-    if (group.kind === 'playlist' && group.key.startsWith('playlist:')) {
-      const rawId = group.key.slice('playlist:'.length).trim();
-      const numId = Number(rawId);
-      const alreadySaved = playlists.some(
-        (p) =>
-          (Number.isFinite(numId) && numId > 0 && p.id === numId) ||
-          (rawId !== '' && p.externalId === rawId) ||
-          p.name.trim().toLowerCase() === group.title.trim().toLowerCase()
-      );
-      if (!alreadySaved && rawId) {
-        const trackIds = list
-          .map((t) => {
-            if (t.id > 0) return t.id;
-            const found = tracks.find((trItem) => t.externalId && trItem.externalId === t.externalId);
-            return found?.id ?? 0;
-          })
-          .filter((id) => id > 0);
-        try {
-          await api.toggleSaveYTMusicPlaylist(rawId, group.title, 'YouTube Music', group.cover, trackIds);
-          playlists = await api.getPlaylists(false);
-        } catch {
-        }
-      }
     }
     if (isJamRemote) void syncRemoteDownloadStates();
   }
 
   async function handleCancelDownload(trackId: number) {
+    const existing = tracks.find((t) => t.id === trackId);
+    const st = downloadStates[trackId];
     await api.cancelDownload(trackId);
     const next = { ...downloadStates };
     delete next[trackId];
     downloadStates = next;
+    const refreshed = await api.getTracks('all', '');
+    tracks = refreshed;
+    detailTracks = detailTracks.map((t) => (t.id === trackId ? refreshed.find((r) => r.id === t.id) ?? { ...t, isDownloaded: false } : t));
+    if (selectedPlaylistDetail) {
+      selectedPlaylistDetail = {
+        ...selectedPlaylistDetail,
+        tracks: selectedPlaylistDetail.tracks.map((t) =>
+          t.id === trackId ? refreshed.find((r) => r.id === t.id) ?? { ...t, isDownloaded: false } : t
+        )
+      };
+    }
+    if (ytAlbumDetail) {
+      ytAlbumDetail = {
+        ...ytAlbumDetail,
+        tracks: ytAlbumDetail.tracks.map((t) =>
+          t.id === trackId ? refreshed.find((r) => r.id === t.id) ?? { ...t, isDownloaded: false } : t
+        )
+      };
+    }
+    if (existing && !sessionDeletedDownloadTracks.some((d) => d.id === trackId)) {
+      sessionDeletedDownloadTracks = [
+        { ...existing, isDownloaded: false, downloadGroupKey: '', deletedReason: 'canceled' },
+        ...sessionDeletedDownloadTracks
+      ];
+    } else if (st && !sessionDeletedDownloadTracks.some((d) => d.id === trackId)) {
+      sessionDeletedDownloadTracks = [
+        {
+          id: trackId,
+          title: st.title,
+          artistId: 0,
+          artistName: st.artist,
+          albumId: 0,
+          albumTitle: '',
+          durationSec: 0,
+          format: '',
+          bitrate: 0,
+          sourceType: 'ytmusic',
+          filePath: '',
+          externalId: st.externalId,
+          coverUrl: '',
+          isFavorite: false,
+          playCount: 0,
+          isDownloaded: false,
+          deletedReason: 'canceled',
+          createdAt: new Date().toISOString()
+        },
+        ...sessionDeletedDownloadTracks
+      ];
+    }
   }
 
   async function handleCancelDownloadGroup(groupKey: string, trackIds: number[]) {
-    await api.cancelDownloadGroup(groupKey);
     const idSet = new Set(trackIds);
+    const sampleState = Object.values(downloadStates).find(
+      (st) => st.groupKey === groupKey || idSet.has(st.trackId)
+    );
+    const snapshotTracks = tracks.filter(
+      (t) => (idSet.has(t.id) || t.downloadGroupKey === groupKey) && !sessionDeletedDownloadTracks.some((d) => d.id === t.id)
+    );
+    await api.cancelDownloadGroup(groupKey);
     const next: Record<number, DownloadProgress> = {};
     for (const [k, st] of Object.entries(downloadStates)) {
       if (st.groupKey === groupKey || idSet.has(st.trackId)) continue;
       next[Number(k)] = st;
     }
     downloadStates = next;
+    const refreshed = await api.getTracks('all', '');
+    tracks = refreshed;
+    detailTracks = detailTracks.map((t) =>
+      idSet.has(t.id) ? refreshed.find((r) => r.id === t.id) ?? { ...t, isDownloaded: false } : t
+    );
+    if (selectedPlaylistDetail) {
+      selectedPlaylistDetail = {
+        ...selectedPlaylistDetail,
+        tracks: selectedPlaylistDetail.tracks.map((t) =>
+          idSet.has(t.id) ? refreshed.find((r) => r.id === t.id) ?? { ...t, isDownloaded: false } : t
+        )
+      };
+    }
+    if (ytAlbumDetail) {
+      ytAlbumDetail = {
+        ...ytAlbumDetail,
+        tracks: ytAlbumDetail.tracks.map((t) =>
+          idSet.has(t.id) ? refreshed.find((r) => r.id === t.id) ?? { ...t, isDownloaded: false } : t
+        )
+      };
+    }
+    const cancelledTracks = snapshotTracks.map((t) => ({
+      ...t,
+      isDownloaded: false,
+      deletedReason: 'canceled' as const,
+      downloadGroupKey: groupKey,
+      downloadGroupTitle: sampleState?.groupTitle || t.downloadGroupTitle || '',
+      downloadGroupCover: sampleState?.groupCover || t.downloadGroupCover || '',
+      downloadGroupKind: sampleState?.groupKind || t.downloadGroupKind || 'playlist'
+    }));
+    if (cancelledTracks.length > 0) {
+      sessionDeletedDownloadTracks = [...cancelledTracks, ...sessionDeletedDownloadTracks];
+    }
+  }
+
+  async function handlePauseDownload(trackId: number) {
+    if (downloadStates[trackId]) {
+      downloadStates = {
+        ...downloadStates,
+        [trackId]: { ...downloadStates[trackId], status: 'paused', speedBps: 0 }
+      };
+    }
+    await api.pauseDownload(trackId);
+  }
+
+  async function handleResumeDownload(trackId: number) {
+    if (downloadStates[trackId]) {
+      downloadStates = {
+        ...downloadStates,
+        [trackId]: { ...downloadStates[trackId], status: 'queued' }
+      };
+    }
+    await api.resumeDownload(trackId);
+  }
+
+  async function handlePauseDownloadGroup(groupKey: string) {
+    const next: Record<number, DownloadProgress> = {};
+    for (const [k, st] of Object.entries(downloadStates)) {
+      next[Number(k)] =
+        st.groupKey === groupKey
+          ? { ...st, status: 'paused', speedBps: 0, groupSpeedBps: 0 }
+          : st;
+    }
+    downloadStates = next;
+    await api.pauseDownloadGroup(groupKey);
+  }
+
+  async function handleResumeDownloadGroup(groupKey: string) {
+    const next: Record<number, DownloadProgress> = {};
+    for (const [k, st] of Object.entries(downloadStates)) {
+      next[Number(k)] =
+        st.groupKey === groupKey && st.status === 'paused'
+          ? { ...st, status: 'queued' }
+          : st;
+    }
+    downloadStates = next;
+    await api.resumeDownloadGroup(groupKey);
   }
 
   async function refreshAll() {
@@ -1322,8 +1626,17 @@
     if (patch['playback.eqPreset'] !== undefined) {
       audioEngine.setPreset(patch['playback.eqPreset']);
     }
-    if (patch['playback.audioNormalize'] !== undefined) {
-      audioEngine.setNormalize(patch['playback.audioNormalize'] !== 'false');
+    if (patch['playback.audioNormalize'] !== undefined || patch['playback.normalizeLevel'] !== undefined) {
+      audioEngine.setNormalize(
+        getPrefBool(preferences, 'playback.audioNormalize'),
+        (getPrefValue(preferences, 'playback.normalizeLevel') || 'normal') as NormalizeLevel
+      );
+    }
+    if (patch['playback.spatial8d'] !== undefined || patch['playback.spatial8dSpeed'] !== undefined) {
+      audioEngine.setSpatial8D(
+        getPrefBool(preferences, 'playback.spatial8d'),
+        (getPrefValue(preferences, 'playback.spatial8dSpeed') || 'normal') as Spatial8DSpeed
+      );
     }
     if (patch['stream_quality'] !== undefined && audioEl && currentTrack && currentTrack.sourceType !== 'local') {
       const nextUrl = resolveDirectStreamUrl(currentTrack);
@@ -1651,6 +1964,9 @@
   }
 
   async function navigate(route: ViewRoute) {
+    if (route.name === 'home' && !route.filter) {
+      homeFilter = 'semua';
+    }
     let resolvedRoute = route;
     if (isMobile) {
       if (route.name === 'liked-songs') resolvedRoute = { name: 'library', filter: 'music' };
@@ -1722,6 +2038,22 @@
       fireStreak = await api.getFireStreak();
     } else if (route.name === 'yt-album-detail') {
       const seq = ++ytAlbumReqSeq;
+      if (route.localTracks && route.localTracks.length > 0) {
+        ytAlbumDetail = {
+          browseId: route.browseId ?? '',
+          kind: route.kind,
+          title: route.albumTitle || route.title,
+          artist: route.artist,
+          artistBrowseId: '',
+          year: '',
+          coverUrl: route.coverUrl,
+          subtitle: '',
+          tracks: route.localTracks,
+          artistAlbums: []
+        };
+        ytAlbumLoading = false;
+        return;
+      }
       ytAlbumDetail = null;
       ytAlbumLoading = true;
       try {
@@ -2269,9 +2601,12 @@
           }
         }
 
-        const targetBatch = 12; // 2 rows x 6 items
         const targetTitle = 'Lagu Lainnya untuk Anda';
         const existingShelf = ytShelves.find((s) => s.title === targetTitle);
+        const cols = 7;
+        const currentLen = existingShelf?.items.length || 0;
+        const remainder = currentLen % cols;
+        const targetBatch = cols * 2 + (remainder === 0 ? 0 : cols - remainder); // 2 full rows x 7 items
         const tailArtists = (existingShelf?.items || []).slice(-3).map((c) => c.artist || c.subtitle || '');
 
         const existingVideoIds = new Set<string>(ytMoreAllBuffer.map((c) => c.videoId));
@@ -2298,7 +2633,7 @@
 
         const pushUniqueTopSongs = (tracksList: YTMusicTrack[] | null | undefined, sourceLabel: string, strict = true) => {
           for (const t of tracksList || []) {
-            if (pool.length >= targetBatch) break;
+            if (pool.length >= targetBatch + 7) break;
             if (!t.videoId || existingVideoIds.has(t.videoId)) continue;
             const cov = (t.coverUrl || '').trim();
             const alb = (t.album || '').trim().toLowerCase();
@@ -2371,7 +2706,7 @@
           }
         }
       } else {
-        const targetBatch = 12; // 2 rows x 6 items (matching More songs for you)
+        const targetBatch = 14;
         const existingIds = new Set(ytResults.map((t) => t.videoId));
         const existingCovers = new Set(ytResults.map((t) => (t.coverUrl || '').trim()).filter(Boolean));
         const existingAlbums = new Set(
@@ -2788,10 +3123,17 @@
   async function handleOpenAlbum(albumId: number) {
     const al = albums.find((a) => a.id === albumId);
     if (al?.sourceType === 'ytmusic') {
+      const ext = (al.externalId || '').trim();
+      const isBrowse =
+        ext.startsWith('MPREb_') ||
+        ext.startsWith('OLAK') ||
+        ext.startsWith('dz:album:') ||
+        ext.startsWith('sp:album:');
       await navigate({
         name: 'yt-album-detail',
-        browseId: al.externalId || '',
-        videoId: '',
+        browseId: isBrowse ? ext : '',
+        videoId: isBrowse ? '' : ext,
+        kind: 'album',
         title: al.title,
         artist: al.artistName,
         albumTitle: al.title,
@@ -3059,6 +3401,13 @@
     if (seq !== playRequestSeq) return;
     if (audioEl && streamUrl) {
       audioEngine.attach(audioEl);
+      audioEngine.setTrackLoudness(null);
+      const loudnessSeq = seq;
+      void api.getTrackLoudness(tr.id, tr.externalId || '').then((res) => {
+        if (loudnessSeq === playRequestSeq) {
+          audioEngine.setTrackLoudness(res?.hasLoudness ? res.loudnessDb : null);
+        }
+      }).catch(() => {});
       switchingTrack = true;
       audioEl.pause();
       audioEl.src = streamUrl;
@@ -3203,6 +3552,7 @@
         coverUrl: tr.coverUrl
       });
     }
+    showNetworkToast(appLang === 'id' ? 'Diputar berikutnya' : 'Playing next', 'check-circle');
     if (!currentTrack) {
       queue = [tr];
       if (!isJamRemote) void playTrack(tr, [tr]);
@@ -3233,6 +3583,29 @@
     if (!queue.some((q) => trackQueueKey(q) === targetKey)) {
       queue = [...queue, tr];
     }
+    showNetworkToast(appLang === 'id' ? 'Ditambahkan ke antrean' : 'Added to queue', 'check-circle');
+  }
+
+  function handleCopyTrackLink(tr: Track) {
+    const link = tr.externalId
+      ? `https://music.youtube.com/watch?v=${tr.externalId}`
+      : `${tr.title}${tr.artistName ? ` — ${tr.artistName}` : ''}`;
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(link).catch(() => {});
+    } else if (typeof document !== 'undefined') {
+      const ta = document.createElement('textarea');
+      ta.value = link;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand('copy');
+      } catch {}
+      ta.remove();
+    }
+    showNetworkToast(appLang === 'id' ? 'Tautan disalin' : 'Link copied', 'check-circle');
   }
 
   async function playNext() {
@@ -3518,35 +3891,77 @@
     return saved ?? null;
   }
 
-  async function handleToggleFavoriteTrack(id: number, track?: Track) {
-    let targetId = id;
-    if (targetId <= 0) {
-      const candidate = track ?? (currentTrack && currentTrack.id === id ? currentTrack : undefined);
-      const saved = await ensurePersistedTrack(candidate);
-      if (!saved) return;
-      targetId = saved.id;
-    }
-    const fav = await api.toggleFavoriteTrack(targetId);
-    tracks = tracks.map((t) => (t.id === targetId ? { ...t, isFavorite: fav } : t));
-    detailTracks = detailTracks.map((t) => (t.id === targetId ? { ...t, isFavorite: fav } : t));
-    queue = queue.map((t) => (t.id === targetId || (track?.externalId && t.externalId === track.externalId) ? { ...t, id: targetId, isFavorite: fav } : t));
-    if (currentTrack && (currentTrack.id === targetId || (track?.externalId && currentTrack.externalId === track.externalId))) {
-      currentTrack = { ...currentTrack, id: targetId, isFavorite: fav };
+  function syncTrackAcrossViews(
+    matchId: number,
+    matchExternalId: string | undefined | null,
+    updater: (t: Track) => Track
+  ) {
+    const ext = (matchExternalId || '').trim();
+    const matches = (t: Track) =>
+      (matchId > 0 && t.id === matchId) || (Boolean(ext) && t.externalId === ext);
+    tracks = tracks.map((t) => (matches(t) ? updater(t) : t));
+    detailTracks = detailTracks.map((t) => (matches(t) ? updater(t) : t));
+    queue = queue.map((t) => (matches(t) ? updater(t) : t));
+    if (currentTrack && matches(currentTrack)) {
+      currentTrack = updater(currentTrack);
     }
     if (selectedPlaylistDetail) {
       selectedPlaylistDetail = {
         ...selectedPlaylistDetail,
-        tracks: selectedPlaylistDetail.tracks.map((t) => (t.id === targetId ? { ...t, isFavorite: fav } : t))
+        tracks: selectedPlaylistDetail.tracks.map((t) => (matches(t) ? updater(t) : t))
+      };
+    }
+    if (ytAlbumDetail) {
+      ytAlbumDetail = {
+        ...ytAlbumDetail,
+        tracks: ytAlbumDetail.tracks.map((t) => (matches(t) ? updater(t) : t))
+      };
+    }
+    if (ytArtistDetail) {
+      ytArtistDetail = {
+        ...ytArtistDetail,
+        topTracks: ytArtistDetail.topTracks.map((t) => (matches(t) ? updater(t) : t))
       };
     }
   }
 
+  async function handleToggleFavoriteTrack(id: number, track?: Track) {
+    const existing =
+      track ??
+      (currentTrack && currentTrack.id === id
+        ? currentTrack
+        : tracks.find((t) => t.id === id));
+    const prevFav = Boolean(existing?.isFavorite);
+    const nextFav = !prevFav;
+    const matchExt = existing?.externalId;
+
+    syncTrackAcrossViews(id, matchExt, (t) => ({ ...t, isFavorite: nextFav }));
+
+    try {
+      let targetId = id;
+      if (targetId <= 0) {
+        const saved = await ensurePersistedTrack(existing);
+        if (!saved) {
+          syncTrackAcrossViews(id, matchExt, (t) => ({ ...t, isFavorite: prevFav }));
+          return;
+        }
+        targetId = saved.id;
+      }
+      const fav = await api.toggleFavoriteTrack(targetId);
+      syncTrackAcrossViews(targetId, matchExt, (t) => ({ ...t, id: targetId, isFavorite: fav }));
+    } catch {
+      syncTrackAcrossViews(id, matchExt, (t) => ({ ...t, isFavorite: prevFav }));
+    }
+  }
+
   async function handleAddTrackToPlaylist(playlistId: number, trackId: number, track?: Track) {
+    showNetworkToast(appLang === 'id' ? 'Ditambahkan ke playlist' : 'Added to playlist', 'check-circle');
     let targetId = trackId;
     if (targetId <= 0 && track) {
       const saved = await ensurePersistedTrack(track);
       if (!saved) return;
       targetId = saved.id;
+      syncTrackAcrossViews(0, track.externalId, (t) => ({ ...t, id: targetId }));
     }
     if (targetId <= 0) return;
     await api.addTrackToPlaylist(playlistId, targetId);
@@ -3700,9 +4115,11 @@
   {#if showSplash}
     <SplashScreen
       onComplete={() => {
-        try {
-          localStorage.setItem(SPLASH_SEEN_KEY, '1');
-        } catch {
+        if (isJamRemote) {
+          try {
+            localStorage.setItem(SPLASH_SEEN_KEY, '1');
+          } catch {
+          }
         }
         showSplash = false;
       }}
@@ -3777,6 +4194,7 @@
     {#if !isMobile}
       <Sidebar
       {currentRoute}
+      activeSection={activeSidebarSection}
       width={leftWidth}
       collapsed={lockLeftHidden ? true : leftCollapsed}
       lockedCollapsed={lockLeftHidden}
@@ -3900,10 +4318,67 @@
           onBack={goBack}
           onPlayTrack={playTrack}
           onOpenTrackAlbum={openTrackAlbumDetail}
+          onOpenDownloadedMusic={(tr) => navigate({ name: 'track-detail', trackId: tr.id, singleTrack: true })}
+          onOpenGroup={(entry) => {
+            const groupKey = entry.key.startsWith('group:') ? entry.key.slice('group:'.length) : entry.key;
+            if (entry.kind === 'playlist') {
+              const rawId = groupKey.startsWith('playlist:') ? groupKey.slice('playlist:'.length).trim() : '';
+              const normPlId = (s: string) => s.trim().replace(/^VL/i, '');
+              const numId = Number(rawId);
+              const match = playlists.find(
+                (p) =>
+                  (Number.isFinite(numId) && numId > 0 && p.id === numId) ||
+                  (rawId !== '' && normPlId(p.externalId || '') === normPlId(rawId)) ||
+                  p.name.trim().toLowerCase() === entry.title.trim().toLowerCase()
+              );
+              if (match) {
+                navigate({ name: 'playlist-detail', playlistId: match.id });
+              } else {
+                navigate({
+                  name: 'yt-album-detail',
+                  videoId: entry.primaryTrack.externalId || '',
+                  browseId: rawId,
+                  title: entry.title,
+                  artist: entry.primaryTrack.artistName || 'YouTube Music',
+                  albumTitle: entry.title,
+                  coverUrl: entry.coverUrl || entry.primaryTrack.coverUrl || '',
+                  kind: 'playlist',
+                  localTracks: entry.tracks
+                });
+              }
+              return;
+            }
+            const rawAlbumId = groupKey.startsWith('album:') ? groupKey.slice('album:'.length).trim() : '';
+            const numAlbumId = Number(rawAlbumId);
+            if (Number.isFinite(numAlbumId) && numAlbumId > 0 && albums.some((a) => a.id === numAlbumId)) {
+              navigate({ name: 'album-detail', albumId: numAlbumId });
+            } else {
+              navigate({
+                name: 'yt-album-detail',
+                videoId: entry.primaryTrack.externalId || '',
+                browseId: rawAlbumId,
+                title: entry.title,
+                artist: entry.primaryTrack.artistName || '',
+                albumTitle: entry.title,
+                coverUrl: entry.coverUrl || entry.primaryTrack.coverUrl || '',
+                kind: 'album',
+                localTracks: entry.tracks
+              });
+            }
+          }}
           onCancelDownload={handleCancelDownload}
           onCancelDownloadGroup={handleCancelDownloadGroup}
-          onRemoveDownload={handleRemoveDownload}
-          onRemoveDownloadGroup={handleRemoveDownloadGroup}
+          onPauseDownload={handlePauseDownload}
+          onResumeDownload={handleResumeDownload}
+          onPauseDownloadGroup={handlePauseDownloadGroup}
+          onResumeDownloadGroup={handleResumeDownloadGroup}
+          onRemoveDownload={(id) => handleRemoveDownload(id, false)}
+          onRemoveDownloadGroup={(list) => handleRemoveDownloadGroup(list, false)}
+          onDismissDeletedEntry={(entry) => {
+            const idSet = new Set(entry.tracks.map((t) => t.id));
+            sessionDeletedDownloadTracks = sessionDeletedDownloadTracks.filter((d) => !idSet.has(d.id));
+          }}
+          onRetryFailedEntry={handleRetryFailedDownload}
         />
         {/await}
       {:else if currentRoute.name === 'library' || (isMobile && (currentRoute.name === 'liked-songs' || currentRoute.name === 'downloaded' || currentRoute.name === 'favorite-albums' || currentRoute.name === 'favorite-artists'))}
@@ -3966,7 +4441,10 @@
             ? artists.find(
                 (a) =>
                   (currentRoute.artistId !== undefined && a.id === currentRoute.artistId) ||
-                  (currentRoute.artistName && a.name.toLowerCase() === currentRoute.artistName.toLowerCase())
+                  (Boolean(currentRoute.browseId) && a.externalId === currentRoute.browseId) ||
+                  (Boolean(ytArtistDetail?.browseId) && a.externalId === ytArtistDetail?.browseId) ||
+                  (Boolean(currentRoute.artistName) && a.name.toLowerCase() === currentRoute.artistName!.toLowerCase()) ||
+                  (Boolean(ytArtistDetail?.name) && a.name.toLowerCase() === ytArtistDetail!.name.toLowerCase())
               ) ?? null
             : null}
           artistFallbackName={currentRoute.name === 'artist-detail' ? currentRoute.artistName ?? '' : ''}
@@ -3995,6 +4473,7 @@
           onPlayTrack={playTrack}
           onPlayNext={handleQueuePlayNext}
           onAddToQueue={handleAddToQueue}
+          onCopyLink={handleCopyTrackLink}
           onPlayAlbum={handlePlayAlbum}
           onPlayArtist={handlePlayArtist}
           onPlayYTMusic={playYTMusicSingle}
@@ -4012,10 +4491,12 @@
           onToggleFavoriteAlbum={handleToggleFavoriteAlbum}
           onToggleFavoriteArtist={handleToggleFavoriteArtist}
           onToggleFavoriteYTMusicArtist={handleToggleFavoriteYTMusicArtist}
-          onAddToPlaylist={async (pid, tid) => {
-            await api.addTrackToPlaylist(pid, tid);
-            playlists = await api.getPlaylists(false);
+          onAddToPlaylist={handleAddTrackToPlaylist}
+          onCreatePlaylistTrack={(tr) => {
+            pendingCreatePlaylistTrack = tr ?? null;
+            showCreatePlaylistModal = true;
           }}
+          {trackLoading}
           onDownloadTrack={handleDownloadTrack}
           onDownloadYTMusic={handleDownloadYTMusicTrack}
           onRemoveDownload={handleRemoveDownload}
@@ -4023,7 +4504,8 @@
           onCancelDownload={handleCancelDownload}
           onCancelDownloadGroup={handleCancelDownloadGroup}
           onOpenAlbum={handleOpenAlbum}
-          onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
+          onOpenArtist={(artistId, tr) =>
+            tr ? void openTrackArtistDetail(tr) : void navigate({ name: 'artist-detail', artistId })}
           onOpenTrackAlbum={openTrackAlbumDetail}
           {shuffle}
           {queueSourceKey}
@@ -4059,7 +4541,12 @@
             void loadPlaylistRecommendations(exclude);
           }}
           currentTrackId={currentTrack?.id ?? null}
+          currentExternalId={currentTrack?.externalId ?? null}
+          currentTrackTitle={currentTrack?.title ?? null}
+          currentTrackArtist={currentTrack?.artistName ?? null}
           {isPlaying}
+          {trackLoading}
+          {downloadStates}
           onTogglePlay={togglePlay}
           {mediaBaseUrl}
           {accentColor}
@@ -4082,16 +4569,17 @@
             playlists = await api.getPlaylists(false);
             await navigate({ name: 'playlists' });
           }}
+          onToggleSaveYTMusicPlaylist={handleToggleSaveYTMusicPlaylist}
           onPlayTrack={playTrack}
           {shuffle}
           {queueSourceKey}
           onToggleShuffle={toggleShuffleMode}
           onPlayShuffled={playShuffledList}
           onPlayYTMusic={playYTMusicSingle}
-          onAddTrack={async (pid, tid) => {
-            await api.addTrackToPlaylist(pid, tid);
-            playlists = await api.getPlaylists(false);
-            selectedPlaylistDetail = await api.getPlaylistDetail(pid);
+          onAddTrack={handleAddTrackToPlaylist}
+          onCreatePlaylistTrack={(tr) => {
+            pendingCreatePlaylistTrack = tr ?? null;
+            showCreatePlaylistModal = true;
           }}
           onAddYTMusicTrack={async (pid, yt) => {
             const saved = await api.saveYTMusicTrack(yt);
@@ -4112,10 +4600,13 @@
           onToggleFavorite={handleToggleFavoriteTrack}
           onPlayNext={handleQueuePlayNext}
           onAddToQueue={handleAddToQueue}
+          onCopyLink={handleCopyTrackLink}
           onDownloadTrack={handleDownloadTrack}
           onDownloadCollection={handleDownloadCollection}
           onRemoveDownload={handleRemoveDownload}
-          onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
+          onRemoveDownloadGroup={handleRemoveDownloadGroup}
+          onOpenArtist={(artistId, tr) =>
+            tr ? void openTrackArtistDetail(tr) : void navigate({ name: 'artist-detail', artistId })}
           onOpenTrackAlbum={openTrackAlbumDetail}
           {activeDownloadsCount}
           {downloadProgressPct}
@@ -4184,7 +4675,7 @@
         {@const targetAlbumId =
           currentRoute.name === 'album-detail'
             ? currentRoute.albumId
-            : currentRoute.name === 'track-detail'
+            : currentRoute.name === 'track-detail' && !currentRoute.singleTrack
               ? detailTrack?.albumId ?? 0
               : 0}
         {@const detailAlbum = targetAlbumId > 0 ? albums.find((a) => a.id === targetAlbumId) ?? null : null}
@@ -4206,7 +4697,11 @@
           albumTracks={albumTrackList}
           ytAlbum={currentRoute.name === 'yt-album-detail' ? ytAlbumDetail : null}
           ytAlbumLoading={currentRoute.name === 'yt-album-detail' ? ytAlbumLoading : false}
-          routeKind={currentRoute.name === 'yt-album-detail' ? currentRoute.kind : undefined}
+          routeKind={currentRoute.name === 'yt-album-detail'
+            ? currentRoute.kind
+            : currentRoute.name === 'track-detail' && currentRoute.singleTrack
+              ? 'music'
+              : undefined}
           recommendedPlaylists={currentRoute.name === 'yt-album-detail' && currentRoute.kind === 'playlist'
             ? [...ytShelves.flatMap((s) => s.items).filter((i) => i.kind === 'playlist'), ...ytPlaylistResults]
             : []}
@@ -4215,9 +4710,11 @@
           currentTrackTitle={currentTrack?.title ?? null}
           currentTrackArtist={currentTrack?.artistName ?? null}
           {isPlaying}
+          {trackLoading}
           {tracks}
           {albums}
           {playlists}
+          {downloadStates}
           {mediaBaseUrl}
           {accentColor}
           onPlayTrack={playTrack}
@@ -4230,19 +4727,24 @@
           onToggleFavoriteAlbum={handleToggleFavoriteAlbum}
           onToggleFavoriteYTMusicAlbum={handleToggleFavoriteYTMusicAlbum}
           onToggleSaveYTMusicPlaylist={handleToggleSaveYTMusicPlaylist}
-          onAddToPlaylist={async (plId, trId) => {
-            await api.addTrackToPlaylist(plId, trId);
-            playlists = await api.getPlaylists(false);
+          onAddToPlaylist={handleAddTrackToPlaylist}
+          onCreatePlaylistTrack={(tr) => {
+            pendingCreatePlaylistTrack = tr ?? null;
+            showCreatePlaylistModal = true;
           }}
-          onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
+          onOpenArtist={(artistId, tr) =>
+            tr ? void openTrackArtistDetail(tr) : void navigate({ name: 'artist-detail', artistId })}
           onOpenAlbum={handleOpenAlbum}
+          onOpenTrackAlbum={openTrackAlbumDetail}
           onBack={goBack}
           onOpenYTAlbum={(card) => void openYTAlbumCard(card)}
           onDownloadTrack={handleDownloadTrack}
           onDownloadCollection={handleDownloadCollection}
           onRemoveDownload={handleRemoveDownload}
+          onRemoveDownloadGroup={handleRemoveDownloadGroup}
           onPlayNext={handleQueuePlayNext}
           onAddToQueue={handleAddToQueue}
+          onCopyLink={handleCopyTrackLink}
         />
         {/await}
       {:else if currentRoute.name === 'lyrics'}
@@ -4279,6 +4781,7 @@
           currentTrackTitle={currentTrack?.title ?? null}
           currentTrackArtist={currentTrack?.artistName ?? null}
           {isPlaying}
+          {trackLoading}
           {mediaBaseUrl}
           {accentColor}
           {isMobile}
@@ -4292,14 +4795,17 @@
           onTogglePlay={togglePlay}
           onPlayNext={handleQueuePlayNext}
           onAddToQueue={handleAddToQueue}
-          onAddToPlaylist={async (pid, tid) => {
-            await api.addTrackToPlaylist(pid, tid);
-            playlists = await api.getPlaylists(false);
+          onCopyLink={handleCopyTrackLink}
+          onAddToPlaylist={handleAddTrackToPlaylist}
+          onCreatePlaylistTrack={(tr) => {
+            pendingCreatePlaylistTrack = tr ?? null;
+            showCreatePlaylistModal = true;
           }}
           onToggleFavorite={handleToggleFavoriteTrack}
           onDownloadTrack={handleDownloadTrack}
           onRemoveDownload={handleRemoveDownload}
-          onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
+          onOpenArtist={(artistId, tr) =>
+            tr ? void openTrackArtistDetail(tr) : void navigate({ name: 'artist-detail', artistId })}
           onOpenTrackAlbum={openTrackAlbumDetail}
           onClearHistory={async () => {
             await api.clearPlayHistory();
@@ -4312,6 +4818,13 @@
           }}
           onClearCache={async () => {
             return await api.clearCache();
+          }}
+          onClearDownloads={async () => {
+            const freed = await api.clearAllDownloads();
+            downloadStates = {};
+            sessionDeletedDownloadTracks = [];
+            tracks = await api.getTracks('all', '');
+            return freed;
           }}
           onNavigate={navigate}
         />
@@ -4387,6 +4900,7 @@
       {rightPanelMode}
       {activeOutputDevice}
       isLyricsOpen={currentRoute.name === 'lyrics'}
+      spatial8d={getPrefBool(preferences, 'playback.spatial8d')}
       {seekDeltaSec}
       {seekDeltaSeq}
       {mediaBaseUrl}
@@ -4415,6 +4929,10 @@
         } else {
           navigate({ name: 'lyrics' });
         }
+      }}
+      onToggleSpatial8d={() => {
+        const next = !getPrefBool(preferences, 'playback.spatial8d');
+        void patchPrefs({ 'playback.spatial8d': next ? 'true' : 'false' });
       }}
       onToggleDevices={() => {
         if (lockRightHidden) return;
@@ -4466,10 +4984,10 @@
     <div
       in:fly={{ y: 12, duration: 180 }}
       out:fly={{ y: 12, duration: 150 }}
-      class="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full text-xs font-semibold shadow-lg pointer-events-none flex items-center gap-2"
+      class="fixed bottom-28 sm:bottom-32 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full text-xs font-semibold shadow-lg pointer-events-none flex items-center gap-2"
       style="background-color: var(--md-sys-color-inverse-surface); color: var(--md-sys-color-inverse-on-surface);"
     >
-      <Icon name="wifi-slash" size={14} />
+      <Icon name={networkToastIcon} weight={networkToastIcon === 'check-circle' ? 'fill' : 'regular'} size={14} />
       <span>{networkToast}</span>
     </div>
   {/if}

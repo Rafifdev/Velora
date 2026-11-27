@@ -22,6 +22,10 @@ export function CheckForUpdates() {
   return window['go']['main']['App']['CheckForUpdates']();
 }
 
+export function ClearAllDownloads() {
+  return window['go']['main']['App']['ClearAllDownloads']();
+}
+
 export function ClearCache() {
   return window['go']['main']['App']['ClearCache']();
 }
@@ -142,6 +146,10 @@ export function GetStreamURL(arg1) {
   return window['go']['main']['App']['GetStreamURL'](arg1);
 }
 
+export function GetTrackLoudness(arg1, arg2) {
+  return window['go']['main']['App']['GetTrackLoudness'](arg1, arg2);
+}
+
 export function GetTrackLyrics(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['GetTrackLyrics'](arg1, arg2, arg3, arg4, arg5);
 }
@@ -202,6 +210,14 @@ export function OpenExternalURL(arg1) {
   return window['go']['main']['App']['OpenExternalURL'](arg1);
 }
 
+export function PauseDownload(arg1) {
+  return window['go']['main']['App']['PauseDownload'](arg1);
+}
+
+export function PauseDownloadGroup(arg1) {
+  return window['go']['main']['App']['PauseDownloadGroup'](arg1);
+}
+
 export function PlayYTMusicCollection(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['PlayYTMusicCollection'](arg1, arg2, arg3, arg4, arg5);
 }
@@ -244,6 +260,18 @@ export function ReorderPlaylistTracks(arg1, arg2) {
 
 export function RescanSource(arg1) {
   return window['go']['main']['App']['RescanSource'](arg1);
+}
+
+export function ResumeDownload(arg1) {
+  return window['go']['main']['App']['ResumeDownload'](arg1);
+}
+
+export function ResumeDownloadGroup(arg1) {
+  return window['go']['main']['App']['ResumeDownloadGroup'](arg1);
+}
+
+export function RetryDownloadTrack(arg1, arg2) {
+  return window['go']['main']['App']['RetryDownloadTrack'](arg1, arg2);
 }
 
 export function SavePreferences(arg1) {

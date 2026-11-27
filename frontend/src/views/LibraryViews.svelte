@@ -43,6 +43,7 @@
     currentTrackTitle?: string | null;
     currentTrackArtist?: string | null;
     isPlaying: boolean;
+    trackLoading?: boolean;
     shuffle?: boolean;
     queueSourceKey?: string | null;
     mediaBaseUrl: string;
@@ -63,11 +64,12 @@
     onSearchYTMusicArtists?: (q: string) => void;
     onOpenYTCard?: (card: YTMusicCard) => void;
     onPlayYTCollection?: (card: YTMusicCard) => void;
-    onToggleFavoriteTrack: (id: number) => void;
+    onToggleFavoriteTrack: (id: number, track?: Track) => void;
     onToggleFavoriteAlbum: (id: number) => void;
     onToggleFavoriteArtist: (id: number) => void;
     onToggleFavoriteYTMusicArtist?: (artist: { externalId: string; name: string; avatarUrl: string }) => void;
-    onAddToPlaylist: (playlistId: number, trackId: number) => void;
+    onAddToPlaylist: (playlistId: number, trackId: number, track?: Track) => void;
+    onCreatePlaylistTrack?: (track?: Track) => void;
     onDownloadTrack?: (track: Track) => void;
     onDownloadYTMusic?: (yt: YTMusicTrack) => void;
     onRemoveDownload?: (trackId: number) => void;
@@ -75,7 +77,7 @@
     onCancelDownload?: (trackId: number) => void;
     onCancelDownloadGroup?: (groupKey: string, trackIds: number[]) => void;
     onOpenAlbum: (albumId: number) => void;
-    onOpenArtist: (artistId: number) => void;
+    onOpenArtist: (artistId: number, track?: Track) => void;
     onOpenYTMusicAlbum?: (yt: YTMusicTrack) => void;
     onOpenTrackAlbum?: (track: Track) => void;
     onPlayShuffled?: (list: Track[], sourceTitle?: string, sourceKey?: string) => void;
@@ -111,6 +113,7 @@
     currentTrackTitle = null,
     currentTrackArtist = null,
     isPlaying,
+    trackLoading = false,
     shuffle = false,
     queueSourceKey = null,
     mediaBaseUrl,
@@ -136,6 +139,7 @@
     onToggleFavoriteArtist,
     onToggleFavoriteYTMusicArtist,
     onAddToPlaylist,
+    onCreatePlaylistTrack,
     onDownloadTrack,
     onDownloadYTMusic,
     onRemoveDownload,
@@ -201,6 +205,8 @@
   let prevSearchMode = false;
   let albumsScrolled = $state(false);
   let artistsScrolled = $state(false);
+  let musicTabFilter = $state<'all' | 'favorited' | 'downloaded'>('all');
+  let albumTabFilter = $state<'all' | 'favorited' | 'downloaded'>('all');
   let downloadCategoryFilter = $state<'all' | 'music' | 'album' | 'playlist'>('all');
   const downloadedTracks = $derived(tracks.filter((t) => t.isDownloaded));
   const activeDownloads = $derived(
@@ -208,9 +214,14 @@
       (d) => d.status === 'queued' || d.status === 'downloading' || d.status === 'failed'
     )
   );
+  const activeForGrouping = $derived(
+    Object.values(downloadStates).filter(
+      (d) => d.status === 'queued' || d.status === 'downloading' || d.status === 'paused'
+    )
+  );
   const groupedActiveDownloads = $derived(groupActiveDownloads(activeDownloads));
   const groupedCompletedDownloads = $derived(
-    groupCompletedDownloads(downloadedTracks, [], activeDownloads)
+    groupCompletedDownloads(downloadedTracks, [], activeForGrouping)
   );
   const downloadCategoryCounts = $derived({
     all: groupedCompletedDownloads.length,
@@ -257,6 +268,33 @@
 
   const likedTracks = $derived(tracks.filter((t) => t.isFavorite));
 
+  function dedupeTrackList(list: Track[]): Track[] {
+    const seen = new Set<string>();
+    const res: Track[] = [];
+    for (const t of list) {
+      const k = t.id > 0 ? `id:${t.id}` : t.externalId ? `ext:${t.externalId}` : `t:${t.title}:${t.artistName}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      res.push(t);
+    }
+    return res;
+  }
+
+  const downloadedSingleMusic = $derived(
+    groupedCompletedDownloads.filter((e) => e.kind === 'music' && !e.deleted).map((e) => e.primaryTrack)
+  );
+  const allYourMusic = $derived(dedupeTrackList([...likedTracks, ...downloadedSingleMusic]));
+  const downloadedYourMusic = $derived(
+    dedupeTrackList([...downloadedSingleMusic, ...likedTracks.filter((t) => t.isDownloaded)])
+  );
+  const visibleYourMusic = $derived(
+    musicTabFilter === 'favorited'
+      ? likedTracks
+      : musicTabFilter === 'downloaded'
+        ? downloadedYourMusic
+        : allYourMusic
+  );
+
   const searchMatchedLocal = $derived(
     tracks.filter((t) => {
       if (!searchQuery.trim()) return true;
@@ -297,8 +335,115 @@
     topYTMatch ? ytResults.filter((t) => t.videoId !== topYTMatch.videoId) : ytResults
   );
 
-  const displayedAlbums = $derived(albums.filter((a) => a.isFavorite));
-  const favoriteAlbumsCount = $derived(displayedAlbums.length);
+  type UnifiedAlbumItem = {
+    key: string;
+    albumId: number;
+    browseId: string;
+    title: string;
+    artistName: string;
+    coverUrl: string;
+    trackCount: number;
+    isFavorite: boolean;
+    isDownloaded: boolean;
+    localSource: boolean;
+    downloadedTracks?: Track[];
+  };
+
+  const unifiedAlbums = $derived.by<UnifiedAlbumItem[]>(() => {
+    const items: UnifiedAlbumItem[] = albums
+      .filter((a) => a.isFavorite)
+      .map((a) => {
+        const isDl =
+          downloadedGroupKeys.has(`album:${a.id}`) ||
+          (Boolean(a.externalId) && downloadedGroupKeys.has(`album:${a.externalId}`));
+        return {
+          key: `alb:${a.id}`,
+          albumId: a.id,
+          browseId: a.externalId || '',
+          title: a.title,
+          artistName: a.artistName,
+          coverUrl: a.coverUrl,
+          trackCount: a.trackCount,
+          isFavorite: true,
+          isDownloaded: isDl,
+          localSource: a.sourceType === 'local'
+        };
+      });
+
+    for (const entry of groupedCompletedDownloads) {
+      if (entry.kind !== 'album' || entry.deleted) continue;
+      const rawId = entry.key.replace(/^group:/, '').replace(/^album:/, '').trim();
+      const numId = Number(rawId);
+      const tLow = entry.title.trim().toLowerCase();
+      const aLow = (entry.primaryTrack.artistName || '').trim().toLowerCase();
+      const existing = items.find(
+        (it) =>
+          (Number.isFinite(numId) && numId > 0 && it.albumId === numId) ||
+          (rawId !== '' && it.browseId === rawId) ||
+          (it.title.trim().toLowerCase() === tLow &&
+            (!aLow || it.artistName.trim().toLowerCase() === aLow))
+      );
+      if (existing) {
+        existing.isDownloaded = true;
+        existing.downloadedTracks = entry.tracks;
+      } else {
+        items.push({
+          key: `dl:${entry.key}`,
+          albumId: Number.isFinite(numId) && numId > 0 ? numId : 0,
+          browseId: rawId,
+          title: entry.title,
+          artistName: entry.primaryTrack.artistName || 'YouTube Music',
+          coverUrl: entry.coverUrl || entry.primaryTrack.coverUrl || '',
+          trackCount: entry.tracks.length,
+          isFavorite: false,
+          isDownloaded: true,
+          localSource: false,
+          downloadedTracks: entry.tracks
+        });
+      }
+    }
+    return items;
+  });
+
+  const visibleAlbums = $derived(
+    albumTabFilter === 'favorited'
+      ? unifiedAlbums.filter((a) => a.isFavorite)
+      : albumTabFilter === 'downloaded'
+        ? unifiedAlbums.filter((a) => a.isDownloaded)
+        : unifiedAlbums
+  );
+  const favoriteAlbumsCount = $derived(unifiedAlbums.length);
+
+  function openUnifiedAlbum(al: UnifiedAlbumItem) {
+    if (al.downloadedTracks && al.downloadedTracks.length > 0 && !al.localSource && onNavigate) {
+      onNavigate({
+        name: 'yt-album-detail',
+        videoId: al.downloadedTracks[0]?.externalId || '',
+        browseId: al.browseId,
+        kind: 'album',
+        title: al.title,
+        artist: al.artistName,
+        albumTitle: al.title,
+        coverUrl: al.coverUrl,
+        localTracks: al.downloadedTracks
+      });
+      return;
+    }
+    if (al.albumId > 0) {
+      onOpenAlbum(al.albumId);
+    }
+  }
+
+  function playUnifiedAlbum(al: UnifiedAlbumItem) {
+    if (al.downloadedTracks && al.downloadedTracks.length > 0 && !al.localSource) {
+      onPlayTrack(al.downloadedTracks[0], al.downloadedTracks);
+      return;
+    }
+    if (al.albumId > 0) {
+      if (onPlayAlbum) onPlayAlbum(al.albumId);
+      else onOpenAlbum(al.albumId);
+    }
+  }
 
   const displayedArtists = $derived(artists.filter((a) => a.isFavorite));
   const favoriteArtistsCount = $derived(displayedArtists.length);
@@ -375,13 +520,13 @@
           </div>
           <div class="space-y-1.5 min-w-[200px] mb-[4px]">
             <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--md-sys-color-tertiary)]">
-              Favorites • Music
+              {lang === 'id' ? 'Koleksi • Musik' : 'Collection • Music'}
             </div>
             <h1 class="text-3xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-              {tr(lang, 'nav.favoriteMusic')}
+              {tr(lang, 'nav.music')}
             </h1>
             <p class="text-xs tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
-              {likedTracks.length} {tr(lang, 'nav.likedSongsCount')}
+              {allYourMusic.length} {tr(lang, 'nav.songs').toLowerCase()} • Local & YouTube Music
             </p>
           </div>
         </div>
@@ -389,8 +534,8 @@
         <div class="mb-[4px] flex items-center gap-2.5">
           <button
             type="button"
-            disabled={likedTracks.length === 0}
-            onclick={() => likedTracks[0] && onPlayTrack(likedTracks[0], likedTracks)}
+            disabled={visibleYourMusic.length === 0}
+            onclick={() => visibleYourMusic[0] && onPlayTrack(visibleYourMusic[0], visibleYourMusic)}
             title={tr(lang, 'nav.playAll')}
             aria-label={tr(lang, 'nav.playAll')}
             class="w-11 h-11 rounded-full border-0 outline-none shadow-none bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] inline-flex items-center justify-center cursor-pointer transition-transform duration-150 hover:scale-[1.04] active:scale-95 disabled:opacity-40"
@@ -400,8 +545,8 @@
 
           <button
             type="button"
-            disabled={likedTracks.length === 0}
-            onclick={() => playShuffled(likedTracks)}
+            disabled={visibleYourMusic.length === 0}
+            onclick={() => playShuffled(visibleYourMusic)}
             title={tr(lang, 'nav.shuffle')}
             aria-label={tr(lang, 'nav.shuffle')}
             aria-pressed={shuffle}
@@ -426,13 +571,32 @@
       class="relative z-10 px-6 sm:px-8 pt-5 pb-8 flex-1 flex flex-col"
       style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-tertiary-container) 48%, var(--md-sys-color-surface-container-low)) 0%, color-mix(in srgb, var(--md-sys-color-tertiary-container) 28%, var(--md-sys-color-surface-container-low)) 120px, color-mix(in srgb, var(--md-sys-color-tertiary-container) 11%, var(--md-sys-color-surface-container-low)) 240px, var(--md-sys-color-surface-container-low) 340px);"
     >
-      {#if likedTracks.length === 0}
+      <div class="flex flex-wrap items-center gap-2 mb-4">
+        {#each [
+          { id: 'all', label: tr(lang, 'nav.all') },
+          { id: 'favorited', label: tr(lang, 'nav.favoritedMusic') },
+          { id: 'downloaded', label: tr(lang, 'nav.downloadedMusic') }
+        ] as tab (tab.id)}
+          <button
+            type="button"
+            onclick={() => (musicTabFilter = tab.id as 'all' | 'favorited' | 'downloaded')}
+            class="shrink-0 whitespace-nowrap min-h-9 px-4 py-1.5 rounded-full text-xs font-semibold cursor-pointer transition-all hover:brightness-110"
+            style={musicTabFilter === tab.id
+              ? 'background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);'
+              : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);'}
+          >
+            {tab.label}
+          </button>
+        {/each}
+      </div>
+
+      {#if visibleYourMusic.length === 0}
         <EmptyState
-          icon="music-note"
+          icon={musicTabFilter === 'downloaded' ? 'download' : 'music-note'}
           iconWeight="fill"
           iconSize={38}
-          title={tr(lang, 'nav.noFavSongs')}
-          description={tr(lang, 'nav.noFavSongsDesc')}
+          title={musicTabFilter === 'downloaded' ? tr(lang, 'nav.noDownloads') : tr(lang, 'nav.noFavSongs')}
+          description={musicTabFilter === 'downloaded' ? tr(lang, 'nav.noDownloadsDesc') : tr(lang, 'nav.noFavSongsDesc')}
         >
           <button
             type="button"
@@ -445,12 +609,13 @@
         </EmptyState>
       {:else}
         <TrackTable
-          tracks={likedTracks}
+          tracks={visibleYourMusic}
           {currentTrackId}
           {currentExternalId}
           {currentTrackTitle}
           {currentTrackArtist}
           {isPlaying}
+          {trackLoading}
           {onTogglePlay}
           {mediaBaseUrl}
           {accentColor}
@@ -462,6 +627,7 @@
           {onCopyLink}
           onToggleFavorite={onToggleFavoriteTrack}
           {onAddToPlaylist}
+          onCreatePlaylist={onCreatePlaylistTrack}
           {onDownloadTrack}
           {onRemoveDownload}
           {onOpenArtist}
@@ -743,13 +909,13 @@
 
           <div class="space-y-1.5 min-w-[200px] mb-[4px]">
             <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--md-sys-color-tertiary)]">
-              Favorites • Albums
+              {lang === 'id' ? 'Koleksi • Album' : 'Collection • Albums'}
             </div>
             <h1 class="text-3xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-              {tr(lang, 'nav.favoriteAlbums')}
+              {tr(lang, 'nav.albums')}
             </h1>
             <p class="text-xs tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
-              {favoriteAlbumsCount} {tr(lang, 'nav.favoriteAlbumsCount')}
+              {favoriteAlbumsCount} {tr(lang, 'nav.albums').toLowerCase()} • Local & YouTube Music
             </p>
           </div>
         </div>
@@ -760,13 +926,32 @@
       class="relative z-10 px-6 sm:px-8 pt-5 pb-10 flex-1 flex flex-col"
       style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-tertiary-container) 48%, var(--md-sys-color-surface-container-low)) 0%, color-mix(in srgb, var(--md-sys-color-tertiary-container) 28%, var(--md-sys-color-surface-container-low)) 120px, color-mix(in srgb, var(--md-sys-color-tertiary-container) 11%, var(--md-sys-color-surface-container-low)) 240px, var(--md-sys-color-surface-container-low) 340px);"
     >
-      {#if displayedAlbums.length === 0}
+      <div class="flex flex-wrap items-center gap-2 mb-5">
+        {#each [
+          { id: 'all', label: tr(lang, 'nav.all') },
+          { id: 'favorited', label: tr(lang, 'nav.favoritedAlbum') },
+          { id: 'downloaded', label: tr(lang, 'nav.downloadedAlbum') }
+        ] as tab (tab.id)}
+          <button
+            type="button"
+            onclick={() => (albumTabFilter = tab.id as 'all' | 'favorited' | 'downloaded')}
+            class="shrink-0 whitespace-nowrap min-h-9 px-4 py-1.5 rounded-full text-xs font-semibold cursor-pointer transition-all hover:brightness-110"
+            style={albumTabFilter === tab.id
+              ? 'background-color: var(--md-sys-color-on-surface); color: var(--md-sys-color-surface);'
+              : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);'}
+          >
+            {tab.label}
+          </button>
+        {/each}
+      </div>
+
+      {#if visibleAlbums.length === 0}
         <EmptyState
-          icon="vinyl-record"
+          icon={albumTabFilter === 'downloaded' ? 'download' : 'vinyl-record'}
           iconWeight="fill"
           iconSize={38}
-          title={tr(lang, 'nav.noFavAlbums')}
-          description={tr(lang, 'nav.noFavAlbumsDesc')}
+          title={albumTabFilter === 'downloaded' ? tr(lang, 'nav.noDownloads') : tr(lang, 'nav.noFavAlbums')}
+          description={albumTabFilter === 'downloaded' ? tr(lang, 'nav.noDownloadsDesc') : tr(lang, 'nav.noFavAlbumsDesc')}
         >
           <button
             type="button"
@@ -779,7 +964,7 @@
         </EmptyState>
       {:else}
         <div class="velora-card-grid">
-          {#each displayedAlbums as al (al.id)}
+          {#each visibleAlbums as al (al.key)}
             {@const cover = resolveCoverUrl(al.coverUrl, mediaBaseUrl)}
             <div class="group w-[172px] flex flex-col justify-start items-stretch self-start p-2.5 rounded-xl relative transition-colors duration-200 hover:bg-[var(--md-sys-color-state-hover)]">
               <div
@@ -788,7 +973,7 @@
               >
                 <button
                   type="button"
-                  onclick={() => onOpenAlbum(al.id)}
+                  onclick={() => openUnifiedAlbum(al)}
                   aria-label="Buka album {al.title}"
                   class="velora-card-artwork-hit cursor-pointer"
                 >
@@ -805,12 +990,12 @@
                     <Icon name="vinyl-record" weight="fill" size={44} style="color: var(--md-sys-color-on-primary-container); opacity: 0.55;" />
                   {/if}
                 </button>
-                {#if downloadedGroupKeys.has(`album:${al.id}`) || (al.externalId && downloadedGroupKeys.has(`album:${al.externalId}`))}
-                  <DownloadedBadge title={tr(lang, 'nav.downloaded')} class="top-2 right-2" />
+                {#if al.isDownloaded}
+                  <DownloadedBadge title={tr(lang, 'nav.downloaded')} class={al.isFavorite ? 'top-2 left-2' : 'top-2 right-2'} />
                 {/if}
                 <button
                   type="button"
-                  onclick={() => (onPlayAlbum ? onPlayAlbum(al.id) : onOpenAlbum(al.id))}
+                  onclick={() => playUnifiedAlbum(al)}
                   aria-label="Putar album {al.title}"
                   class="absolute bottom-2 right-2 w-10 h-10 rounded-full border-0 outline-none shadow-lg bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] flex items-center justify-center cursor-pointer opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 hover:scale-105"
                 >
@@ -818,7 +1003,7 @@
                 </button>
               </div>
 
-              <button type="button" onclick={() => onOpenAlbum(al.id)} class="w-full flex flex-col justify-start items-stretch text-left cursor-pointer">
+              <button type="button" onclick={() => openUnifiedAlbum(al)} class="w-full flex flex-col justify-start items-stretch text-left cursor-pointer">
                 <div class="text-xs font-bold truncate" style="color: var(--md-sys-color-on-surface);">
                   {al.title}
                 </div>
@@ -827,15 +1012,17 @@
                 </div>
               </button>
 
-              <button
-                type="button"
-                onclick={() => onToggleFavoriteAlbum(al.id)}
-                aria-label="Hapus {al.title} dari favorit"
-                class="velora-heart-btn is-loved border-0 shadow-none absolute top-4 right-4 w-8 h-8 rounded-full backdrop-blur-xs flex items-center justify-center cursor-pointer opacity-100"
-                style="background-color: color-mix(in srgb, var(--md-sys-color-surface-container-highest) 78%, transparent); color: var(--md-sys-color-tertiary);"
-              >
-                <Icon name="heart" weight="fill" size={15} />
-              </button>
+              {#if al.isFavorite && al.albumId > 0}
+                <button
+                  type="button"
+                  onclick={() => onToggleFavoriteAlbum(al.albumId)}
+                  aria-label="Hapus {al.title} dari favorit"
+                  class="velora-heart-btn is-loved border-0 shadow-none absolute top-4 right-4 w-8 h-8 rounded-full backdrop-blur-xs flex items-center justify-center cursor-pointer opacity-100"
+                  style="background-color: color-mix(in srgb, var(--md-sys-color-surface-container-highest) 78%, transparent); color: var(--md-sys-color-tertiary);"
+                >
+                  <Icon name="heart" weight="fill" size={15} />
+                </button>
+              {/if}
             </div>
           {/each}
         </div>
@@ -855,26 +1042,26 @@
 
     <section
       class="relative z-10 px-6 sm:px-7 pt-7 pb-7"
-      style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-tertiary) 36%, var(--md-sys-color-tertiary-container)) 0%, color-mix(in srgb, var(--md-sys-color-tertiary-container) 74%, var(--md-sys-color-surface-container-low)) 100%);"
+      style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-primary) 30%, var(--md-sys-color-primary-container)) 0%, color-mix(in srgb, var(--md-sys-color-primary-container) 74%, var(--md-sys-color-surface-container-low)) 100%);"
     >
       <div class="flex flex-wrap items-end justify-between gap-5">
         <div class="flex flex-wrap items-end gap-5">
           <div
             class="w-28 h-28 rounded-lg shrink-0 shadow-[0_12px_36px_rgba(0,0,0,0.42)] flex items-center justify-center"
-            style="background: linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-tertiary) 92%, #ff5500) 0%, color-mix(in srgb, var(--md-sys-color-tertiary) 75%, #ffffff) 52%, color-mix(in srgb, var(--md-sys-color-on-tertiary-container) 88%, #ffffff) 100%);"
+            style="background: linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-primary) 45%, #0077b6) 0%, color-mix(in srgb, var(--md-sys-color-primary) 82%, #38bdf8) 52%, color-mix(in srgb, var(--md-sys-color-on-primary-container) 88%, #ffffff) 100%);"
           >
             <Icon name="user" weight="fill" size={44} class="text-white drop-shadow-sm" />
           </div>
 
           <div class="space-y-1.5 min-w-[200px] mb-[4px]">
-            <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--md-sys-color-tertiary)]">
-              Favorites • Artists
+            <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--md-sys-color-primary)]">
+              {lang === 'id' ? 'Koleksi • Artis' : 'Collection • Artists'}
             </div>
             <h1 class="text-3xl font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
-              {tr(lang, 'nav.favoriteArtists')}
+              {tr(lang, 'nav.artists')}
             </h1>
             <p class="text-xs tabular-nums" style="color: var(--md-sys-color-on-surface-variant);">
-              {favoriteArtistsCount} {tr(lang, 'nav.favoriteArtistsCount')}
+              {favoriteArtistsCount} {tr(lang, 'nav.artists').toLowerCase()} • Local & YouTube Music
             </p>
           </div>
         </div>
@@ -883,7 +1070,7 @@
 
     <div
       class="relative z-10 px-6 sm:px-8 pt-5 pb-10 flex-1 flex flex-col"
-      style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-tertiary-container) 48%, var(--md-sys-color-surface-container-low)) 0%, color-mix(in srgb, var(--md-sys-color-tertiary-container) 28%, var(--md-sys-color-surface-container-low)) 120px, color-mix(in srgb, var(--md-sys-color-tertiary-container) 11%, var(--md-sys-color-surface-container-low)) 240px, var(--md-sys-color-surface-container-low) 340px);"
+      style="background: linear-gradient(180deg, color-mix(in srgb, var(--md-sys-color-primary-container) 26%, var(--md-sys-color-surface-container-low)) 0%, var(--md-sys-color-surface-container-low) 220px);"
     >
       {#if displayedArtists.length === 0}
         <EmptyState
@@ -980,7 +1167,7 @@
   {@const isArtistFav = !!selectedArtist?.isFavorite}
   {@const isArtistPlaying = isPlaying && artistTracks.some((t) => isTrackActive(t))}
 
-  <div class="relative min-h-full flex flex-col">
+  <div class="relative h-full w-full overflow-y-auto">
     {#if ytArtistLoading}
       <div class="relative overflow-hidden px-4 sm:px-6 pt-8 pb-6 sm:pt-12 sm:pb-8 animate-pulse">
         <div class="flex flex-col sm:flex-row sm:items-end gap-4 sm:gap-6">
@@ -997,7 +1184,7 @@
         <div class="flex items-center gap-3 sm:gap-4">
           <div class="w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-[var(--md-sys-color-surface-container-highest)]"></div>
           <div class="w-10 h-10 rounded-full bg-[var(--md-sys-color-surface-container-high)]"></div>
-          <div class="h-9 w-24 rounded-full bg-[var(--md-sys-color-surface-container-high)]"></div>
+          <div class="w-11 h-11 rounded-full bg-[var(--md-sys-color-surface-container-high)]"></div>
         </div>
 
         <div class="space-y-3">
@@ -1124,14 +1311,14 @@
                 });
               }
             }}
-            class="h-9 px-5 rounded-full text-xs font-bold cursor-pointer transition-all hover:scale-[1.03] active:scale-95 {isArtistFav
-              ? 'hover:brightness-110'
-              : 'bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface)]'}"
-            style={isArtistFav
-              ? 'background-color: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container);'
-              : undefined}
+            title={isArtistFav ? tr(lang, 'nav.removeFromFavorites') : tr(lang, 'nav.addToFavorites')}
+            aria-label={isArtistFav ? tr(lang, 'nav.removeFromFavorites') : tr(lang, 'nav.addToFavorites')}
+            class="velora-heart-btn w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110 {isArtistFav ? 'is-loved' : ''}"
+            style="background-color: var(--md-sys-color-surface-container-high); color: {isArtistFav
+              ? 'var(--md-sys-color-tertiary)'
+              : 'var(--md-sys-color-on-surface)'};"
           >
-            {isArtistFav ? tr(lang, 'nav.following') : tr(lang, 'nav.follow')}
+            <Icon name="heart" weight={isArtistFav ? 'fill' : 'regular'} size={20} />
           </button>
         </div>
 
@@ -1157,6 +1344,7 @@
               {currentTrackTitle}
               {currentTrackArtist}
               {isPlaying}
+              {trackLoading}
               {onTogglePlay}
               {mediaBaseUrl}
               {accentColor}
@@ -1168,6 +1356,7 @@
               {onCopyLink}
               onToggleFavorite={onToggleFavoriteTrack}
               {onAddToPlaylist}
+              onCreatePlaylist={onCreatePlaylistTrack}
               {onDownloadTrack}
               {onRemoveDownload}
               {onOpenArtist}
@@ -1265,7 +1454,7 @@
     {/if}
   </div>
 {:else}
-  <div class="p-3 sm:p-6 space-y-1 sm:space-y-6">
+  <div class="h-full w-full overflow-y-auto p-3 sm:p-6 space-y-1 sm:space-y-6">
     <form
       onsubmit={(e) => {
         e.preventDefault();
@@ -1717,6 +1906,7 @@
           {currentTrackTitle}
           {currentTrackArtist}
           {isPlaying}
+          {trackLoading}
           {onTogglePlay}
           {mediaBaseUrl}
           {accentColor}
@@ -1728,6 +1918,7 @@
           {onCopyLink}
           onToggleFavorite={onToggleFavoriteTrack}
           {onAddToPlaylist}
+          onCreatePlaylist={onCreatePlaylistTrack}
           {onDownloadTrack}
           {onRemoveDownload}
           {onOpenArtist}

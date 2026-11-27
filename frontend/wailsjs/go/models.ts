@@ -614,6 +614,20 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class TrackLoudnessResult {
+	    loudnessDb: number;
+	    hasLoudness: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new TrackLoudnessResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.loudnessDb = source["loudnessDb"];
+	        this.hasLoudness = source["hasLoudness"];
+	    }
+	}
 	export class UpdateCheckResult {
 	    currentVersion: string;
 	    latestVersion: string;
@@ -770,6 +784,12 @@ export namespace sources {
 	    groupTotal?: number;
 	    groupCompleted?: number;
 	    groupProgress?: number;
+	    downloadedBytes?: number;
+	    totalBytes?: number;
+	    speedBps?: number;
+	    groupDownloadedBytes?: number;
+	    groupTotalBytes?: number;
+	    groupSpeedBps?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new DownloadProgress(source);
@@ -791,6 +811,12 @@ export namespace sources {
 	        this.groupTotal = source["groupTotal"];
 	        this.groupCompleted = source["groupCompleted"];
 	        this.groupProgress = source["groupProgress"];
+	        this.downloadedBytes = source["downloadedBytes"];
+	        this.totalBytes = source["totalBytes"];
+	        this.speedBps = source["speedBps"];
+	        this.groupDownloadedBytes = source["groupDownloadedBytes"];
+	        this.groupTotalBytes = source["groupTotalBytes"];
+	        this.groupSpeedBps = source["groupSpeedBps"];
 	    }
 	}
 	export class LyricWord {

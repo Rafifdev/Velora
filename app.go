@@ -140,7 +140,7 @@ func (a *App) startup(ctx context.Context) {
 			runtime.EventsEmit(a.ctx, eventName, data)
 		}
 	})
-	a.downloader.SetTrackResolver(a.ensureTrackPlayableExternalID)
+	a.downloader.SetTrackResolver(a.resolveTrackForDownload)
 	a.startYTMusicHomePrefetch()
 	go a.ensureStoreDesktopShortcut()
 	a.player = audio.NewPlayerController(store, a.ytClient, a.artworkDir)
@@ -332,6 +332,13 @@ func (a *App) invalidateHomeCache() {
 }
 
 var atvUpgradeCache sync.Map
+
+func (a *App) resolveTrackForDownload(ctx context.Context, tr db.Track) (db.Track, error) {
+	if !isHybridTrackID(strings.TrimSpace(tr.ExternalID)) {
+		return tr, nil
+	}
+	return a.ensureTrackPlayableExternalID(ctx, tr)
+}
 
 func (a *App) ensureTrackPlayableExternalID(ctx context.Context, tr db.Track) (db.Track, error) {
 	extID := strings.TrimSpace(tr.ExternalID)
@@ -1421,6 +1428,24 @@ func (a *App) SaveYTMusicTrack(yt sources.YTMusicTrack) (db.Track, error) {
 	})
 }
 
+func (a *App) saveYTMusicTrackFast(yt sources.YTMusicTrack) (db.Track, error) {
+	album := strings.TrimSpace(yt.Album)
+	if album == "" || strings.EqualFold(album, "YouTube Music") {
+		album = "Single"
+	}
+	return a.store.UpsertTrack(db.Track{
+		Title:       yt.Title,
+		ArtistName:  yt.Artist,
+		AlbumTitle:  album,
+		DurationSec: yt.DurationSec,
+		Format:      yt.Format,
+		Bitrate:     160,
+		SourceType:  "ytmusic",
+		ExternalID:  yt.VideoID,
+		CoverURL:    yt.CoverURL,
+	})
+}
+
 func (a *App) PlayYTMusicTrack(yt sources.YTMusicTrack) (db.Track, error) {
 	tr, err := a.SaveYTMusicTrack(yt)
 	if err != nil {
@@ -1453,6 +1478,47 @@ func (a *App) GetStreamURL(trackID int64) (string, error) {
 	}
 	a.player.SetCurrentTrack(tr)
 	return a.player.GetStreamURL(tr), nil
+}
+
+type TrackLoudnessResult struct {
+	LoudnessDb  float64 `json:"loudnessDb"`
+	HasLoudness bool    `json:"hasLoudness"`
+}
+
+func (a *App) GetTrackLoudness(trackID int64, externalID string) TrackLoudnessResult {
+	if a.store != nil {
+		if ldb, ok := a.store.GetTrackLoudness(trackID, externalID); ok {
+			return TrackLoudnessResult{LoudnessDb: ldb, HasLoudness: true}
+		}
+		if externalID == "" && trackID > 0 {
+			if tr, err := a.store.GetTrackByID(trackID); err == nil {
+				externalID = tr.ExternalID
+			}
+		}
+	}
+	ext := strings.TrimSpace(externalID)
+	if ext == "" || isHybridTrackID(ext) || a.ytClient == nil {
+		return TrackLoudnessResult{}
+	}
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
+	defer cancel()
+	quality := "high"
+	if a.store != nil {
+		if prefs, err := a.store.GetPreferences(); err == nil && prefs["stream_quality"] != "" {
+			quality = prefs["stream_quality"]
+		}
+	}
+	if ldb, ok := a.ytClient.ResolveTrackLoudness(reqCtx, ext, quality); ok {
+		if a.store != nil && trackID > 0 {
+			a.store.SaveTrackLoudness(trackID, ext, ldb)
+		}
+		return TrackLoudnessResult{LoudnessDb: ldb, HasLoudness: true}
+	}
+	return TrackLoudnessResult{}
 }
 
 func (a *App) PlayerControl(action string, value float64, mode string) audio.PlaybackState {
@@ -1932,6 +1998,17 @@ func (a *App) DownloadTrack(trackID int64) (db.Track, error) {
 	return a.downloader.Enqueue(tr)
 }
 
+func (a *App) RetryDownloadTrack(trackID int64, group sources.DownloadGroup) (db.Track, error) {
+	tr, err := a.store.GetTrackByID(trackID)
+	if err != nil {
+		return db.Track{}, err
+	}
+	if strings.TrimSpace(group.Key) != "" {
+		a.store.SetTracksDownloadGroup([]int64{tr.ID}, group.Key, group.Title, group.Cover, group.Kind)
+	}
+	return a.downloader.Enqueue(tr)
+}
+
 func (a *App) DownloadYTMusicTrack(yt sources.YTMusicTrack) (db.Track, error) {
 	tr, err := a.SaveYTMusicTrack(yt)
 	if err != nil {
@@ -1954,7 +2031,7 @@ func (a *App) DownloadCollection(group sources.DownloadGroup, items []DownloadCo
 			continue
 		}
 		if strings.TrimSpace(it.ExternalID) != "" {
-			tr, err := a.SaveYTMusicTrack(sources.YTMusicTrack{
+			tr, err := a.saveYTMusicTrackFast(sources.YTMusicTrack{
 				VideoID:     it.ExternalID,
 				Title:       it.Title,
 				Artist:      it.Artist,
@@ -1979,8 +2056,31 @@ func (a *App) CancelDownloadGroup(groupKey string) {
 	a.downloader.CancelGroup(groupKey)
 }
 
+func (a *App) PauseDownload(trackID int64) {
+	a.downloader.Pause(trackID)
+}
+
+func (a *App) ResumeDownload(trackID int64) {
+	a.downloader.Resume(trackID)
+}
+
+func (a *App) PauseDownloadGroup(groupKey string) {
+	a.downloader.PauseGroup(groupKey)
+}
+
+func (a *App) ResumeDownloadGroup(groupKey string) {
+	a.downloader.ResumeGroup(groupKey)
+}
+
 func (a *App) RemoveDownloadedTrack(trackID int64) (db.Track, error) {
 	return a.downloader.Remove(trackID)
+}
+
+func (a *App) ClearAllDownloads() (int64, error) {
+	if a.downloader == nil {
+		return 0, nil
+	}
+	return a.downloader.RemoveAll()
 }
 
 func (a *App) RemoveDownloadedTracks(trackIDs []int64) error {

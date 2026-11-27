@@ -39,7 +39,10 @@
   <div class="space-y-1.5 animate-pulse" aria-busy="true">
     {#each items as idx (idx)}
       {@const w = titleWidths[idx % titleWidths.length]}
-      <div class="-mx-2 grid grid-cols-[minmax(0,1fr)_52px_32px] md:grid-cols-[minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] items-center gap-4 px-3 py-2.5 rounded-lg">
+      <div class="-mx-2 grid grid-cols-[minmax(0,1fr)_52px_32px] sm:grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] items-center gap-4 px-3 py-2.5 rounded-lg">
+        <div class="hidden sm:flex justify-center">
+          <div class="w-4 h-3 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
+        </div>
         <div class="flex items-center gap-3 min-w-0">
           <div class="w-10 h-10 rounded-md bg-[var(--md-sys-color-surface-container-highest)] shrink-0"></div>
           <div class="space-y-1.5 min-w-0 flex-1">

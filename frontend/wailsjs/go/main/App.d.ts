@@ -18,6 +18,8 @@ export function CancelDownloadGroup(arg1:string):Promise<void>;
 
 export function CheckForUpdates():Promise<main.UpdateCheckResult>;
 
+export function ClearAllDownloads():Promise<number>;
+
 export function ClearCache():Promise<number>;
 
 export function ClearPlayHistory():Promise<void>;
@@ -78,6 +80,8 @@ export function GetSources():Promise<Array<db.Source>>;
 
 export function GetStreamURL(arg1:number):Promise<string>;
 
+export function GetTrackLoudness(arg1:number,arg2:string):Promise<main.TrackLoudnessResult>;
+
 export function GetTrackLyrics(arg1:number,arg2:string,arg3:string,arg4:string,arg5:number):Promise<sources.TrackLyrics>;
 
 export function GetTracks(arg1:string,arg2:string):Promise<Array<db.Track>>;
@@ -108,6 +112,10 @@ export function OpenDataFolder():Promise<void>;
 
 export function OpenExternalURL(arg1:string):Promise<void>;
 
+export function PauseDownload(arg1:number):Promise<void>;
+
+export function PauseDownloadGroup(arg1:string):Promise<void>;
+
 export function PlayYTMusicCollection(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<Array<db.Track>>;
 
 export function PlayYTMusicTrack(arg1:sources.YTMusicTrack):Promise<db.Track>;
@@ -129,6 +137,12 @@ export function RemoveTrackFromPlaylist(arg1:number,arg2:number):Promise<void>;
 export function ReorderPlaylistTracks(arg1:number,arg2:Array<number>):Promise<void>;
 
 export function RescanSource(arg1:number):Promise<Array<db.Track>>;
+
+export function ResumeDownload(arg1:number):Promise<void>;
+
+export function ResumeDownloadGroup(arg1:string):Promise<void>;
+
+export function RetryDownloadTrack(arg1:number,arg2:sources.DownloadGroup):Promise<db.Track>;
 
 export function SavePreferences(arg1:Record<string, string>):Promise<void>;
 

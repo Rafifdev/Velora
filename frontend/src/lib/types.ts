@@ -22,6 +22,7 @@ export interface Track {
   downloadGroupKind?: string;
   globalPlays?: string;
   historyEntryId?: number;
+  deletedReason?: 'deleted' | 'canceled' | 'failed';
   createdAt: string;
 }
 
@@ -37,7 +38,7 @@ export interface DownloadProgress {
   externalId: string;
   title: string;
   artist: string;
-  status: 'queued' | 'downloading' | 'completed' | 'failed' | 'cancelled' | string;
+  status: 'queued' | 'downloading' | 'paused' | 'completed' | 'failed' | 'cancelled' | string;
   progress: number;
   error?: string;
   groupKey?: string;
@@ -47,6 +48,12 @@ export interface DownloadProgress {
   groupTotal?: number;
   groupCompleted?: number;
   groupProgress?: number;
+  downloadedBytes?: number;
+  totalBytes?: number;
+  speedBps?: number;
+  groupDownloadedBytes?: number;
+  groupTotalBytes?: number;
+  groupSpeedBps?: number;
 }
 
 export interface GroupedDownloadItem {
@@ -59,10 +66,13 @@ export interface GroupedDownloadItem {
   title: string;
   subtitle: string;
   coverUrl: string;
-  status: 'queued' | 'downloading' | 'failed';
+  status: 'queued' | 'downloading' | 'paused' | 'failed';
   progress: number;
   totalCount: number;
   completedCount: number;
+  downloadedBytes: number;
+  totalBytes: number;
+  speedBps: number;
   error?: string;
 }
 
@@ -77,6 +87,7 @@ export interface GroupedCompletedDownload {
   primaryTrack: Track;
   totalDurationSec: number;
   deleted: boolean;
+  deletedReason?: 'deleted' | 'canceled' | 'failed';
   sortMs: number;
   downloadedAt: string;
 }
@@ -377,6 +388,11 @@ export interface TrackLyrics {
   source: string;
 }
 
+export interface TrackLoudnessResult {
+  loudnessDb: number;
+  hasLoudness: boolean;
+}
+
 export interface BootstrapData {
   tracks: Track[];
   albums: Album[];
@@ -412,7 +428,7 @@ export type ViewRoute =
   | { name: 'listening-stats' }
   | { name: 'fire-streak' }
   | { name: 'lyrics' }
-  | { name: 'track-detail'; trackId: number }
+  | { name: 'track-detail'; trackId: number; singleTrack?: boolean }
   | {
       name: 'yt-album-detail';
       videoId: string;
@@ -422,4 +438,5 @@ export type ViewRoute =
       artist: string;
       albumTitle: string;
       coverUrl: string;
+      localTracks?: Track[];
     };
