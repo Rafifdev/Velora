@@ -793,12 +793,16 @@
                     }
                   }
                 }}
-                title={allPlDownloaded ? tr(lang, 'nav.downloaded') : tr(lang, 'nav.downloadOffline')}
-                aria-label={allPlDownloaded ? tr(lang, 'nav.downloaded') : tr(lang, 'nav.downloadOffline')}
-                class="velora-press min-w-11 min-h-11 rounded-full inline-flex items-center justify-center cursor-pointer bg-[var(--md-sys-color-surface-container-high)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors disabled:opacity-40"
-                style="color: {allPlDownloaded ? 'var(--md-sys-color-primary)' : 'var(--md-sys-color-on-surface)'};"
+                title={allPlDownloaded ? tr(lang, 'nav.removeDownload') : tr(lang, 'nav.downloadOffline')}
+                aria-label={allPlDownloaded ? tr(lang, 'nav.removeDownload') : tr(lang, 'nav.downloadOffline')}
+                class="velora-press min-w-11 min-h-11 rounded-full inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110 disabled:opacity-40"
+                style="background-color: {allPlDownloaded
+                  ? 'var(--md-sys-color-primary)'
+                  : 'var(--md-sys-color-surface-container-high)'}; color: {allPlDownloaded
+                  ? 'var(--md-sys-color-on-primary)'
+                  : 'var(--md-sys-color-on-surface)'};"
               >
-                <Icon name={allPlDownloaded ? 'check-circle' : 'download'} weight={allPlDownloaded ? 'fill' : 'regular'} size={18} />
+                <Icon name={allPlDownloaded ? 'check' : 'download'} weight={allPlDownloaded ? 'bold' : 'regular'} size={18} />
               </button>
             {/if}
 

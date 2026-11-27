@@ -770,13 +770,15 @@
                 }
               }}
               class="velora-press min-w-11 min-h-11 rounded-full inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110"
-              style="background-color: var(--md-sys-color-surface-container-high); color: {allAlbumDownloaded
+              style="background-color: {allAlbumDownloaded
                 ? 'var(--md-sys-color-primary)'
+                : 'var(--md-sys-color-surface-container-high)'}; color: {allAlbumDownloaded
+                ? 'var(--md-sys-color-on-primary)'
                 : 'var(--md-sys-color-on-surface)'};"
-              title={allAlbumDownloaded ? tr(lang, 'nav.downloaded') : tr(lang, 'nav.downloadOffline')}
-              aria-label={allAlbumDownloaded ? tr(lang, 'nav.downloaded') : tr(lang, 'nav.downloadOffline')}
+              title={allAlbumDownloaded ? tr(lang, 'nav.removeDownload') : tr(lang, 'nav.downloadOffline')}
+              aria-label={allAlbumDownloaded ? tr(lang, 'nav.removeDownload') : tr(lang, 'nav.downloadOffline')}
             >
-              <Icon name={allAlbumDownloaded ? 'check-circle' : 'download'} weight={allAlbumDownloaded ? 'fill' : 'regular'} size={18} />
+              <Icon name={allAlbumDownloaded ? 'check' : 'download'} weight={allAlbumDownloaded ? 'bold' : 'regular'} size={18} />
             </button>
           {/if}
         </div>
