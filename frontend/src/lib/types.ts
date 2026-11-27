@@ -307,6 +307,7 @@ export interface YTMusicTrack {
   format: string;
   playCountText?: string;
   explicit?: boolean;
+  videoType?: string;
 }
 
 export interface YTMusicCard {

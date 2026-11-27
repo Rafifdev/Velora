@@ -795,8 +795,17 @@ func (a *App) SearchYouTubeMusicPlaylists(query string) ([]sources.YTMusicCard, 
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 14*time.Second)
 	defer cancel()
-	if cards, err := a.ytClient.SearchPlaylists(reqCtx, query); err == nil && len(cards) > 0 {
-		return cards, nil
+	if strings.TrimSpace(query) == "" {
+		if cards, err := a.ytClient.SearchOfficialPlaylists(reqCtx, ""); err == nil && len(cards) > 0 {
+			return cards, nil
+		}
+	} else {
+		if cards, err := a.ytClient.SearchOfficialPlaylists(reqCtx, query); err == nil && len(cards) > 0 {
+			return cards, nil
+		}
+		if cards, err := a.ytClient.SearchPlaylists(reqCtx, query); err == nil && len(cards) > 0 {
+			return cards, nil
+		}
 	}
 	if a.useSpotifyMetadata() {
 		if cards, err := a.spotifyClient.SearchPlaylists(reqCtx, query); err == nil && len(cards) > 0 {
@@ -818,8 +827,13 @@ func (a *App) SearchYouTubeMusicAlbums(query string) ([]sources.YTMusicCard, err
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	if cards, err := a.ytClient.SearchAlbums(reqCtx, query); err == nil && len(cards) > 0 {
+	if cards, err := a.ytClient.SearchOfficialAlbums(reqCtx, query); err == nil && len(cards) > 0 {
 		return cards, nil
+	}
+	if strings.TrimSpace(query) != "" {
+		if cards, err := a.ytClient.SearchAlbums(reqCtx, query); err == nil && len(cards) > 0 {
+			return cards, nil
+		}
 	}
 	if a.useSpotifyMetadata() {
 		if cards, err := a.spotifyClient.SearchAlbums(reqCtx, query); err == nil && len(cards) > 0 {
@@ -864,41 +878,8 @@ func (a *App) GetMoreArtists(offset int, excludeBrowseIDs []string) ([]sources.Y
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	queries := []string{
-		"",
-		"Top Pop Artists",
-		"Popular Indonesian Singers",
-		"Trending Music Artists",
-		"Best Indie Artists Indonesia",
-		"Popular Rock Bands",
-		"Top R&B Soul Artists",
-		"Acoustic Singer Songwriter",
-	}
-	excl := map[string]struct{}{}
-	for _, id := range excludeBrowseIDs {
-		excl[strings.ToLower(strings.TrimSpace(id))] = struct{}{}
-	}
-	startIdx := 0
-	if offset > 0 {
-		startIdx = (offset / 12) % len(queries)
-	}
-	for step := 0; step < len(queries); step++ {
-		q := queries[(startIdx+step)%len(queries)]
-		if cards, err := a.ytClient.SearchArtists(reqCtx, q); err == nil && len(cards) > 0 {
-			out := make([]sources.YTMusicCard, 0, len(cards))
-			for _, c := range cards {
-				k := strings.ToLower(strings.TrimSpace(c.BrowseID))
-				if k == "" {
-					k = strings.ToLower(strings.TrimSpace(c.Title))
-				}
-				if _, skip := excl[k]; !skip {
-					out = append(out, c)
-				}
-			}
-			if len(out) > 0 {
-				return out, nil
-			}
-		}
+	if cards, err := a.ytClient.GetOfficialPopularArtists(reqCtx, offset, excludeBrowseIDs); err == nil && len(cards) > 0 {
+		return cards, nil
 	}
 	if a.useDeezerMetadata() {
 		if cards, err := a.deezerClient.GetMoreArtists(reqCtx, offset, excludeBrowseIDs); err == nil && len(cards) > 0 {
@@ -937,7 +918,15 @@ func (a *App) GetYTMusicTop100Recommended(excludeVideoIDs []string) ([]sources.Y
 		}
 	}
 	if tracks, err := a.ytClient.GetHistoryBasedRecommended(reqCtx, seeds, excludeVideoIDs); err == nil && len(tracks) > 0 {
-		return tracks, nil
+		official := make([]sources.YTMusicTrack, 0, len(tracks))
+		for _, tr := range tracks {
+			if sources.IsOfficialStudioTrack(tr) {
+				official = append(official, tr)
+			}
+		}
+		if len(official) > 0 {
+			return official, nil
+		}
 	}
 	if a.useDeezerMetadata() {
 		if tracks, dErr := a.deezerClient.GetRecommendedTracks(reqCtx, seeds, excludeVideoIDs, 28); dErr == nil && len(tracks) > 0 {
@@ -954,23 +943,19 @@ func (a *App) GetMoreTopSongs(offset int, excludeVideoIDs []string) ([]sources.Y
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	if tracks, err := a.ytClient.GetTop100Tracks(reqCtx); err == nil && len(tracks) > 0 {
-		excl := map[string]struct{}{}
-		for _, id := range excludeVideoIDs {
-			excl[strings.TrimSpace(id)] = struct{}{}
-		}
-		out := make([]sources.YTMusicTrack, 0, len(tracks))
-		for _, tr := range tracks {
-			if _, skip := excl[tr.VideoID]; !skip {
-				out = append(out, tr)
-			}
-		}
-		if len(out) > 0 {
-			return out, nil
-		}
+	if tracks, err := a.ytClient.GetOfficialPopularSongs(reqCtx, offset, excludeVideoIDs); err == nil && len(tracks) > 0 {
+		return tracks, nil
 	}
 	if tracks, err := a.ytClient.GetHistoryBasedRecommended(reqCtx, nil, excludeVideoIDs); err == nil && len(tracks) > 0 {
-		return tracks, nil
+		official := make([]sources.YTMusicTrack, 0, len(tracks))
+		for _, tr := range tracks {
+			if sources.IsOfficialStudioTrack(tr) {
+				official = append(official, tr)
+			}
+		}
+		if len(official) > 0 {
+			return official, nil
+		}
 	}
 	if a.useDeezerMetadata() {
 		if tracks, err := a.deezerClient.GetMoreTopSongs(reqCtx, offset, excludeVideoIDs, 35); err == nil && len(tracks) > 0 {

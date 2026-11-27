@@ -2638,6 +2638,7 @@
             const cov = (t.coverUrl || '').trim();
             const alb = (t.album || '').trim().toLowerCase();
             const ar = (t.artist || '').trim().toLowerCase();
+            if (t.videoType === 'MUSIC_VIDEO_TYPE_UGC') continue;
             if (strict) {
               if (cov && existingCovers.has(cov)) continue;
               if (alb && alb !== 'single' && existingAlbums.has(alb)) continue;
@@ -2734,6 +2735,7 @@
             const cov = (t.coverUrl || '').trim();
             const alb = (t.album || '').trim().toLowerCase();
             const ar = (t.artist || '').trim().toLowerCase();
+            if (t.videoType === 'MUSIC_VIDEO_TYPE_UGC') continue;
             if (strict) {
               if (cov && existingCovers.has(cov)) continue;
               if (alb && alb !== 'single' && existingAlbums.has(alb)) continue;
