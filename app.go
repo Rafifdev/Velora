@@ -1690,7 +1690,7 @@ type UpdateCheckResult struct {
 }
 
 const (
-	veloraAppVersion         = "1.2.0"
+	veloraAppVersion         = "1.3.0"
 	veloraFeedbackWebhookURL = "https://script.google.com/macros/s/AKfycbwhnfjZ_CFzPRc-3Yw6rtz39IKqbjRlc7CIz2OOUhe8tk64sDR1y5oMWa4zxgx66j9Cxw/exec"
 )
 
