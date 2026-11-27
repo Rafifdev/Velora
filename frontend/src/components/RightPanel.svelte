@@ -110,7 +110,7 @@
 
   function outputDeviceIcon(connType: string): string {
     if (connType === 'bluetooth' || connType === 'wired') return 'headphones';
-    return 'speaker-high';
+    return 'speaker-hifi';
   }
 
   const activeOutputDev = $derived(
@@ -473,12 +473,33 @@
                   {/if}
                 </div>
                 <div class="min-w-0 flex-1">
-                  <div class="text-[14px] font-semibold truncate leading-snug" style="color: var(--md-sys-color-primary);">
-                    {currentTrack.title}
-                  </div>
-                  <div class="text-[12px] truncate mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
-                    {currentTrack.artistName}
-                  </div>
+                  {#if !embeddedMobile}
+                    <button
+                      type="button"
+                      onclick={() => onOpenTrackDetail?.(currentTrack)}
+                      class="block max-w-full truncate text-left text-[14px] font-semibold leading-snug hover:underline decoration-1 underline-offset-2 cursor-pointer"
+                      style="color: var(--md-sys-color-primary);"
+                      title={tr(lang, 'nav.viewTrackDetails')}
+                    >
+                      {currentTrack.title}
+                    </button>
+                    <button
+                      type="button"
+                      onclick={() => onOpenArtistDetail?.(currentTrack)}
+                      class="block max-w-full truncate text-left text-[12px] mt-0.5 hover:underline decoration-1 underline-offset-2 cursor-pointer"
+                      style="color: var(--md-sys-color-on-surface-variant);"
+                      title={tr(lang, 'nav.viewArtistPage')}
+                    >
+                      {currentTrack.artistName}
+                    </button>
+                  {:else}
+                    <div class="text-[14px] font-semibold truncate leading-snug" style="color: var(--md-sys-color-primary);">
+                      {currentTrack.title}
+                    </div>
+                    <div class="text-[12px] truncate mt-0.5" style="color: var(--md-sys-color-on-surface-variant);">
+                      {currentTrack.artistName}
+                    </div>
+                  {/if}
                 </div>
               </div>
             {:else}
@@ -587,15 +608,15 @@
           </div>
 
           <div class="p-3.5 flex items-center justify-between gap-3">
-            <div class="min-w-0 flex-1">
+            <div class="min-w-0 flex-1 flex flex-col items-start">
               <button
                 type="button"
                 onclick={() => onOpenTrackDetail?.(currentTrack)}
                 use:veloraMarquee={{ text: currentTrack.title, disabled: collapsed }}
-                class="w-full overflow-hidden text-left text-[16px] font-bold leading-snug hover:underline cursor-pointer"
+                class="group/rp-title max-w-full overflow-hidden text-left text-[16px] font-bold leading-snug cursor-pointer"
                 title={tr(lang, 'nav.viewTrackDetails')}
               >
-                <span class="inline-block whitespace-nowrap">
+                <span class="inline-block whitespace-nowrap {!embeddedMobile ? 'group-hover/rp-title:underline decoration-1 underline-offset-2' : ''}">
                   {currentTrack.title}
                 </span>
               </button>
@@ -603,10 +624,10 @@
                 type="button"
                 onclick={() => onOpenArtistDetail?.(currentTrack)}
                 use:veloraMarquee={{ text: currentTrack.artistName, disabled: collapsed }}
-                class="w-full overflow-hidden text-left text-[13px] font-medium text-[var(--md-sys-color-on-surface-variant)] mt-0.5 hover:underline cursor-pointer"
+                class="group/rp-sub max-w-full overflow-hidden text-left text-[13px] font-medium text-[var(--md-sys-color-on-surface-variant)] mt-0.5 cursor-pointer"
                 title={tr(lang, 'nav.viewArtistPage')}
               >
-                <span class="inline-block whitespace-nowrap">
+                <span class="inline-block whitespace-nowrap {!embeddedMobile ? 'group-hover/rp-sub:underline decoration-1 underline-offset-2' : ''}">
                   {currentTrack.artistName}
                 </span>
               </button>

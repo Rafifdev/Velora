@@ -30,7 +30,7 @@ func TestResolveStreamWindowAndStartTime(t *testing.T) {
 				} else {
 					seenStartTimes = append(seenStartTimes, 0)
 				}
-				respJSON := `{"playabilityStatus":{"status":"OK"},"videoDetails":{"lengthSeconds":"213"},"streamingData":{"adaptiveFormats":[{"url":"https://example.com/audio.webm","mimeType":"audio/webm; codecs=\"opus\"","bitrate":150000,"contentLength":"3614812"}]}}`
+				respJSON := `{"playabilityStatus":{"status":"OK"},"videoDetails":{"lengthSeconds":"213"},"playerConfig":{"audioConfig":{"loudnessDb":3.13}},"streamingData":{"adaptiveFormats":[{"url":"https://example.com/audio.webm","mimeType":"audio/webm; codecs=\"opus\"","bitrate":150000,"contentLength":"3614812"}]}}`
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Body:       io.NopCloser(bytes.NewBufferString(respJSON)),
@@ -48,6 +48,9 @@ func TestResolveStreamWindowAndStartTime(t *testing.T) {
 	}
 	if info0.ContentLength != 3614812 || info0.DurationSec != 213 || info0.MimeType != "audio/webm" {
 		t.Fatalf("unexpected StreamInfo: %+v", info0)
+	}
+	if !info0.HasLoudness || info0.LoudnessDb != 3.13 {
+		t.Fatalf("expected HasLoudness=true and LoudnessDb=3.13, got %+v", info0)
 	}
 
 	if _, err := yt.ResolveStreamWindow(ctx, "5F28ye50-Kc", "high", 0); err != nil {
@@ -230,5 +233,93 @@ func TestLiveHomeFeedByCountry(t *testing.T) {
 			}
 			t.Logf("  [%d] %s (%d items): %s", i+1, sh.Title, len(sh.Items), sample)
 		}
+	}
+}
+
+func TestOfficialPopularFilters(t *testing.T) {
+	if got := ParsePopularityCount("12.5M monthly audience"); got != 12_500_000 {
+		t.Fatalf("ParsePopularityCount 12.5M = %d", got)
+	}
+	if got := ParsePopularityCount("850K subscribers"); got != 850_000 {
+		t.Fatalf("ParsePopularityCount 850K = %d", got)
+	}
+	if got := ParsePopularityCount("2,4 jt pendengar bulanan"); got != 2_400_000 {
+		t.Fatalf("ParsePopularityCount 2,4 jt = %d", got)
+	}
+
+	if !IsOfficialStudioTrack(YTMusicTrack{
+		VideoID:   "abc123",
+		Title:     "Evaluasi",
+		Artist:    "Hindia",
+		VideoType: "MUSIC_VIDEO_TYPE_ATV",
+	}) {
+		t.Fatal("expected official ATV studio track to pass")
+	}
+	if IsOfficialStudioTrack(YTMusicTrack{
+		VideoID:   "ugc1",
+		Title:     "Evaluasi",
+		Artist:    "Random User",
+		VideoType: "MUSIC_VIDEO_TYPE_UGC",
+	}) {
+		t.Fatal("expected UGC track to be rejected")
+	}
+	if IsOfficialStudioTrack(YTMusicTrack{
+		VideoID:   "cov1",
+		Title:     "Evaluasi (Acoustic Cover)",
+		Artist:    "Bedroom Singer",
+		VideoType: "MUSIC_VIDEO_TYPE_ATV",
+	}) {
+		t.Fatal("expected cover track to be rejected")
+	}
+
+	if !IsOfficialArtistCard(YTMusicCard{
+		Kind:     "artist",
+		BrowseID: "UC123456",
+		Title:    "Tulus",
+		Subtitle: "3.2M monthly audience",
+	}, 100_000) {
+		t.Fatal("expected popular official artist to pass")
+	}
+	if IsOfficialArtistCard(YTMusicCard{
+		Kind:     "artist",
+		BrowseID: "UC999",
+		Title:    "Lirik Lagu Nusantara",
+		Subtitle: "15K subscribers",
+	}, 100_000) {
+		t.Fatal("expected lyric channel below threshold to be rejected")
+	}
+
+	if !IsOfficialAlbumCard(YTMusicCard{
+		Kind:     "album",
+		BrowseID: "MPREb_xyz",
+		Title:    "Manusia",
+		Artist:   "Tulus",
+	}) {
+		t.Fatal("expected official MPREb_ album to pass")
+	}
+	if IsOfficialAlbumCard(YTMusicCard{
+		Kind:     "album",
+		BrowseID: "MPREb_cov",
+		Title:    "Best Karaoke Tribute Hits",
+		Artist:   "Karaoke Studio",
+	}) {
+		t.Fatal("expected karaoke/tribute album to be rejected")
+	}
+
+	if !IsOfficialPlaylistCard(YTMusicCard{
+		Kind:     "playlist",
+		BrowseID: "VLRDCLAK5uy_kset8DisdE",
+		Title:    "Top Hits Indonesia",
+		Subtitle: "YouTube Music",
+	}) {
+		t.Fatal("expected YouTube Music featured playlist to pass")
+	}
+	if IsOfficialPlaylistCard(YTMusicCard{
+		Kind:     "playlist",
+		BrowseID: "VLPLrandomUser123",
+		Title:    "My Cool Mix",
+		Subtitle: "Budi Santoso • 12K views",
+	}) {
+		t.Fatal("expected random community playlist to be rejected")
 	}
 }

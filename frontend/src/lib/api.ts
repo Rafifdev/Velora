@@ -9,9 +9,13 @@ import type {
   PlaylistDetail,
   Source,
   Track,
+  TrackLoudnessResult,
   TrackLyrics,
   AudioOutputDevice,
+  DownloadGroup,
   DownloadProgress,
+  GroupedCompletedDownload,
+  GroupedDownloadItem,
   JamPlaybackSnapshot,
   JamStatus,
   YTMusicAlbumView,
@@ -320,6 +324,11 @@ export const api = {
   async getStreamUrl(trackId: number): Promise<string> {
     return appBridge().GetStreamURL(trackId);
   },
+  async getTrackLoudness(trackId: number, externalId = ''): Promise<TrackLoudnessResult> {
+    const fn = appBridge()?.GetTrackLoudness;
+    if (!fn) return { loudnessDb: 0, hasLoudness: false };
+    return await fn(trackId, externalId);
+  },
   async playerControl(action: string, value = 0, mode = ''): Promise<any> {
     return appBridge().PlayerControl(action, value, mode);
   },
@@ -354,6 +363,11 @@ export const api = {
   async clearCache(): Promise<number> {
     return appBridge().ClearCache();
   },
+  async clearAllDownloads(): Promise<number> {
+    const fn = appBridge()?.ClearAllDownloads;
+    if (!fn) return 0;
+    return await fn();
+  },
   async getDataDir(): Promise<string> {
     return (await appBridge()?.GetDataDir?.()) || '';
   },
@@ -377,11 +391,21 @@ export const api = {
         hasUpdate: false,
         releaseUrl: 'https://github.com/Rafifdev/Velora/releases',
         downloadUrl: '',
+        storeUrl: 'ms-windows-store://pdp/?ProductId=9PN43QQ19SS9',
+        isStoreApp: false,
         releaseNotes: '',
         publishedAt: ''
       };
     }
     return await fn();
+  },
+
+  async installUpdate(downloadUrl: string): Promise<void> {
+    const fn = appBridge()?.InstallUpdate;
+    if (!fn) {
+      throw new Error('In-app update is not available in preview mode.');
+    }
+    return await fn(downloadUrl);
   },
   async openDataFolder(): Promise<void> {
     return appBridge()?.OpenDataFolder?.();
@@ -407,11 +431,45 @@ export const api = {
   async downloadTrack(trackId: number): Promise<Track> {
     return appBridge().DownloadTrack(trackId);
   },
+  async retryDownloadTrack(trackId: number, group: DownloadGroup): Promise<Track> {
+    return appBridge().RetryDownloadTrack(trackId, group);
+  },
   async downloadYTMusicTrack(track: YTMusicTrack): Promise<Track> {
     return appBridge().DownloadYTMusicTrack(track);
   },
+  async downloadCollection(group: DownloadGroup, tracks: Track[]): Promise<number> {
+    const items = tracks.map((t) => ({
+      trackId: t.id > 0 ? t.id : 0,
+      externalId: t.externalId || '',
+      title: t.title,
+      artist: t.artistName || '',
+      album: t.albumTitle || '',
+      durationSec: t.durationSec || 0,
+      coverUrl: t.coverUrl || '',
+      format: t.format || 'OPUS'
+    }));
+    return appBridge().DownloadCollection(group, items);
+  },
+  async cancelDownloadGroup(groupKey: string): Promise<void> {
+    return appBridge().CancelDownloadGroup(groupKey);
+  },
+  async pauseDownload(trackId: number): Promise<void> {
+    return appBridge()?.PauseDownload?.(trackId);
+  },
+  async resumeDownload(trackId: number): Promise<void> {
+    return appBridge()?.ResumeDownload?.(trackId);
+  },
+  async pauseDownloadGroup(groupKey: string): Promise<void> {
+    return appBridge()?.PauseDownloadGroup?.(groupKey);
+  },
+  async resumeDownloadGroup(groupKey: string): Promise<void> {
+    return appBridge()?.ResumeDownloadGroup?.(groupKey);
+  },
   async removeDownloadedTrack(trackId: number): Promise<Track> {
     return appBridge().RemoveDownloadedTrack(trackId);
+  },
+  async removeDownloadedTracks(trackIds: number[]): Promise<void> {
+    return appBridge().RemoveDownloadedTracks(trackIds);
   },
   async cancelDownload(trackId: number): Promise<void> {
     return appBridge().CancelDownload(trackId);
@@ -713,4 +771,254 @@ export async function extractDominantColor(imageUrl: string): Promise<string | n
     };
     img.src = imageUrl;
   });
+}
+
+export function groupActiveDownloads(list: DownloadProgress[]): GroupedDownloadItem[] {
+  const out: GroupedDownloadItem[] = [];
+  const groups = new Map<
+    string,
+    {
+      item: GroupedDownloadItem;
+      items: DownloadProgress[];
+    }
+  >();
+
+  for (const dl of list) {
+    const gk = (dl.groupKey || '').trim();
+    if (!gk) {
+      out.push({
+        key: `track:${dl.trackId}`,
+        isGroup: false,
+        kind: 'track',
+        trackId: dl.trackId,
+        trackIds: [dl.trackId],
+        externalId: dl.externalId,
+        title: dl.title,
+        subtitle: dl.artist,
+        coverUrl: '',
+        status: dl.status === 'failed' ? 'failed' : dl.status === 'paused' ? 'paused' : dl.status === 'queued' ? 'queued' : 'downloading',
+        progress: Math.max(0, Math.min(100, dl.progress || 0)),
+        totalCount: 1,
+        completedCount: 0,
+        downloadedBytes: dl.downloadedBytes || 0,
+        totalBytes: dl.totalBytes || 0,
+        speedBps: dl.speedBps || 0,
+        error: dl.error
+      });
+      continue;
+    }
+
+    let entry = groups.get(gk);
+    if (!entry) {
+      const item: GroupedDownloadItem = {
+        key: gk,
+        isGroup: true,
+        kind: dl.groupKind === 'album' ? 'album' : 'playlist',
+        trackId: dl.trackId,
+        trackIds: [],
+        externalId: dl.externalId,
+        title: dl.groupTitle || dl.title,
+        subtitle: '',
+        coverUrl: dl.groupCover || '',
+        status: 'queued',
+        progress: 0,
+        totalCount: dl.groupTotal || 1,
+        completedCount: dl.groupCompleted || 0,
+        downloadedBytes: dl.groupDownloadedBytes || 0,
+        totalBytes: dl.groupTotalBytes || 0,
+        speedBps: dl.groupSpeedBps || 0
+      };
+      entry = { item, items: [] };
+      groups.set(gk, entry);
+      out.push(item);
+    }
+
+    entry.items.push(dl);
+    if (!entry.item.trackIds.includes(dl.trackId)) {
+      entry.item.trackIds.push(dl.trackId);
+    }
+    if (!entry.item.coverUrl && dl.groupCover) {
+      entry.item.coverUrl = dl.groupCover;
+    }
+    if (dl.groupTitle) {
+      entry.item.title = dl.groupTitle;
+    }
+    entry.item.totalCount = Math.max(entry.item.totalCount, dl.groupTotal || 0, entry.items.length);
+    entry.item.completedCount = Math.max(entry.item.completedCount, dl.groupCompleted || 0);
+    entry.item.downloadedBytes = Math.max(entry.item.downloadedBytes, dl.groupDownloadedBytes || 0);
+    entry.item.totalBytes = Math.max(entry.item.totalBytes, dl.groupTotalBytes || 0);
+    if ((dl.groupSpeedBps || 0) > 0) {
+      entry.item.speedBps = dl.groupSpeedBps || 0;
+    }
+    if (dl.status === 'failed' && !entry.item.error && dl.error) {
+      entry.item.error = dl.error;
+    }
+  }
+
+  for (const { item, items } of groups.values()) {
+    const hasDownloading = items.some((d) => d.status === 'downloading');
+    const hasPaused = items.some((d) => d.status === 'paused');
+    const hasQueued = items.some((d) => d.status === 'queued');
+    item.status = hasDownloading ? 'downloading' : hasPaused ? 'paused' : hasQueued ? 'queued' : 'failed';
+
+    const maxGroupProgress = items.reduce((m, d) => Math.max(m, d.groupProgress || 0), 0);
+    if (maxGroupProgress > 0) {
+      item.progress = Math.max(0, Math.min(100, maxGroupProgress));
+    } else {
+      const sum = items.reduce((acc, d) => acc + Math.max(0, Math.min(100, d.progress || 0)), 0);
+      item.progress = item.totalCount > 0 ? sum / item.totalCount : 0;
+    }
+  }
+
+  return out;
+}
+
+export function groupCompletedDownloads(
+  downloadedTracks: Track[],
+  deletedTracks: Track[],
+  activeDownloads: DownloadProgress[]
+): GroupedCompletedDownload[] {
+  const activeTrackIds = new Set(activeDownloads.map((d) => d.trackId));
+  const activeGroupKeys = new Set(
+    activeDownloads.map((d) => (d.groupKey || '').trim()).filter(Boolean)
+  );
+
+  const out: GroupedCompletedDownload[] = [];
+  const groups = new Map<string, GroupedCompletedDownload>();
+
+  const parseSortMs = (raw?: string): number => {
+    if (!raw) return Date.now();
+    const ms = Date.parse(raw.includes('T') ? raw : raw.replace(' ', 'T') + 'Z');
+    return Number.isFinite(ms) ? ms : Date.now();
+  };
+
+  for (const tr of downloadedTracks) {
+    if (activeTrackIds.has(tr.id)) continue;
+    const gk = (tr.downloadGroupKey || '').trim();
+    if (gk && activeGroupKeys.has(gk)) continue;
+
+    const rawDate = tr.downloadedAt || tr.createdAt;
+    const ms = parseSortMs(rawDate);
+
+    if (!gk) {
+      out.push({
+        key: `music:${tr.id}`,
+        isGroup: false,
+        kind: 'music',
+        title: tr.title,
+        subtitle: tr.artistName,
+        coverUrl: tr.coverUrl,
+        tracks: [tr],
+        primaryTrack: tr,
+        totalDurationSec: tr.durationSec || 0,
+        deleted: false,
+        sortMs: ms,
+        downloadedAt: rawDate
+      });
+      continue;
+    }
+
+    let grp = groups.get(gk);
+    if (!grp) {
+      const kind = tr.downloadGroupKind === 'album' ? 'album' : 'playlist';
+      grp = {
+        key: `group:${gk}`,
+        isGroup: true,
+        kind,
+        title: tr.downloadGroupTitle || tr.albumTitle || tr.title,
+        subtitle: tr.artistName,
+        coverUrl: tr.downloadGroupCover || tr.coverUrl,
+        tracks: [],
+        primaryTrack: tr,
+        totalDurationSec: 0,
+        deleted: false,
+        sortMs: ms,
+        downloadedAt: rawDate
+      };
+      groups.set(gk, grp);
+      out.push(grp);
+    }
+
+    grp.tracks.push(tr);
+    grp.totalDurationSec += tr.durationSec || 0;
+    if (!grp.coverUrl && tr.coverUrl) {
+      grp.coverUrl = tr.coverUrl;
+    }
+    if (ms > grp.sortMs) {
+      grp.sortMs = ms;
+      grp.downloadedAt = rawDate;
+    }
+  }
+
+  const deletedGroups = new Map<string, GroupedCompletedDownload>();
+  for (const del of deletedTracks) {
+    const rawDate = del.downloadedAt || del.createdAt;
+    if (del.deletedReason === 'failed') {
+      out.push({
+        key: `failed:${del.id || del.externalId || Math.random()}`,
+        isGroup: false,
+        kind: 'music',
+        title: del.title,
+        subtitle: del.artistName,
+        coverUrl: del.coverUrl || del.downloadGroupCover || '',
+        tracks: [del],
+        primaryTrack: del,
+        totalDurationSec: del.durationSec || 0,
+        deleted: true,
+        deletedReason: 'failed',
+        sortMs: Date.now(),
+        downloadedAt: rawDate
+      });
+      continue;
+    }
+    const gk = (del.downloadGroupKey || '').trim();
+    if (!gk) {
+      out.push({
+        key: `del:${del.id}`,
+        isGroup: false,
+        kind: 'music',
+        title: del.title,
+        subtitle: del.artistName,
+        coverUrl: del.coverUrl,
+        tracks: [del],
+        primaryTrack: del,
+        totalDurationSec: del.durationSec || 0,
+        deleted: true,
+        deletedReason: del.deletedReason || 'deleted',
+        sortMs: Date.now(),
+        downloadedAt: rawDate
+      });
+      continue;
+    }
+
+    let dgrp = deletedGroups.get(gk);
+    if (!dgrp) {
+      if (groups.has(`group:${gk}`) || groups.has(gk)) {
+        continue;
+      }
+      const kind = del.downloadGroupKind === 'album' ? 'album' : 'playlist';
+      dgrp = {
+        key: `delgroup:${gk}`,
+        isGroup: true,
+        kind,
+        title: del.downloadGroupTitle || del.albumTitle || del.title,
+        subtitle: del.artistName,
+        coverUrl: del.downloadGroupCover || del.coverUrl,
+        tracks: [],
+        primaryTrack: del,
+        totalDurationSec: 0,
+        deleted: true,
+        deletedReason: del.deletedReason || 'deleted',
+        sortMs: Date.now(),
+        downloadedAt: rawDate
+      };
+      deletedGroups.set(gk, dgrp);
+      out.push(dgrp);
+    }
+    dgrp.tracks.push(del);
+    dgrp.totalDurationSec += del.durationSec || 0;
+  }
+
+  out.sort((a, b) => b.sortMs - a.sortMs);
+  return out;
 }

@@ -88,6 +88,8 @@ type StreamInfo struct {
 	UserAgent     string
 	ContentLength int64
 	DurationSec   int
+	LoudnessDb    float64
+	HasLoudness   bool
 }
 
 type cachedStream struct {
@@ -96,6 +98,8 @@ type cachedStream struct {
 	UserAgent     string
 	ContentLength int64
 	DurationSec   int
+	LoudnessDb    float64
+	HasLoudness   bool
 	ExpiresAt     time.Time
 }
 
@@ -762,21 +766,203 @@ func (c *YTMusicClient) Search(ctx context.Context, query string) ([]YTMusicTrac
 	return results, nil
 }
 
+var popularityCountRe = regexp.MustCompile(`(?i)(\d+(?:[.,]\d+)?)\s*(b|m|k|jt|juta|rb|ribu)?`)
+
+var nonOfficialTrackKeywords = []string{
+	"cover", "karaoke", "instrumental", "lirik", "lyrics", "slowed", "reverb",
+	"sped up", "speed up", "nightcore", "8d audio", "8d ", "tiktok", "dj remix",
+	"koplo", "live session", "fancam", "reaction", "tribute", "piano version",
+	"guitar cover", "parody", "mashup", "type beat", "lo-fi beats", "lofi beats",
+	"sleep music", "study music", "sound effect", "unreleased", "leak", "musik hd",
+	"lirik lagu",
+}
+
+var nonOfficialChannelKeywords = []string{
+	"lyrics", "lirik", "karaoke", "cover", "tribute", "remix", "nightcore",
+	"slowed", "sped up", "lo-fi", "lofi", "sleep", "relaxing", "study music",
+	"sound effect", "type beat", "compilation", "musik hd", "channel", " tv",
+}
+
+var officialPlaylistMarkers = []string{
+	"youtube music", "vevo", "official", "records", "recordings",
+	"entertainment", "sony", "universal", "warner", "musica",
+	"trinity", "aquarius", "chart", "top 100", "billboard", "hits",
+}
+
+// ParsePopularityCount extracts a numeric listener/subscriber count from a YouTube Music subtitle.
+func ParsePopularityCount(subtitle string) int64 {
+	low := strings.ToLower(strings.TrimSpace(subtitle))
+	if low == "" {
+		return 0
+	}
+	m := popularityCountRe.FindStringSubmatch(low)
+	if len(m) < 2 {
+		return 0
+	}
+	numStr := strings.ReplaceAll(m[1], ",", ".")
+	val, err := strconv.ParseFloat(numStr, 64)
+	if err != nil || math.IsNaN(val) || val <= 0 {
+		return 0
+	}
+	mult := 1.0
+	if len(m) >= 3 {
+		switch strings.ToLower(m[2]) {
+		case "b":
+			mult = 1_000_000_000
+		case "m", "jt", "juta":
+			mult = 1_000_000
+		case "k", "rb", "ribu":
+			mult = 1_000
+		}
+	}
+	return int64(val * mult)
+}
+
+func containsAnyKeyword(text string, keywords []string) bool {
+	low := strings.ToLower(strings.TrimSpace(text))
+	if low == "" {
+		return false
+	}
+	for _, kw := range keywords {
+		if strings.Contains(low, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsOfficialStudioTrack returns true only for official studio audio tracks (ATV) free of UGC/covers/re-uploads.
+func IsOfficialStudioTrack(tr YTMusicTrack) bool {
+	if strings.TrimSpace(tr.VideoID) == "" || strings.TrimSpace(tr.Title) == "" {
+		return false
+	}
+	artistLow := strings.ToLower(strings.TrimSpace(tr.Artist))
+	if artistLow == "" || artistLow == "unknown artist" || artistLow == "various artists" || artistLow == "youtube music" {
+		return false
+	}
+	vt := strings.ToUpper(strings.TrimSpace(tr.VideoType))
+	if vt == "MUSIC_VIDEO_TYPE_UGC" || vt == "MUSIC_VIDEO_TYPE_OMV" {
+		return false
+	}
+	if vt != "MUSIC_VIDEO_TYPE_ATV" && strings.Contains(strings.ToLower(tr.CoverURL), "i.ytimg.com/vi/") {
+		return false
+	}
+	if containsAnyKeyword(tr.Title, nonOfficialTrackKeywords) || containsAnyKeyword(tr.Artist, nonOfficialChannelKeywords) {
+		return false
+	}
+	return true
+}
+
+// IsOfficialArtistCard validates that an artist card represents a legitimate artist channel above minAudience.
+func IsOfficialArtistCard(card YTMusicCard, minAudience int64) bool {
+	if card.Kind != "artist" || !strings.HasPrefix(card.BrowseID, "UC") {
+		return false
+	}
+	titleLow := strings.ToLower(strings.TrimSpace(card.Title))
+	if titleLow == "" || titleLow == "unknown artist" || titleLow == "various artists" || titleLow == "youtube music artist" {
+		return false
+	}
+	if containsAnyKeyword(card.Title, nonOfficialChannelKeywords) {
+		return false
+	}
+	if minAudience > 0 {
+		if pop := ParsePopularityCount(card.Subtitle); pop > 0 && pop < minAudience {
+			return false
+		}
+	}
+	return true
+}
+
+// IsOfficialAlbumCard validates that an album card is an official studio album (MPREb_) and not a tribute/karaoke release.
+func IsOfficialAlbumCard(card YTMusicCard) bool {
+	if card.Kind != "album" || !strings.HasPrefix(card.BrowseID, "MPREb_") {
+		return false
+	}
+	if strings.TrimSpace(card.Title) == "" {
+		return false
+	}
+	if containsAnyKeyword(card.Title, nonOfficialTrackKeywords) || containsAnyKeyword(card.Artist, nonOfficialChannelKeywords) {
+		return false
+	}
+	return true
+}
+
+// IsOfficialPlaylistCard accepts only YouTube Music curated, chart, or official label/studio playlists.
+func IsOfficialPlaylistCard(card YTMusicCard) bool {
+	if card.Kind != "playlist" || (strings.TrimSpace(card.BrowseID) == "" && strings.TrimSpace(card.PlaylistID) == "") {
+		return false
+	}
+	idBlob := strings.ToUpper(card.BrowseID + " " + card.PlaylistID)
+	if strings.Contains(idBlob, "RDCLAK5UY_") || strings.Contains(idBlob, "PL4FGSI1PDJN") || strings.Contains(idBlob, "OLAK5UY_") {
+		return true
+	}
+	return containsAnyKeyword(card.Subtitle+" "+card.Artist, officialPlaylistMarkers)
+}
+
 func (c *YTMusicClient) SearchPlaylists(ctx context.Context, query string) ([]YTMusicCard, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return c.SearchOfficialPlaylists(ctx, "")
+	}
+
+	var results []YTMusicCard
+	seen := map[string]struct{}{}
+	for _, params := range []string{
+		"Eg-KAQwIABAAGAAgACgBMABqChAEEAMQCRAFEAo%3D", // Featured playlists
+		"EgeKAQQoAEABagoQAxAEEAkQChAF",                 // Community playlists (manual search fallback)
+	} {
+		payload := map[string]any{
+			"context": c.ytContext(),
+			"query":   query,
+			"params":  params,
+		}
+		tree, err := c.postInnerTube(ctx, "search", payload)
+		if err != nil {
+			continue
+		}
+		extractPlaylistSearchItems(tree, &results, seen)
+		if len(results) >= 24 {
+			break
+		}
+	}
+
+	if len(results) > 24 {
+		results = results[:24]
+	}
+	if results == nil {
+		results = []YTMusicCard{}
+	}
+	return results, nil
+}
+
+// SearchOfficialPlaylists returns only official YouTube Music / label featured playlists sorted by relevance.
+func (c *YTMusicClient) SearchOfficialPlaylists(ctx context.Context, query string) ([]YTMusicCard, error) {
 	query = strings.TrimSpace(query)
 	var results []YTMusicCard
 	seen := map[string]struct{}{}
+
+	appendIfOfficial := func(card YTMusicCard) {
+		if !IsOfficialPlaylistCard(card) {
+			return
+		}
+		key := card.BrowseID
+		if key == "" {
+			key = card.PlaylistID
+		}
+		if key == "" {
+			key = card.ID
+		}
+		if _, dup := seen[key]; !dup {
+			seen[key] = struct{}{}
+			results = append(results, card)
+		}
+	}
 
 	if query == "" {
 		if feed, err := c.GetHomeFeed(ctx); err == nil {
 			for _, sh := range feed.Shelves {
 				for _, item := range sh.Items {
-					if item.Kind == "playlist" && (item.BrowseID != "" || item.PlaylistID != "") {
-						if _, dup := seen[item.ID]; !dup {
-							seen[item.ID] = struct{}{}
-							results = append(results, item)
-						}
-					}
+					appendIfOfficial(item)
 				}
 			}
 		}
@@ -784,22 +970,17 @@ func (c *YTMusicClient) SearchPlaylists(ctx context.Context, query string) ([]YT
 	}
 
 	if len(results) < 24 {
-		for _, params := range []string{
-			"Eg-KAQwIABAAGAAgACgBMABqChAEEAMQCRAFEAo%3D", // Featured playlists
-			"EgeKAQQoAEABagoQAxAEEAkQChAF",                 // Community playlists
-		} {
-			payload := map[string]any{
-				"context": c.ytContext(),
-				"query":   query,
-				"params":  params,
-			}
-			tree, err := c.postInnerTube(ctx, "search", payload)
-			if err != nil {
-				continue
-			}
-			extractPlaylistSearchItems(tree, &results, seen)
-			if len(results) >= 24 {
-				break
+		payload := map[string]any{
+			"context": c.ytContext(),
+			"query":   query,
+			"params":  "Eg-KAQwIABAAGAAgACgBMABqChAEEAMQCRAFEAo%3D", // Featured playlists only
+		}
+		if tree, err := c.postInnerTube(ctx, "search", payload); err == nil {
+			var raw []YTMusicCard
+			rawSeen := map[string]struct{}{}
+			extractPlaylistSearchItems(tree, &raw, rawSeen)
+			for _, card := range raw {
+				appendIfOfficial(card)
 			}
 		}
 	}
@@ -815,15 +996,54 @@ func (c *YTMusicClient) SearchPlaylists(ctx context.Context, query string) ([]YT
 
 func (c *YTMusicClient) SearchAlbums(ctx context.Context, query string) ([]YTMusicCard, error) {
 	query = strings.TrimSpace(query)
+	if query == "" {
+		return c.SearchOfficialAlbums(ctx, "")
+	}
 	var results []YTMusicCard
 	seen := map[string]struct{}{}
+	payload := map[string]any{
+		"context": c.ytContext(),
+		"query":   query,
+		"params":  "EgWKAQIYAWoMEAMQBBAJEAoQBRAV",
+	}
+	if tree, err := c.postInnerTube(ctx, "search", payload); err == nil {
+		extractAlbumSearchItems(tree, &results, seen)
+	}
+	if len(results) > 28 {
+		results = results[:28]
+	}
+	if results == nil {
+		results = []YTMusicCard{}
+	}
+	return results, nil
+}
+
+// SearchOfficialAlbums returns only official studio albums (MPREb_) filtered against tributes/karaoke/covers.
+func (c *YTMusicClient) SearchOfficialAlbums(ctx context.Context, query string) ([]YTMusicCard, error) {
+	query = strings.TrimSpace(query)
+	var results []YTMusicCard
+	seen := map[string]struct{}{}
+
+	appendOfficial := func(raw []YTMusicCard) {
+		for _, card := range raw {
+			if !IsOfficialAlbumCard(card) {
+				continue
+			}
+			if _, dup := seen[card.BrowseID]; !dup {
+				seen[card.BrowseID] = struct{}{}
+				results = append(results, card)
+			}
+		}
+	}
 
 	if query == "" {
 		if tree, err := c.postInnerTube(ctx, "browse", map[string]any{
 			"context":  c.ytContext(),
 			"browseId": "FEmusic_new_releases_albums",
 		}); err == nil {
-			extractAlbumSearchItems(tree, &results, seen)
+			var raw []YTMusicCard
+			extractAlbumSearchItems(tree, &raw, map[string]struct{}{})
+			appendOfficial(raw)
 		}
 		query = "Top " + ytRegionDisplayName(c.primaryRegion()) + " Album"
 	}
@@ -835,7 +1055,9 @@ func (c *YTMusicClient) SearchAlbums(ctx context.Context, query string) ([]YTMus
 			"params":  "EgWKAQIYAWoMEAMQBBAJEAoQBRAV",
 		}
 		if tree, err := c.postInnerTube(ctx, "search", payload); err == nil {
-			extractAlbumSearchItems(tree, &results, seen)
+			var raw []YTMusicCard
+			extractAlbumSearchItems(tree, &raw, map[string]struct{}{})
+			appendOfficial(raw)
 		}
 	}
 
@@ -850,13 +1072,50 @@ func (c *YTMusicClient) SearchAlbums(ctx context.Context, query string) ([]YTMus
 
 func (c *YTMusicClient) SearchArtists(ctx context.Context, query string) ([]YTMusicCard, error) {
 	query = strings.TrimSpace(query)
+	if query == "" {
+		return c.GetOfficialPopularArtists(ctx, 0, nil)
+	}
 	var results []YTMusicCard
 	seen := map[string]struct{}{}
+	payload := map[string]any{
+		"context": c.ytContext(),
+		"query":   query,
+		"params":  "EgWKAQIgAWoMEAMQBBAJEAoQBRAV",
+	}
+	if tree, err := c.postInnerTube(ctx, "search", payload); err == nil {
+		extractArtistSearchItems(tree, &results, seen)
+	}
+	if len(results) > 35 {
+		results = results[:35]
+	}
+	if results == nil {
+		results = []YTMusicCard{}
+	}
+	return results, nil
+}
 
-	queries := []string{query}
-	if query == "" {
-		// Pull strictly country-localized top artists from FEmusic_charts using formData.selectedValues.
-		gl := c.primaryRegion()
+// GetOfficialPopularArtists returns popular official artists ordered by chart appearance and monthly audience.
+func (c *YTMusicClient) GetOfficialPopularArtists(ctx context.Context, offset int, excludeBrowseIDs []string) ([]YTMusicCard, error) {
+	excl := map[string]struct{}{}
+	for _, id := range excludeBrowseIDs {
+		if k := strings.ToLower(strings.TrimSpace(id)); k != "" {
+			excl[k] = struct{}{}
+		}
+	}
+
+	var results []YTMusicCard
+	seen := map[string]struct{}{}
+	regions := []string{c.primaryRegion(), "ZZ", "US", "GB", "KR", "JP"}
+	start := 0
+	if offset > 0 {
+		start = (offset / 12) % len(regions)
+	}
+
+	for step := 0; step < len(regions) && len(results) < 28; step++ {
+		gl := regions[(start+step)%len(regions)]
+		if gl == "" {
+			continue
+		}
 		if tree, err := c.postInnerTube(ctx, "browse", map[string]any{
 			"context":  c.ytContext(),
 			"browseId": "FEmusic_charts",
@@ -866,31 +1125,54 @@ func (c *YTMusicClient) SearchArtists(ctx context.Context, query string) ([]YTMu
 			extractCarouselShelves(tree, &chartShelves)
 			for _, sh := range chartShelves {
 				for _, item := range sh.Items {
-					if item.Kind == "artist" && item.BrowseID != "" {
-						if _, dup := seen[item.BrowseID]; !dup {
-							seen[item.BrowseID] = struct{}{}
-							results = append(results, item)
-						}
+					if !IsOfficialArtistCard(item, 0) {
+						continue
+					}
+					k := strings.ToLower(strings.TrimSpace(item.BrowseID))
+					if _, skip := excl[k]; skip {
+						continue
+					}
+					if _, dup := seen[k]; !dup {
+						seen[k] = struct{}{}
+						results = append(results, item)
 					}
 				}
 			}
 		}
-		regionName := ytRegionDisplayName(gl)
-		queries = []string{"Top " + regionName + " Artists", "Popular " + regionName + " Singers"}
 	}
 
-	for _, q := range queries {
-		if len(results) >= 28 {
-			break
+	if len(results) < 24 {
+		regionName := ytRegionDisplayName(c.primaryRegion())
+		searchQueries := []string{"Top " + regionName + " Artists", "Popular " + regionName + " Singers", "Top Global Pop Artists"}
+		var searchExtra []YTMusicCard
+		for _, q := range searchQueries {
+			payload := map[string]any{
+				"context": c.ytContext(),
+				"query":   q,
+				"params":  "EgWKAQIgAWoMEAMQBBAJEAoQBRAV",
+			}
+			if tree, err := c.postInnerTube(ctx, "search", payload); err == nil {
+				var raw []YTMusicCard
+				extractArtistSearchItems(tree, &raw, map[string]struct{}{})
+				for _, card := range raw {
+					if !IsOfficialArtistCard(card, 100_000) {
+						continue
+					}
+					k := strings.ToLower(strings.TrimSpace(card.BrowseID))
+					if _, skip := excl[k]; skip {
+						continue
+					}
+					if _, dup := seen[k]; !dup {
+						seen[k] = struct{}{}
+						searchExtra = append(searchExtra, card)
+					}
+				}
+			}
 		}
-		payload := map[string]any{
-			"context": c.ytContext(),
-			"query":   q,
-			"params":  "EgWKAQIgAWoMEAMQBBAJEAoQBRAV",
-		}
-		if tree, err := c.postInnerTube(ctx, "search", payload); err == nil {
-			extractArtistSearchItems(tree, &results, seen)
-		}
+		sort.SliceStable(searchExtra, func(i, j int) bool {
+			return ParsePopularityCount(searchExtra[i].Subtitle) > ParsePopularityCount(searchExtra[j].Subtitle)
+		})
+		results = append(results, searchExtra...)
 	}
 
 	if len(results) > 35 {
@@ -1676,6 +1958,15 @@ func (c *YTMusicClient) GetTop100Tracks(ctx context.Context) ([]YTMusicTrack, er
 			}
 		}
 	}
+	filtered := make([]YTMusicTrack, 0, len(results))
+	for _, tr := range results {
+		if IsOfficialStudioTrack(tr) {
+			filtered = append(filtered, tr)
+		}
+	}
+	if len(filtered) > 0 {
+		results = filtered
+	}
 	if len(results) > 100 {
 		results = results[:100]
 	}
@@ -1687,6 +1978,65 @@ func (c *YTMusicClient) GetTop100Tracks(ctx context.Context) ([]YTMusicTrack, er
 		c.mu.Unlock()
 	}
 	return results, nil
+}
+
+// GetOfficialPopularSongs fetches popular official studio (ATV) songs from regional and global charts.
+func (c *YTMusicClient) GetOfficialPopularSongs(ctx context.Context, offset int, excludeVideoIDs []string) ([]YTMusicTrack, error) {
+	excl := make(map[string]struct{}, len(excludeVideoIDs))
+	for _, id := range excludeVideoIDs {
+		if k := strings.TrimSpace(id); k != "" {
+			excl[k] = struct{}{}
+		}
+	}
+
+	var out []YTMusicTrack
+	seen := map[string]struct{}{}
+	appendTrack := func(tr YTMusicTrack) {
+		if !IsOfficialStudioTrack(tr) {
+			return
+		}
+		if _, skip := excl[tr.VideoID]; skip {
+			return
+		}
+		if _, dup := seen[tr.VideoID]; !dup {
+			seen[tr.VideoID] = struct{}{}
+			out = append(out, tr)
+		}
+	}
+
+	if top, err := c.GetTop100Tracks(ctx); err == nil {
+		for _, tr := range top {
+			appendTrack(tr)
+		}
+	}
+
+	if len(out) < 24 {
+		regions := []string{"ZZ", "US", "GB", "KR", "JP", c.primaryRegion()}
+		start := 0
+		if offset > 0 {
+			start = (offset / 20) % len(regions)
+		}
+		for step := 0; step < len(regions) && len(out) < 35; step++ {
+			gl := regions[(start+step)%len(regions)]
+			if gl == "" {
+				continue
+			}
+			if tree, err := c.postInnerTube(ctx, "browse", map[string]any{
+				"context":  c.ytContext(),
+				"browseId": "FEmusic_charts",
+				"formData": map[string]any{"selectedValues": []string{gl}},
+			}); err == nil {
+				var chartTracks []YTMusicTrack
+				chartSeen := map[string]struct{}{}
+				extractResponsiveItems(tree, &chartTracks, chartSeen)
+				for _, tr := range chartTracks {
+					appendTrack(tr)
+				}
+			}
+		}
+	}
+
+	return out, nil
 }
 
 func (c *YTMusicClient) GetTop100Recommended(ctx context.Context, excludeVideoIDs []string) ([]YTMusicTrack, error) {
@@ -2002,10 +2352,22 @@ func (c *YTMusicClient) GetTrackAlbumDetail(ctx context.Context, videoID, browse
 	cover := strings.TrimSpace(fallbackCover)
 
 	isPlaylistBrowse := albumBrowseID != "" &&
+		(strings.HasPrefix(albumBrowseID, "VL") ||
+			strings.HasPrefix(albumBrowseID, "PL") ||
+			strings.HasPrefix(albumBrowseID, "RD") ||
+			strings.HasPrefix(albumBrowseID, "dz:playlist:") ||
+			strings.HasPrefix(albumBrowseID, "sp:playlist:"))
+
+	if !isPlaylistBrowse &&
+		albumBrowseID != "" &&
 		!strings.HasPrefix(albumBrowseID, "MPREb_") &&
 		!strings.HasPrefix(albumBrowseID, "OLAK") &&
 		!strings.HasPrefix(albumBrowseID, "dz:album:") &&
-		!strings.HasPrefix(albumBrowseID, "sp:album:")
+		!strings.HasPrefix(albumBrowseID, "sp:album:") &&
+		strings.TrimSpace(videoID) == "" {
+		videoID = albumBrowseID
+		albumBrowseID = ""
+	}
 
 	if !strings.HasPrefix(albumBrowseID, "MPREb_") && !isPlaylistBrowse && strings.TrimSpace(videoID) != "" {
 		if tree, err := c.postInnerTube(ctx, "next", map[string]any{
@@ -3289,6 +3651,8 @@ func (c *YTMusicClient) ResolveStreamWindow(ctx context.Context, videoID, qualit
 				UserAgent:     hit.UserAgent,
 				ContentLength: hit.ContentLength,
 				DurationSec:   hit.DurationSec,
+				LoudnessDb:    hit.LoudnessDb,
+				HasLoudness:   hit.HasLoudness,
 			}, nil
 		}
 		c.mu.RUnlock()
@@ -3303,6 +3667,8 @@ func (c *YTMusicClient) ResolveStreamWindow(ctx context.Context, videoID, qualit
 				UserAgent:     info.UserAgent,
 				ContentLength: info.ContentLength,
 				DurationSec:   info.DurationSec,
+				LoudnessDb:    info.LoudnessDb,
+				HasLoudness:   info.HasLoudness,
 				ExpiresAt:     time.Now().Add(4 * time.Hour),
 			}
 			c.mu.Unlock()
@@ -3345,6 +3711,32 @@ func (c *YTMusicClient) ResolveStreamWindow(ctx context.Context, videoID, qualit
 	}
 
 	return StreamInfo{}, fmt.Errorf("could not resolve stream for %s", videoID)
+}
+
+func (c *YTMusicClient) ResolveTrackLoudness(ctx context.Context, videoID, quality string) (float64, bool) {
+	videoID = strings.TrimSpace(videoID)
+	if videoID == "" {
+		return 0, false
+	}
+	if quality == "" {
+		quality = "high"
+	}
+	c.mu.RLock()
+	if hit, ok := c.cache[videoID+":"+quality]; ok && hit.HasLoudness {
+		c.mu.RUnlock()
+		return hit.LoudnessDb, true
+	}
+	for k, hit := range c.cache {
+		if strings.HasPrefix(k, videoID+":") && hit.HasLoudness {
+			c.mu.RUnlock()
+			return hit.LoudnessDb, true
+		}
+	}
+	c.mu.RUnlock()
+	if info, err := c.ResolveStreamWindow(ctx, videoID, quality, 0); err == nil && info.HasLoudness {
+		return info.LoudnessDb, true
+	}
+	return 0, false
 }
 
 type innerTubePlayerClient struct {
@@ -3436,15 +3828,21 @@ func (c *YTMusicClient) resolveViaInnerTube(ctx context.Context, videoID, qualit
 			VideoDetails struct {
 				LengthSeconds string `json:"lengthSeconds"`
 			} `json:"videoDetails"`
+			PlayerConfig struct {
+				AudioConfig struct {
+					LoudnessDb *float64 `json:"loudnessDb"`
+				} `json:"audioConfig"`
+			} `json:"playerConfig"`
 			StreamingData struct {
 				AdaptiveFormats []struct {
-					Itag            int    `json:"itag"`
-					URL             string `json:"url"`
-					MimeType        string `json:"mimeType"`
-					Bitrate         int    `json:"bitrate"`
-					AudioSampleRate string `json:"audioSampleRate"`
-					AudioChannels   int    `json:"audioChannels"`
-					ContentLength   string `json:"contentLength"`
+					Itag            int      `json:"itag"`
+					URL             string   `json:"url"`
+					MimeType        string   `json:"mimeType"`
+					Bitrate         int      `json:"bitrate"`
+					AudioSampleRate string   `json:"audioSampleRate"`
+					AudioChannels   int      `json:"audioChannels"`
+					ContentLength   string   `json:"contentLength"`
+					LoudnessDb      *float64 `json:"loudnessDb"`
 				} `json:"adaptiveFormats"`
 			} `json:"streamingData"`
 		}
@@ -3464,6 +3862,7 @@ func (c *YTMusicClient) resolveViaInnerTube(ctx context.Context, videoID, qualit
 		bestURL := ""
 		bestMime := "audio/mp4"
 		var bestLen int64
+		var formatLoudness *float64
 		bestScore := -1
 
 		for _, f := range data.StreamingData.AdaptiveFormats {
@@ -3506,16 +3905,28 @@ func (c *YTMusicClient) resolveViaInnerTube(ctx context.Context, videoID, qualit
 				bestURL = f.URL
 				bestMime = strings.Split(f.MimeType, ";")[0]
 				bestLen, _ = strconv.ParseInt(f.ContentLength, 10, 64)
+				formatLoudness = f.LoudnessDb
 			}
 		}
 
 		if bestURL != "" {
+			var loudnessDb float64
+			var hasLoudness bool
+			if data.PlayerConfig.AudioConfig.LoudnessDb != nil {
+				loudnessDb = *data.PlayerConfig.AudioConfig.LoudnessDb
+				hasLoudness = true
+			} else if formatLoudness != nil {
+				loudnessDb = *formatLoudness
+				hasLoudness = true
+			}
 			return StreamInfo{
 				URL:           bestURL,
 				MimeType:      bestMime,
 				UserAgent:     cl.UserAgent,
 				ContentLength: bestLen,
 				DurationSec:   durSec,
+				LoudnessDb:    loudnessDb,
+				HasLoudness:   hasLoudness,
 			}, nil
 		}
 		lastErr = fmt.Errorf("no direct audio stream found")

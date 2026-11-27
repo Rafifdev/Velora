@@ -24,6 +24,7 @@ import (
 
 	"velora/internal/audio"
 	"velora/internal/db"
+	"velora/internal/discord"
 	"velora/internal/jam"
 	"velora/internal/sources"
 	"velora/internal/stats"
@@ -57,6 +58,7 @@ type App struct {
 	deezerClient  *sources.DeezerClient
 	downloader    *sources.DownloadManager
 	jamSrv       *jam.Server
+	discordRPC   *discord.Client
 	frontendFS   fs.FS
 	trayIcon     []byte
 	trayCtrl     *tray.Controller
@@ -119,20 +121,26 @@ func (a *App) startup(ctx context.Context) {
 	a.ytClient = sources.NewYTMusicClient()
 	a.spotifyClient = sources.NewSpotifyClient()
 	a.deezerClient = sources.NewDeezerClient()
+	discordEnabled := true
+	discordClientID := ""
 	if prefs, pErr := a.store.GetPreferences(); pErr == nil {
 		a.closeToTray.Store(prefs["system.closeToTray"] == "true")
 		a.spotifyClient.SetCredentials(prefs["integrations.spotify.clientId"], prefs["integrations.spotify.clientSecret"])
+		discordEnabled = prefs["integrations.discord.enabled"] != "false"
+		discordClientID = prefs["integrations.discord.clientId"]
 		lang := prefs["content.language"]
 		if strings.TrimSpace(lang) == "" {
 			lang = detectSystemLanguage()
 		}
 		a.applyContentLocale(prefs["content.country"], lang)
 	}
+	a.discordRPC = discord.NewClient(discordEnabled, discordClientID)
 	a.downloader = sources.NewDownloadManager(store, a.ytClient, a.downloadsDir, func(eventName string, data any) {
 		if a.ctx != nil {
 			runtime.EventsEmit(a.ctx, eventName, data)
 		}
 	})
+	a.downloader.SetTrackResolver(a.resolveTrackForDownload)
 	a.startYTMusicHomePrefetch()
 	go a.ensureStoreDesktopShortcut()
 	a.player = audio.NewPlayerController(store, a.ytClient, a.artworkDir)
@@ -325,6 +333,13 @@ func (a *App) invalidateHomeCache() {
 
 var atvUpgradeCache sync.Map
 
+func (a *App) resolveTrackForDownload(ctx context.Context, tr db.Track) (db.Track, error) {
+	if !isHybridTrackID(strings.TrimSpace(tr.ExternalID)) {
+		return tr, nil
+	}
+	return a.ensureTrackPlayableExternalID(ctx, tr)
+}
+
 func (a *App) ensureTrackPlayableExternalID(ctx context.Context, tr db.Track) (db.Track, error) {
 	extID := strings.TrimSpace(tr.ExternalID)
 	if !isHybridTrackID(extID) {
@@ -449,7 +464,13 @@ func (a *App) beforeClose(ctx context.Context) (prevent bool) {
 func (a *App) shutdown(ctx context.Context) {
 	setSystemKeepAwake(false)
 	var wg sync.WaitGroup
-	wg.Add(4)
+	wg.Add(5)
+	go func() {
+		defer wg.Done()
+		if a.discordRPC != nil {
+			a.discordRPC.Shutdown()
+		}
+	}()
 	go func() {
 		defer wg.Done()
 		a.shutdownTaskbar()
@@ -774,8 +795,17 @@ func (a *App) SearchYouTubeMusicPlaylists(query string) ([]sources.YTMusicCard, 
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 14*time.Second)
 	defer cancel()
-	if cards, err := a.ytClient.SearchPlaylists(reqCtx, query); err == nil && len(cards) > 0 {
-		return cards, nil
+	if strings.TrimSpace(query) == "" {
+		if cards, err := a.ytClient.SearchOfficialPlaylists(reqCtx, ""); err == nil && len(cards) > 0 {
+			return cards, nil
+		}
+	} else {
+		if cards, err := a.ytClient.SearchOfficialPlaylists(reqCtx, query); err == nil && len(cards) > 0 {
+			return cards, nil
+		}
+		if cards, err := a.ytClient.SearchPlaylists(reqCtx, query); err == nil && len(cards) > 0 {
+			return cards, nil
+		}
 	}
 	if a.useSpotifyMetadata() {
 		if cards, err := a.spotifyClient.SearchPlaylists(reqCtx, query); err == nil && len(cards) > 0 {
@@ -797,8 +827,13 @@ func (a *App) SearchYouTubeMusicAlbums(query string) ([]sources.YTMusicCard, err
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	if cards, err := a.ytClient.SearchAlbums(reqCtx, query); err == nil && len(cards) > 0 {
+	if cards, err := a.ytClient.SearchOfficialAlbums(reqCtx, query); err == nil && len(cards) > 0 {
 		return cards, nil
+	}
+	if strings.TrimSpace(query) != "" {
+		if cards, err := a.ytClient.SearchAlbums(reqCtx, query); err == nil && len(cards) > 0 {
+			return cards, nil
+		}
 	}
 	if a.useSpotifyMetadata() {
 		if cards, err := a.spotifyClient.SearchAlbums(reqCtx, query); err == nil && len(cards) > 0 {
@@ -843,41 +878,8 @@ func (a *App) GetMoreArtists(offset int, excludeBrowseIDs []string) ([]sources.Y
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	queries := []string{
-		"",
-		"Top Pop Artists",
-		"Popular Indonesian Singers",
-		"Trending Music Artists",
-		"Best Indie Artists Indonesia",
-		"Popular Rock Bands",
-		"Top R&B Soul Artists",
-		"Acoustic Singer Songwriter",
-	}
-	excl := map[string]struct{}{}
-	for _, id := range excludeBrowseIDs {
-		excl[strings.ToLower(strings.TrimSpace(id))] = struct{}{}
-	}
-	startIdx := 0
-	if offset > 0 {
-		startIdx = (offset / 12) % len(queries)
-	}
-	for step := 0; step < len(queries); step++ {
-		q := queries[(startIdx+step)%len(queries)]
-		if cards, err := a.ytClient.SearchArtists(reqCtx, q); err == nil && len(cards) > 0 {
-			out := make([]sources.YTMusicCard, 0, len(cards))
-			for _, c := range cards {
-				k := strings.ToLower(strings.TrimSpace(c.BrowseID))
-				if k == "" {
-					k = strings.ToLower(strings.TrimSpace(c.Title))
-				}
-				if _, skip := excl[k]; !skip {
-					out = append(out, c)
-				}
-			}
-			if len(out) > 0 {
-				return out, nil
-			}
-		}
+	if cards, err := a.ytClient.GetOfficialPopularArtists(reqCtx, offset, excludeBrowseIDs); err == nil && len(cards) > 0 {
+		return cards, nil
 	}
 	if a.useDeezerMetadata() {
 		if cards, err := a.deezerClient.GetMoreArtists(reqCtx, offset, excludeBrowseIDs); err == nil && len(cards) > 0 {
@@ -916,7 +918,15 @@ func (a *App) GetYTMusicTop100Recommended(excludeVideoIDs []string) ([]sources.Y
 		}
 	}
 	if tracks, err := a.ytClient.GetHistoryBasedRecommended(reqCtx, seeds, excludeVideoIDs); err == nil && len(tracks) > 0 {
-		return tracks, nil
+		official := make([]sources.YTMusicTrack, 0, len(tracks))
+		for _, tr := range tracks {
+			if sources.IsOfficialStudioTrack(tr) {
+				official = append(official, tr)
+			}
+		}
+		if len(official) > 0 {
+			return official, nil
+		}
 	}
 	if a.useDeezerMetadata() {
 		if tracks, dErr := a.deezerClient.GetRecommendedTracks(reqCtx, seeds, excludeVideoIDs, 28); dErr == nil && len(tracks) > 0 {
@@ -933,23 +943,19 @@ func (a *App) GetMoreTopSongs(offset int, excludeVideoIDs []string) ([]sources.Y
 	}
 	reqCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	if tracks, err := a.ytClient.GetTop100Tracks(reqCtx); err == nil && len(tracks) > 0 {
-		excl := map[string]struct{}{}
-		for _, id := range excludeVideoIDs {
-			excl[strings.TrimSpace(id)] = struct{}{}
-		}
-		out := make([]sources.YTMusicTrack, 0, len(tracks))
-		for _, tr := range tracks {
-			if _, skip := excl[tr.VideoID]; !skip {
-				out = append(out, tr)
-			}
-		}
-		if len(out) > 0 {
-			return out, nil
-		}
+	if tracks, err := a.ytClient.GetOfficialPopularSongs(reqCtx, offset, excludeVideoIDs); err == nil && len(tracks) > 0 {
+		return tracks, nil
 	}
 	if tracks, err := a.ytClient.GetHistoryBasedRecommended(reqCtx, nil, excludeVideoIDs); err == nil && len(tracks) > 0 {
-		return tracks, nil
+		official := make([]sources.YTMusicTrack, 0, len(tracks))
+		for _, tr := range tracks {
+			if sources.IsOfficialStudioTrack(tr) {
+				official = append(official, tr)
+			}
+		}
+		if len(official) > 0 {
+			return official, nil
+		}
 	}
 	if a.useDeezerMetadata() {
 		if tracks, err := a.deezerClient.GetMoreTopSongs(reqCtx, offset, excludeVideoIDs, 35); err == nil && len(tracks) > 0 {
@@ -1407,6 +1413,24 @@ func (a *App) SaveYTMusicTrack(yt sources.YTMusicTrack) (db.Track, error) {
 	})
 }
 
+func (a *App) saveYTMusicTrackFast(yt sources.YTMusicTrack) (db.Track, error) {
+	album := strings.TrimSpace(yt.Album)
+	if album == "" || strings.EqualFold(album, "YouTube Music") {
+		album = "Single"
+	}
+	return a.store.UpsertTrack(db.Track{
+		Title:       yt.Title,
+		ArtistName:  yt.Artist,
+		AlbumTitle:  album,
+		DurationSec: yt.DurationSec,
+		Format:      yt.Format,
+		Bitrate:     160,
+		SourceType:  "ytmusic",
+		ExternalID:  yt.VideoID,
+		CoverURL:    yt.CoverURL,
+	})
+}
+
 func (a *App) PlayYTMusicTrack(yt sources.YTMusicTrack) (db.Track, error) {
 	tr, err := a.SaveYTMusicTrack(yt)
 	if err != nil {
@@ -1439,6 +1463,47 @@ func (a *App) GetStreamURL(trackID int64) (string, error) {
 	}
 	a.player.SetCurrentTrack(tr)
 	return a.player.GetStreamURL(tr), nil
+}
+
+type TrackLoudnessResult struct {
+	LoudnessDb  float64 `json:"loudnessDb"`
+	HasLoudness bool    `json:"hasLoudness"`
+}
+
+func (a *App) GetTrackLoudness(trackID int64, externalID string) TrackLoudnessResult {
+	if a.store != nil {
+		if ldb, ok := a.store.GetTrackLoudness(trackID, externalID); ok {
+			return TrackLoudnessResult{LoudnessDb: ldb, HasLoudness: true}
+		}
+		if externalID == "" && trackID > 0 {
+			if tr, err := a.store.GetTrackByID(trackID); err == nil {
+				externalID = tr.ExternalID
+			}
+		}
+	}
+	ext := strings.TrimSpace(externalID)
+	if ext == "" || isHybridTrackID(ext) || a.ytClient == nil {
+		return TrackLoudnessResult{}
+	}
+	ctx := a.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
+	defer cancel()
+	quality := "high"
+	if a.store != nil {
+		if prefs, err := a.store.GetPreferences(); err == nil && prefs["stream_quality"] != "" {
+			quality = prefs["stream_quality"]
+		}
+	}
+	if ldb, ok := a.ytClient.ResolveTrackLoudness(reqCtx, ext, quality); ok {
+		if a.store != nil && trackID > 0 {
+			a.store.SaveTrackLoudness(trackID, ext, ldb)
+		}
+		return TrackLoudnessResult{LoudnessDb: ldb, HasLoudness: true}
+	}
+	return TrackLoudnessResult{}
 }
 
 func (a *App) PlayerControl(action string, value float64, mode string) audio.PlaybackState {
@@ -1511,6 +1576,12 @@ func (a *App) SavePreferences(prefs map[string]string) error {
 	}
 	if v, ok := prefs["system.closeToTray"]; ok {
 		a.closeToTray.Store(strings.EqualFold(strings.TrimSpace(v), "true"))
+	}
+	if v, ok := prefs["integrations.discord.enabled"]; ok && a.discordRPC != nil {
+		a.discordRPC.SetEnabled(!strings.EqualFold(strings.TrimSpace(v), "false"))
+	}
+	if id, ok := prefs["integrations.discord.clientId"]; ok && a.discordRPC != nil {
+		a.discordRPC.SetClientID(id)
 	}
 	if daysStr, ok := prefs["privacy.historyDays"]; ok {
 		if d, err := strconv.Atoi(daysStr); err == nil && d > 0 {
@@ -1612,6 +1683,8 @@ type UpdateCheckResult struct {
 	HasUpdate      bool   `json:"hasUpdate"`
 	ReleaseURL     string `json:"releaseUrl"`
 	DownloadURL    string `json:"downloadUrl"`
+	StoreURL       string `json:"storeUrl"`
+	IsStoreApp     bool   `json:"isStoreApp"`
 	ReleaseNotes   string `json:"releaseNotes"`
 	PublishedAt    string `json:"publishedAt"`
 }
@@ -1707,20 +1780,93 @@ func isNewerVersion(latest, current string) bool {
 	return false
 }
 
-func (a *App) CheckForUpdates() (UpdateCheckResult, error) {
+const veloraLatestReleaseAPI = "https://api.github.com/repos/Rafifdev/Velora/releases/latest"
+
+type githubReleaseAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
+}
+
+type githubReleasePayload struct {
+	TagName     string               `json:"tag_name"`
+	HTMLURL     string               `json:"html_url"`
+	Body        string               `json:"body"`
+	PublishedAt string               `json:"published_at"`
+	Assets      []githubReleaseAsset `json:"assets"`
+}
+
+func selectWindowsUpdateAsset(assets []githubReleaseAsset) string {
+	var fallbackSetup string
+	for _, asset := range assets {
+		lower := strings.ToLower(strings.TrimSpace(asset.Name))
+		if !strings.HasSuffix(lower, ".exe") || strings.TrimSpace(asset.BrowserDownloadURL) == "" {
+			continue
+		}
+		if lower == "velora.exe" || (!strings.Contains(lower, "setup") && !strings.Contains(lower, "installer")) {
+			return strings.TrimSpace(asset.BrowserDownloadURL)
+		}
+		if fallbackSetup == "" {
+			fallbackSetup = strings.TrimSpace(asset.BrowserDownloadURL)
+		}
+	}
+	return fallbackSetup
+}
+
+func checkForUpdatesFromURL(endpoint string) (UpdateCheckResult, error) {
 	storeURL := getMicrosoftStoreURL()
+	storeApp := isStorePackage()
 	res := UpdateCheckResult{
 		CurrentVersion: veloraAppVersion,
 		LatestVersion:  veloraAppVersion,
-		ReleaseURL:     storeURL,
-		DownloadURL:    storeURL,
+		ReleaseURL:     "https://github.com/Rafifdev/Velora/releases/latest",
+		StoreURL:       storeURL,
+		IsStoreApp:     storeApp,
 	}
-	if storeURL != "" {
-		if err := a.OpenExternalURL(storeURL); err != nil {
-			return res, err
-		}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return res, err
 	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "Velora/"+veloraAppVersion)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return res, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return res, fmt.Errorf("release check failed with HTTP %d", resp.StatusCode)
+	}
+
+	var payload githubReleasePayload
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return res, err
+	}
+
+	latest := strings.TrimPrefix(strings.TrimSpace(payload.TagName), "v")
+	latest = strings.TrimPrefix(latest, "V")
+	if latest != "" {
+		res.LatestVersion = latest
+	}
+	if strings.TrimSpace(payload.HTMLURL) != "" {
+		res.ReleaseURL = strings.TrimSpace(payload.HTMLURL)
+	}
+	res.ReleaseNotes = strings.TrimSpace(payload.Body)
+	res.PublishedAt = strings.TrimSpace(payload.PublishedAt)
+	res.DownloadURL = selectWindowsUpdateAsset(payload.Assets)
+	res.HasUpdate = isNewerVersion(res.LatestVersion, veloraAppVersion)
 	return res, nil
+}
+
+func (a *App) CheckForUpdates() (UpdateCheckResult, error) {
+	return checkForUpdatesFromURL(veloraLatestReleaseAPI)
+}
+
+func (a *App) InstallUpdate(downloadURL string) error {
+	return installAndRestartWindows(a, downloadURL)
 }
 
 func (a *App) OpenDataFolder() error {
@@ -1817,19 +1963,33 @@ func (a *App) WindowClose() {
 	go a.forceQuitApp()
 }
 
+type DownloadCollectionItem struct {
+	TrackID     int64  `json:"trackId"`
+	ExternalID  string `json:"externalId"`
+	Title       string `json:"title"`
+	Artist      string `json:"artist"`
+	Album       string `json:"album"`
+	DurationSec int    `json:"durationSec"`
+	CoverURL    string `json:"coverUrl"`
+	Format      string `json:"format"`
+}
+
 func (a *App) DownloadTrack(trackID int64) (db.Track, error) {
 	tr, err := a.store.GetTrackByID(trackID)
 	if err != nil {
 		return db.Track{}, err
 	}
-	ctx := a.ctx
-	if ctx == nil {
-		ctx = context.Background()
+	a.store.ClearTrackDownloadGroup(tr.ID)
+	return a.downloader.Enqueue(tr)
+}
+
+func (a *App) RetryDownloadTrack(trackID int64, group sources.DownloadGroup) (db.Track, error) {
+	tr, err := a.store.GetTrackByID(trackID)
+	if err != nil {
+		return db.Track{}, err
 	}
-	if resolved, rErr := a.ensureTrackPlayableExternalID(ctx, tr); rErr == nil {
-		tr = resolved
-	} else if isHybridTrackID(tr.ExternalID) {
-		return db.Track{}, rErr
+	if strings.TrimSpace(group.Key) != "" {
+		a.store.SetTracksDownloadGroup([]int64{tr.ID}, group.Key, group.Title, group.Cover, group.Kind)
 	}
 	return a.downloader.Enqueue(tr)
 }
@@ -1839,20 +1999,82 @@ func (a *App) DownloadYTMusicTrack(yt sources.YTMusicTrack) (db.Track, error) {
 	if err != nil {
 		return db.Track{}, err
 	}
-	ctx := a.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if resolved, rErr := a.ensureTrackPlayableExternalID(ctx, tr); rErr == nil {
-		tr = resolved
-	} else if isHybridTrackID(tr.ExternalID) {
-		return db.Track{}, rErr
-	}
+	a.store.ClearTrackDownloadGroup(tr.ID)
 	return a.downloader.Enqueue(tr)
+}
+
+func (a *App) DownloadCollection(group sources.DownloadGroup, items []DownloadCollectionItem) (int, error) {
+	if len(items) == 0 {
+		return 0, nil
+	}
+	batch := make([]db.Track, 0, len(items))
+	for _, it := range items {
+		if it.TrackID > 0 {
+			if tr, err := a.store.GetTrackByID(it.TrackID); err == nil {
+				batch = append(batch, tr)
+			}
+			continue
+		}
+		if strings.TrimSpace(it.ExternalID) != "" {
+			tr, err := a.saveYTMusicTrackFast(sources.YTMusicTrack{
+				VideoID:     it.ExternalID,
+				Title:       it.Title,
+				Artist:      it.Artist,
+				Album:       it.Album,
+				DurationSec: it.DurationSec,
+				CoverURL:    it.CoverURL,
+				Format:      it.Format,
+			})
+			if err == nil {
+				batch = append(batch, tr)
+			}
+		}
+	}
+	if len(batch) == 0 {
+		return 0, nil
+	}
+	a.downloader.EnqueueBatch(batch, group)
+	return len(batch), nil
+}
+
+func (a *App) CancelDownloadGroup(groupKey string) {
+	a.downloader.CancelGroup(groupKey)
+}
+
+func (a *App) PauseDownload(trackID int64) {
+	a.downloader.Pause(trackID)
+}
+
+func (a *App) ResumeDownload(trackID int64) {
+	a.downloader.Resume(trackID)
+}
+
+func (a *App) PauseDownloadGroup(groupKey string) {
+	a.downloader.PauseGroup(groupKey)
+}
+
+func (a *App) ResumeDownloadGroup(groupKey string) {
+	a.downloader.ResumeGroup(groupKey)
 }
 
 func (a *App) RemoveDownloadedTrack(trackID int64) (db.Track, error) {
 	return a.downloader.Remove(trackID)
+}
+
+func (a *App) ClearAllDownloads() (int64, error) {
+	if a.downloader == nil {
+		return 0, nil
+	}
+	return a.downloader.RemoveAll()
+}
+
+func (a *App) RemoveDownloadedTracks(trackIDs []int64) error {
+	for _, id := range trackIDs {
+		if id > 0 {
+			_, _ = a.downloader.Remove(id)
+		}
+	}
+	return nil
 }
 
 func (a *App) CancelDownload(trackID int64) {
@@ -1913,6 +2135,32 @@ func (a *App) GetJamStatus() jam.Status {
 func (a *App) UpdateJamState(snap jam.PlaybackSnapshot) {
 	if a.jamSrv != nil {
 		a.jamSrv.UpdateState(snap)
+	}
+}
+
+func (a *App) syncDiscordPresence(p DynamicIslandSyncPayload) {
+	if a.discordRPC == nil {
+		return
+	}
+	extID := ""
+	if p.QueueIndex >= 0 && p.QueueIndex < len(p.Queue) {
+		extID = p.Queue[p.QueueIndex].ExternalID
+	}
+	a.discordRPC.UpdatePresence(discord.TrackPresence{
+		Title:       p.Title,
+		Artist:      p.Artist,
+		Album:       p.Album,
+		CoverURL:    p.CoverURL,
+		ExternalID:  extID,
+		IsPlaying:   p.IsPlaying,
+		PositionSec: p.PositionSec,
+		DurationSec: p.DurationSec,
+	})
+}
+
+func (a *App) updateDiscordProgress(positionSec, durationSec float64) {
+	if a.discordRPC != nil {
+		a.discordRPC.UpdateProgress(positionSec, durationSec)
 	}
 }
 

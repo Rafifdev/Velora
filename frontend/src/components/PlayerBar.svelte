@@ -21,6 +21,7 @@
     rightPanelMode?: 'now-playing' | 'queue' | 'devices';
     activeOutputDevice?: AudioOutputDevice | null;
     isLyricsOpen?: boolean;
+    spatial8d?: boolean;
     seekDeltaSec?: number;
     seekDeltaSeq?: number;
     mediaBaseUrl: string;
@@ -40,6 +41,7 @@
     onOpenTrackDetail?: (track: Track) => void;
     onOpenArtistDetail?: (track: Track) => void;
     onToggleLyrics?: () => void;
+    onToggleSpatial8d?: () => void;
     onToggleDevices?: () => void;
     onOpenMobileNowPlaying?: () => void;
   }
@@ -58,6 +60,7 @@
     rightPanelMode = 'now-playing',
     activeOutputDevice = null,
     isLyricsOpen = false,
+    spatial8d = false,
     seekDeltaSec = 0,
     seekDeltaSeq = 0,
     mediaBaseUrl,
@@ -76,6 +79,7 @@
     onOpenTrackDetail,
     onOpenArtistDetail,
     onToggleLyrics,
+    onToggleSpatial8d,
     onToggleDevices,
     onOpenMobileNowPlaying
   }: Props = $props();
@@ -345,26 +349,26 @@
           {/if}
         </button>
 
-        <div class="min-w-0 flex-1 flex flex-col justify-center">
+        <div class="min-w-0 flex-1 flex flex-col items-start justify-center">
           <button
             type="button"
             onclick={() => onOpenTrackDetail?.(currentTrack)}
             use:veloraMarquee={{ text: currentTrack.title }}
-            class="w-full overflow-hidden text-left text-[14px] font-bold leading-snug hover:underline cursor-pointer"
+            class="group/pbar-title max-w-full overflow-hidden text-left text-[14px] font-bold leading-snug cursor-pointer"
             style="color: var(--md-sys-color-on-surface);"
             title={tr(lang, 'nav.viewTrackDetails')}
           >
-            <span class="inline-block whitespace-nowrap">{currentTrack.title}</span>
+            <span class="inline-block whitespace-nowrap group-hover/pbar-title:underline decoration-1 underline-offset-2">{currentTrack.title}</span>
           </button>
           <button
             type="button"
             onclick={() => onOpenArtistDetail?.(currentTrack)}
             use:veloraMarquee={{ text: currentTrack.artistName }}
-            class="w-full overflow-hidden text-left text-[12px] font-normal leading-snug mt-0.5 hover:underline cursor-pointer"
+            class="group/pbar-sub max-w-full overflow-hidden text-left text-[12px] font-normal leading-snug mt-0.5 cursor-pointer"
             style="color: var(--md-sys-color-on-surface-variant);"
             title={tr(lang, 'nav.viewArtistPage')}
           >
-            <span class="inline-block whitespace-nowrap">{currentTrack.artistName}</span>
+            <span class="inline-block whitespace-nowrap group-hover/pbar-sub:underline decoration-1 underline-offset-2">{currentTrack.artistName}</span>
           </button>
         </div>
       {:else}
@@ -473,6 +477,25 @@
         >
           <Icon name="microphone-stage" weight={isLyricsOpen ? 'bold' : 'regular'} size={17} />
         </button>
+        {#if onToggleSpatial8d}
+          <button
+            type="button"
+            onclick={() => onToggleSpatial8d()}
+            title={tr(lang, 'nav.spatial8d')}
+            aria-label={tr(lang, 'nav.spatial8d')}
+            aria-pressed={spatial8d}
+            class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer relative"
+            style={spatial8d ? 'color: var(--md-sys-color-primary);' : ''}
+          >
+            <Icon name="waveform" weight={spatial8d ? 'bold' : 'regular'} size={17} />
+            {#if spatial8d}
+              <span
+                class="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
+                style="background-color: var(--md-sys-color-primary);"
+              ></span>
+            {/if}
+          </button>
+        {/if}
         <button
           type="button"
           onclick={() => onFocusRightCard('queue')}
@@ -490,10 +513,6 @@
           {/if}
         </button>
         {#if onToggleDevices}
-          {@const devIcon =
-            activeOutputDevice?.connType === 'bluetooth' || activeOutputDevice?.connType === 'wired'
-              ? 'headphones'
-              : 'speaker-hifi'}
           <button
             type="button"
             onclick={() => onToggleDevices()}
@@ -504,7 +523,7 @@
             class="m3-icon-btn w-8 h-8 flex items-center justify-center cursor-pointer relative"
             style={!rightCollapsed && rightPanelMode === 'devices' ? 'color: var(--md-sys-color-primary);' : ''}
           >
-            <Icon name={devIcon} weight={!rightCollapsed && rightPanelMode === 'devices' ? 'bold' : 'regular'} size={17} />
+            <Icon name="speaker-hifi" weight={!rightCollapsed && rightPanelMode === 'devices' ? 'bold' : 'regular'} size={17} />
             {#if !rightCollapsed && rightPanelMode === 'devices'}
               <span
                 class="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"

@@ -16,9 +16,21 @@ export interface Track {
   playCount: number;
   isDownloaded?: boolean;
   downloadedAt?: string;
+  downloadGroupKey?: string;
+  downloadGroupTitle?: string;
+  downloadGroupCover?: string;
+  downloadGroupKind?: string;
   globalPlays?: string;
   historyEntryId?: number;
+  deletedReason?: 'deleted' | 'canceled' | 'failed';
   createdAt: string;
+}
+
+export interface DownloadGroup {
+  key: string;
+  title: string;
+  cover: string;
+  kind: 'playlist' | 'album' | string;
 }
 
 export interface DownloadProgress {
@@ -26,9 +38,58 @@ export interface DownloadProgress {
   externalId: string;
   title: string;
   artist: string;
-  status: 'queued' | 'downloading' | 'completed' | 'failed' | 'cancelled' | string;
+  status: 'queued' | 'downloading' | 'paused' | 'completed' | 'failed' | 'cancelled' | string;
   progress: number;
   error?: string;
+  groupKey?: string;
+  groupTitle?: string;
+  groupCover?: string;
+  groupKind?: string;
+  groupTotal?: number;
+  groupCompleted?: number;
+  groupProgress?: number;
+  downloadedBytes?: number;
+  totalBytes?: number;
+  speedBps?: number;
+  groupDownloadedBytes?: number;
+  groupTotalBytes?: number;
+  groupSpeedBps?: number;
+}
+
+export interface GroupedDownloadItem {
+  key: string;
+  isGroup: boolean;
+  kind: 'track' | 'playlist' | 'album';
+  trackId: number;
+  trackIds: number[];
+  externalId: string;
+  title: string;
+  subtitle: string;
+  coverUrl: string;
+  status: 'queued' | 'downloading' | 'paused' | 'failed';
+  progress: number;
+  totalCount: number;
+  completedCount: number;
+  downloadedBytes: number;
+  totalBytes: number;
+  speedBps: number;
+  error?: string;
+}
+
+export interface GroupedCompletedDownload {
+  key: string;
+  isGroup: boolean;
+  kind: 'music' | 'album' | 'playlist';
+  title: string;
+  subtitle: string;
+  coverUrl: string;
+  tracks: Track[];
+  primaryTrack: Track;
+  totalDurationSec: number;
+  deleted: boolean;
+  deletedReason?: 'deleted' | 'canceled' | 'failed';
+  sortMs: number;
+  downloadedAt: string;
 }
 
 export interface JamQueueItem {
@@ -224,8 +285,16 @@ export interface UpdateCheckResult {
   hasUpdate: boolean;
   releaseUrl: string;
   downloadUrl: string;
+  storeUrl: string;
+  isStoreApp: boolean;
   releaseNotes: string;
   publishedAt: string;
+}
+
+export interface UpdateProgress {
+  status: 'downloading' | 'installing' | 'restarting' | 'error';
+  progress: number;
+  error?: string;
 }
 
 export interface YTMusicTrack {
@@ -238,6 +307,7 @@ export interface YTMusicTrack {
   format: string;
   playCountText?: string;
   explicit?: boolean;
+  videoType?: string;
 }
 
 export interface YTMusicCard {
@@ -319,6 +389,11 @@ export interface TrackLyrics {
   source: string;
 }
 
+export interface TrackLoudnessResult {
+  loudnessDb: number;
+  hasLoudness: boolean;
+}
+
 export interface BootstrapData {
   tracks: Track[];
   albums: Album[];
@@ -354,7 +429,7 @@ export type ViewRoute =
   | { name: 'listening-stats' }
   | { name: 'fire-streak' }
   | { name: 'lyrics' }
-  | { name: 'track-detail'; trackId: number }
+  | { name: 'track-detail'; trackId: number; singleTrack?: boolean }
   | {
       name: 'yt-album-detail';
       videoId: string;
@@ -364,4 +439,5 @@ export type ViewRoute =
       artist: string;
       albumTitle: string;
       coverUrl: string;
+      localTracks?: Track[];
     };

@@ -14,8 +14,16 @@ export function CancelDownload(arg1) {
   return window['go']['main']['App']['CancelDownload'](arg1);
 }
 
+export function CancelDownloadGroup(arg1) {
+  return window['go']['main']['App']['CancelDownloadGroup'](arg1);
+}
+
 export function CheckForUpdates() {
   return window['go']['main']['App']['CheckForUpdates']();
+}
+
+export function ClearAllDownloads() {
+  return window['go']['main']['App']['ClearAllDownloads']();
 }
 
 export function ClearCache() {
@@ -32,6 +40,10 @@ export function CreatePlaylist(arg1, arg2, arg3, arg4) {
 
 export function DeletePlaylist(arg1) {
   return window['go']['main']['App']['DeletePlaylist'](arg1);
+}
+
+export function DownloadCollection(arg1, arg2) {
+  return window['go']['main']['App']['DownloadCollection'](arg1, arg2);
 }
 
 export function DownloadTrack(arg1) {
@@ -134,6 +146,10 @@ export function GetStreamURL(arg1) {
   return window['go']['main']['App']['GetStreamURL'](arg1);
 }
 
+export function GetTrackLoudness(arg1, arg2) {
+  return window['go']['main']['App']['GetTrackLoudness'](arg1, arg2);
+}
+
 export function GetTrackLyrics(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['GetTrackLyrics'](arg1, arg2, arg3, arg4, arg5);
 }
@@ -178,6 +194,10 @@ export function ImportSpotifyPlaylist(arg1) {
   return window['go']['main']['App']['ImportSpotifyPlaylist'](arg1);
 }
 
+export function InstallUpdate(arg1) {
+  return window['go']['main']['App']['InstallUpdate'](arg1);
+}
+
 export function NotifyDynamicIslandAudioDevice(arg1) {
   return window['go']['main']['App']['NotifyDynamicIslandAudioDevice'](arg1);
 }
@@ -188,6 +208,14 @@ export function OpenDataFolder() {
 
 export function OpenExternalURL(arg1) {
   return window['go']['main']['App']['OpenExternalURL'](arg1);
+}
+
+export function PauseDownload(arg1) {
+  return window['go']['main']['App']['PauseDownload'](arg1);
+}
+
+export function PauseDownloadGroup(arg1) {
+  return window['go']['main']['App']['PauseDownloadGroup'](arg1);
 }
 
 export function PlayYTMusicCollection(arg1, arg2, arg3, arg4, arg5) {
@@ -214,6 +242,10 @@ export function RemoveDownloadedTrack(arg1) {
   return window['go']['main']['App']['RemoveDownloadedTrack'](arg1);
 }
 
+export function RemoveDownloadedTracks(arg1) {
+  return window['go']['main']['App']['RemoveDownloadedTracks'](arg1);
+}
+
 export function RemoveSource(arg1) {
   return window['go']['main']['App']['RemoveSource'](arg1);
 }
@@ -228,6 +260,18 @@ export function ReorderPlaylistTracks(arg1, arg2) {
 
 export function RescanSource(arg1) {
   return window['go']['main']['App']['RescanSource'](arg1);
+}
+
+export function ResumeDownload(arg1) {
+  return window['go']['main']['App']['ResumeDownload'](arg1);
+}
+
+export function ResumeDownloadGroup(arg1) {
+  return window['go']['main']['App']['ResumeDownloadGroup'](arg1);
+}
+
+export function RetryDownloadTrack(arg1, arg2) {
+  return window['go']['main']['App']['RetryDownloadTrack'](arg1, arg2);
 }
 
 export function SavePreferences(arg1) {

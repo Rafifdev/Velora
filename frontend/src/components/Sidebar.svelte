@@ -9,6 +9,7 @@
 
   interface Props {
     currentRoute: ViewRoute;
+    activeSection?: string;
     width: number;
     collapsed: boolean;
     lockedCollapsed?: boolean;
@@ -34,6 +35,7 @@
 
   let {
     currentRoute,
+    activeSection,
     width,
     collapsed,
     lockedCollapsed = false,
@@ -70,19 +72,23 @@
 
   const flatMenuItems = $derived<MenuEntry[]>([
     { id: 'home', label: tr(lang, 'nav.home'), icon: 'house' },
-    { id: 'favorite-albums', label: tr(lang, 'nav.favoriteAlbums'), icon: 'vinyl-record' },
-    { id: 'liked-songs', label: tr(lang, 'nav.favoriteMusic'), icon: 'music-note' },
-    { id: 'favorite-artists', label: tr(lang, 'nav.favoriteArtists'), icon: 'user' },
+    { id: 'favorite-albums', label: tr(lang, 'nav.albums'), icon: 'vinyl-record' },
+    { id: 'liked-songs', label: tr(lang, 'nav.music'), icon: 'music-note' },
     { id: 'playlists', label: tr(lang, 'nav.playlists'), icon: 'playlist', count: playlistsCount },
-    { id: 'downloaded', label: tr(lang, 'nav.downloaded'), icon: 'download', count: downloadedCount },
+    { id: 'favorite-artists', label: tr(lang, 'nav.artists'), icon: 'user' },
     { id: 'history', label: tr(lang, 'nav.history'), icon: 'clock-counter-clockwise' },
     { id: 'listening-stats', label: tr(lang, 'nav.stats'), icon: 'chart-bar' }
   ]);
 
   function isActive(name: string): boolean {
+    if (activeSection) return activeSection === name;
     if (name === 'home') return currentRoute.name === 'home';
     if (name === 'favorite-albums') {
-      return currentRoute.name === 'favorite-albums' || currentRoute.name === 'album-detail';
+      return (
+        currentRoute.name === 'favorite-albums' ||
+        currentRoute.name === 'album-detail' ||
+        (currentRoute.name === 'yt-album-detail' && currentRoute.kind !== 'playlist')
+      );
     }
     if (name === 'favorite-artists') {
       return currentRoute.name === 'favorite-artists' || currentRoute.name === 'artist-detail';
@@ -91,7 +97,8 @@
       return (
         currentRoute.name === 'playlists' ||
         currentRoute.name === 'local-playlists' ||
-        currentRoute.name === 'playlist-detail'
+        currentRoute.name === 'playlist-detail' ||
+        (currentRoute.name === 'yt-album-detail' && currentRoute.kind === 'playlist')
       );
     }
     if (name === 'history') {
@@ -110,6 +117,7 @@
 
   $effect(() => {
     void currentRoute.name;
+    void activeSection;
     void collapsed;
     void isPreferencesMode;
     void lang;
@@ -346,6 +354,5 @@
 
   .velora-sidebar-pane {
     grid-area: 1 / 1;
-    will-change: transform, opacity;
   }
 </style>

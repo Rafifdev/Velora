@@ -1364,6 +1364,7 @@ func (a *App) NotifyDynamicIslandAudioDevice(deviceName string) {
 }
 
 func (a *App) SyncDynamicIsland(p DynamicIslandSyncPayload) {
+	a.syncDiscordPresence(p)
 	globalIslandMu.Lock()
 	ctrl := globalIsland
 	globalIslandMu.Unlock()
@@ -1481,6 +1482,7 @@ func (a *App) SyncDynamicIsland(p DynamicIslandSyncPayload) {
 }
 
 func (a *App) UpdateDynamicIslandProgress(positionSec float64, durationSec float64) {
+	a.updateDiscordProgress(positionSec, durationSec)
 	globalIslandMu.Lock()
 	ctrl := globalIsland
 	globalIslandMu.Unlock()
@@ -6280,10 +6282,10 @@ func formatEqPresetLabel(eq string) string {
 		return "Vocal Clarity EQ"
 	case "electronic":
 		return "Electronic EQ"
-	case "flat":
-		return "Flat Studio EQ"
+	case "spotify":
+		return "Velora Studio EQ"
 	default:
-		return "Spotify Studio EQ"
+		return "Flat Studio EQ"
 	}
 }
 

@@ -37,6 +37,7 @@ New-Item -ItemType Directory -Force -Path $assetsDir | Out-Null
 
 try {
     Copy-Item -Force $exePath (Join-Path $staging "Velora.exe")
+    Copy-Item -Force (Join-Path $root "build\windows\icon.ico") (Join-Path $assetsDir "icon.ico")
 
     $iconSrc = Join-Path $root "build\appicon.png"
     & $py -c @"
@@ -70,7 +71,8 @@ wide.save(os.path.join(out_dir, 'Wide310x150Logo.png'), format='PNG', optimize=T
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="uap rescap">
+  xmlns:desktop7="http://schemas.microsoft.com/appx/manifest/desktop/windows10/7"
+  IgnorableNamespaces="uap rescap desktop7">
 
   <Identity
     Name="RafifDev.VeloraPlayer-DynamicIsland"
@@ -85,7 +87,7 @@ wide.save(os.path.join(out_dir, 'Wide310x150Logo.png'), format='PNG', optimize=T
   </Properties>
 
   <Dependencies>
-    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
   </Dependencies>
 
   <Resources>
@@ -102,6 +104,11 @@ wide.save(os.path.join(out_dir, 'Wide310x150Logo.png'), format='PNG', optimize=T
         Square44x44Logo="Assets\Square44x44Logo.png">
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
       </uap:VisualElements>
+      <Extensions>
+        <desktop7:Extension Category="windows.shortcut">
+          <desktop7:Shortcut File="[{Desktop}]\Velora.lnk" Icon="[{Package}]\Assets\icon.ico" />
+        </desktop7:Extension>
+      </Extensions>
     </Application>
   </Applications>
 

@@ -5,10 +5,12 @@
   import type { Album, Artist, HomeFilter, Playlist, Track, ViewRoute, YTMusicCard, YTMusicShelf, YTMusicTrack } from '../lib/types';
   import { tr, type LangCode } from '../lib/i18n';
   import CoverImage from '../components/CoverImage.svelte';
+  import DownloadedBadge from '../components/DownloadedBadge.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import EqIndicator from '../components/EqIndicator.svelte';
   import Icon from '../components/Icon.svelte';
   import MobileTopHeader from '../components/MobileTopHeader.svelte';
+  import Skeleton from '../components/Skeleton.svelte';
   import TrackActionMenu from '../components/TrackActionMenu.svelte';
 
   interface Props {
@@ -16,6 +18,7 @@
     artists?: Artist[];
     tracks?: Track[];
     playlists: Playlist[];
+    downloadedGroupKeys?: Set<string>;
     ytShelves: YTMusicShelf[];
     ytResults: YTMusicTrack[];
     ytPlaylistResults?: YTMusicCard[];
@@ -81,6 +84,7 @@
     artists = [],
     tracks = [],
     playlists,
+    downloadedGroupKeys = new Set<string>(),
     ytShelves,
     ytResults,
     ytPlaylistResults = [],
@@ -464,6 +468,33 @@
     }
     return sliceCategoryRows(deduped, 'musik');
   });
+
+  const downloadedVideoIds = $derived(
+    new Set(tracks.filter((t) => t.isDownloaded && t.externalId).map((t) => t.externalId))
+  );
+
+  function isCardDownloaded(item: YTMusicCard): boolean {
+    if (item.kind === 'song') {
+      return Boolean(item.videoId && downloadedVideoIds.has(item.videoId));
+    }
+    if (item.kind === 'album') {
+      const bid = (item.browseId || '').trim();
+      return Boolean(bid && downloadedGroupKeys.has(`album:${bid}`));
+    }
+    if (item.kind === 'playlist') {
+      const bid = (item.browseId || item.playlistId || '').trim();
+      if (bid && downloadedGroupKeys.has(`playlist:${bid}`)) return true;
+      const pl = playlists.find(
+        (p) =>
+          (bid && p.externalId === bid) ||
+          p.name.trim().toLowerCase() === (item.title || '').trim().toLowerCase()
+      );
+      if (pl && (downloadedGroupKeys.has(`playlist:${pl.id}`) || (pl.externalId && downloadedGroupKeys.has(`playlist:${pl.externalId}`)))) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   function isTrackCardActive(videoId?: string | null, title?: string | null, artist?: string | null): boolean {
     if (currentExternalId && videoId && currentExternalId === videoId) return true;
@@ -1016,6 +1047,9 @@
                             isVideoThumb={isYTVideoThumb(cover)}
                           />
                         </button>
+                        {#if item.kind !== 'artist' && isCardDownloaded(item)}
+                          <DownloadedBadge title={tr(lang, 'nav.downloaded')} />
+                        {/if}
                       </div>
 
                       {#if item.kind !== 'artist'}
@@ -1115,15 +1149,7 @@
         </h2>
 
         {#if ytLoading}
-          <div class="velora-card-grid-7">
-            {#each Array.from({ length: 24 }, (_, idx) => idx) as idx (idx)}
-              <div class="w-full min-w-0 p-2.5 rounded-lg space-y-2.5">
-                <div class="w-full aspect-square {activeFilterPill === 'artis' ? 'rounded-full' : 'rounded-md'} bg-[var(--md-sys-color-surface-container-high)] animate-pulse"></div>
-                <div class="h-3.5 w-3/4 rounded bg-[var(--md-sys-color-surface-container-highest)] animate-pulse"></div>
-                <div class="h-3 w-1/2 rounded bg-[var(--md-sys-color-surface-container)] animate-pulse"></div>
-              </div>
-            {/each}
-          </div>
+          <Skeleton variant="card-grid" count={24} circle={activeFilterPill === 'artis'} gridClass="velora-card-grid-7" />
         {:else if activeFilterPill === 'artis'}
           {#if displayedHomeArtists.length === 0}
             <EmptyState
@@ -1268,6 +1294,9 @@
                         isVideoThumb={isYTVideoThumb(cover)}
                       />
                     </button>
+                    {#if isCardDownloaded(item)}
+                      <DownloadedBadge title={tr(lang, 'nav.downloaded')} />
+                    {/if}
 
                     <button
                       type="button"
@@ -1349,6 +1378,9 @@
                         isVideoThumb={isYTVideoThumb(cover)}
                       />
                     </button>
+                    {#if isCardDownloaded(item)}
+                      <DownloadedBadge title={tr(lang, 'nav.downloaded')} />
+                    {/if}
 
                     <button
                       type="button"
@@ -1441,6 +1473,9 @@
                       isVideoThumb={isYTVideoThumb(cover)}
                     />
                   </button>
+                  {#if yt.videoId && downloadedVideoIds.has(yt.videoId)}
+                    <DownloadedBadge title={tr(lang, 'nav.downloaded')} />
+                  {/if}
 
                   <button
                     type="button"
@@ -1597,6 +1632,9 @@
           <Icon name="playlist" weight="fill" size={42} class="text-white/95 drop-shadow-[0_2px_8px_rgba(0,0,0,0.45)]" />
         {/if}
       </button>
+      {#if downloadedGroupKeys.has(`playlist:${pl.id}`) || (pl.externalId && downloadedGroupKeys.has(`playlist:${pl.externalId}`))}
+        <DownloadedBadge title={tr(lang, 'nav.downloaded')} />
+      {/if}
 
       <button
         type="button"

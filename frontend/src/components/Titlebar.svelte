@@ -3,6 +3,7 @@
   import { api, isJamRemote, resolveCoverUrl, isYTVideoThumb } from '../lib/api';
   import type { Artist, FireStreakStatus, JamStatus, Track, ViewRoute, YTMusicTrack } from '../lib/types';
   import { tr, type LangCode } from '../lib/i18n';
+  import DownloadProgressIcon from './DownloadProgressIcon.svelte';
   import Icon from './Icon.svelte';
   import JamModal from './JamModal.svelte';
   import ModalDialog from './ModalDialog.svelte';
@@ -46,6 +47,8 @@
     jamRunning?: boolean;
     jamConnected?: boolean;
     jamPrefEnabled?: boolean;
+    activeDownloadsCount?: number;
+    downloadProgressPct?: number;
     saveSearches?: boolean;
     onOpenJamSettings?: () => void;
     onResetZoom?: () => void;
@@ -85,6 +88,8 @@
     jamRunning = false,
     jamConnected = false,
     jamPrefEnabled = false,
+    activeDownloadsCount = 0,
+    downloadProgressPct = 0,
     saveSearches = true,
     onOpenJamSettings,
     onResetZoom
@@ -861,6 +866,20 @@
         {/if}
       </div>
     {/if}
+
+    <button
+      type="button"
+      onpointerdown={(e) => e.stopPropagation()}
+      onclick={() => onNavigate({ name: 'downloads' })}
+      aria-label={tr(lang, 'nav.downloaded')}
+      title={tr(lang, 'nav.downloaded')}
+      class="velora-press wails-no-drag relative w-9 h-9 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:brightness-110"
+      style="background-color: var(--md-sys-color-surface-container-high); color: {currentRoute.name === 'downloads' || activeDownloadsCount > 0
+        ? 'var(--md-sys-color-primary)'
+        : 'var(--md-sys-color-on-surface-variant)'};"
+    >
+      <DownloadProgressIcon {activeDownloadsCount} {downloadProgressPct} iconSize={18} />
+    </button>
 
     {#if !isJamRemote}
       <div class="wails-no-drag relative z-[60] flex items-stretch self-stretch ml-2">

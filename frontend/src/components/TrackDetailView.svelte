@@ -3,11 +3,13 @@
   import { formatDuration, isYTVideoThumb, resolveCoverUrl } from '../lib/api';
   import { veloraMarquee } from '../lib/marquee';
   import { tr, type LangCode } from '../lib/i18n';
-  import type { Album, Playlist, Track, YTMusicAlbumView, YTMusicCard } from '../lib/types';
+  import type { Album, DownloadGroup, DownloadProgress, Playlist, Track, YTMusicAlbumView, YTMusicCard } from '../lib/types';
   import CoverImage from './CoverImage.svelte';
   import EqIndicator from './EqIndicator.svelte';
   import Icon from './Icon.svelte';
-  import TrackActionMenu from './TrackActionMenu.svelte';
+  import ModalDialog from './ModalDialog.svelte';
+  import Skeleton from './Skeleton.svelte';
+  import TrackTable from './TrackTable.svelte';
 
   interface Props {
     track: Track | null;
@@ -18,24 +20,30 @@
     currentTrackTitle?: string | null;
     currentTrackArtist?: string | null;
     isPlaying: boolean;
+    trackLoading?: boolean;
     tracks: Track[];
     albums: Album[];
     playlists: Playlist[];
+    downloadStates?: Record<number, DownloadProgress>;
     mediaBaseUrl: string;
     accentColor: string;
     lang?: LangCode;
     onPlayTrack: (tr: Track, list?: Track[]) => void;
     onTogglePlay: () => void;
-    onToggleFavoriteTrack: (id: number) => void;
+    onToggleFavoriteTrack: (id: number, track?: Track) => void;
     onToggleFavoriteAlbum: (id: number) => void;
-    onAddToPlaylist: (playlistId: number, trackId: number) => void;
+    onAddToPlaylist: (playlistId: number, trackId: number, track?: Track) => void;
+    onCreatePlaylistTrack?: (track?: Track) => void;
     onPlayNext?: (tr: Track) => void;
     onAddToQueue?: (tr: Track) => void;
     onCopyLink?: (tr: Track) => void;
     onDownloadTrack?: (tr: Track) => void;
+    onDownloadCollection?: (group: DownloadGroup, tracks: Track[]) => void;
     onRemoveDownload?: (trackId: number) => void;
-    onOpenArtist: (artistId: number) => void;
+    onRemoveDownloadGroup?: (tracks: Track[]) => void;
+    onOpenArtist: (artistId: number, track?: Track) => void;
     onOpenAlbum: (albumId: number) => void;
+    onOpenTrackAlbum?: (track: Track) => void;
     onBack?: () => void;
     shuffle?: boolean;
     queueSourceKey?: string | null;
@@ -43,7 +51,7 @@
     onPlayShuffled?: (list: Track[], sourceTitle?: string, sourceKey?: string) => void;
     ytAlbum?: YTMusicAlbumView | null;
     ytAlbumLoading?: boolean;
-    routeKind?: 'album' | 'playlist';
+    routeKind?: 'album' | 'playlist' | 'music';
     recommendedPlaylists?: YTMusicCard[];
     onOpenYTAlbum?: (card: YTMusicCard) => void;
     onToggleFavoriteYTMusicAlbum?: (payload: {
@@ -71,9 +79,11 @@
     currentTrackTitle = null,
     currentTrackArtist = null,
     isPlaying,
+    trackLoading = false,
     tracks,
     albums,
     playlists,
+    downloadStates = {},
     mediaBaseUrl,
     accentColor,
     lang = 'en',
@@ -82,13 +92,17 @@
     onToggleFavoriteTrack,
     onToggleFavoriteAlbum,
     onAddToPlaylist,
+    onCreatePlaylistTrack,
     onPlayNext,
     onAddToQueue,
     onCopyLink,
     onDownloadTrack,
+    onDownloadCollection,
     onRemoveDownload,
+    onRemoveDownloadGroup,
     onOpenArtist,
     onOpenAlbum,
+    onOpenTrackAlbum,
     onBack,
     shuffle = false,
     queueSourceKey = null,
@@ -104,7 +118,12 @@
   }: Props = $props();
 
   const isPlaylistView = $derived(ytAlbum?.kind === 'playlist' || (!album && routeKind === 'playlist'));
-  const displayTitle = $derived(ytAlbum?.title || album?.title || track?.albumTitle || track?.title || 'Album');
+  const isMusicView = $derived(!ytAlbum && !album && routeKind === 'music');
+  const displayTitle = $derived(
+    isMusicView
+      ? track?.title || 'Music'
+      : ytAlbum?.title || album?.title || track?.albumTitle || track?.title || 'Album'
+  );
   const displayArtist = $derived(ytAlbum?.artist || album?.artistName || track?.artistName || 'Unknown Artist');
   const displayArtistId = $derived(ytAlbum ? 0 : track?.artistId || 0);
   const rawCover = $derived(ytAlbum?.coverUrl || album?.coverUrl || track?.coverUrl || '');
@@ -149,6 +168,9 @@
   const totalDurationSec = $derived(
     listTracks.reduce((sum, t) => sum + (t.durationSec || 0), 0)
   );
+  let confirmRemoveDownloadsOpen = $state(false);
+  let justSavedTick = $state(false);
+  let justSavedTimer: ReturnType<typeof setTimeout> | undefined;
 
   let albumScrolled = $state(false);
   let openActionTrackId = $state<number | null>(null);
@@ -359,7 +381,7 @@
         </button>
         <div class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
           <span>
-            {isPlaylistView ? tr(lang, 'nav.playlist') : tr(lang, 'nav.album')}
+            {isPlaylistView ? tr(lang, 'nav.playlist') : isMusicView ? tr(lang, 'nav.music') : tr(lang, 'nav.album')}
           </span>
           {#if album?.releaseYear}
             <span class="tabular-nums">• {album.releaseYear}</span>
@@ -380,7 +402,7 @@
           <div class="h-7 sm:h-10 w-64 max-w-full rounded-lg bg-[var(--md-sys-color-surface-container-highest)]"></div>
           <div class="h-4 w-44 max-w-full rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
           <div class="hidden sm:flex pt-2 items-center gap-3">
-            <div class="w-11 h-11 rounded-full bg-[var(--md-sys-color-surface-container-highest)]"></div>
+            <div class="w-14 h-14 rounded-full bg-[var(--md-sys-color-surface-container-highest)]"></div>
             <div class="w-11 h-11 rounded-full bg-[var(--md-sys-color-surface-container-highest)]"></div>
           </div>
         </div>
@@ -407,7 +429,7 @@
         >
           <CoverImage
             src={cover}
-            fallbackIcon={isPlaylistView ? 'playlist' : 'vinyl-record'}
+            fallbackIcon={isPlaylistView ? 'playlist' : isMusicView ? 'music-note' : 'vinyl-record'}
             iconSize={48}
             isVideoThumb={isYTVideoThumb(cover)}
             loading="eager"
@@ -417,7 +439,7 @@
         <div class="min-w-0 flex-1 space-y-1.5 sm:space-y-2">
           <div class="hidden sm:flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wider" style="color: var(--md-sys-color-on-surface-variant);">
             <span>
-              {isPlaylistView ? tr(lang, 'nav.playlist') : tr(lang, 'nav.album')}
+              {isPlaylistView ? tr(lang, 'nav.playlist') : isMusicView ? tr(lang, 'nav.music') : tr(lang, 'nav.album')}
             </span>
             {#if album?.releaseYear}
               <span class="tabular-nums">• {album.releaseYear}</span>
@@ -464,10 +486,10 @@
             }}
             title={isAlbumCurrentlyPlaying ? tr(lang, 'nav.pause') : isPlaylistView ? 'Putar Playlist' : 'Putar Album'}
             aria-label={isAlbumCurrentlyPlaying ? tr(lang, 'nav.pause') : isPlaylistView ? 'Putar Playlist' : 'Putar Album'}
-            class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110 disabled:opacity-40"
+            class="w-14 h-14 rounded-full border-0 outline-none shadow-lg inline-flex items-center justify-center cursor-pointer transition-transform duration-150 hover:scale-105 active:scale-95 disabled:opacity-40"
             style="background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary);"
           >
-            <Icon name={isAlbumCurrentlyPlaying ? 'pause' : 'play'} weight="fill" size={20} />
+            <Icon name={isAlbumCurrentlyPlaying ? 'pause' : 'play'} weight="fill" size={24} />
           </button>
 
           <button
@@ -510,6 +532,11 @@
               disabled={savingPlaylist}
               onclick={async () => {
                 if (savingPlaylist) return;
+                const wasSaved = isYTSavedPlaylist;
+                if (wasSaved) {
+                  justSavedTick = false;
+                  if (justSavedTimer) clearTimeout(justSavedTimer);
+                }
                 savingPlaylist = true;
                 try {
                   await onToggleSaveYTMusicPlaylist({
@@ -519,19 +546,26 @@
                     coverUrl: rawCover,
                     trackIds: listTracks.map((t) => t.id).filter((id) => id > 0)
                   });
+                  if (!wasSaved) {
+                    justSavedTick = true;
+                    if (justSavedTimer) clearTimeout(justSavedTimer);
+                    justSavedTimer = setTimeout(() => {
+                      justSavedTick = false;
+                    }, 850);
+                  }
                 } finally {
                   savingPlaylist = false;
                 }
               }}
               class="w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110 disabled:opacity-60"
-              style={isYTSavedPlaylist
-                ? 'background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);'
-                : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);'}
+              style="background-color: var(--md-sys-color-surface-container-high); color: {isYTSavedPlaylist
+                ? 'var(--md-sys-color-tertiary)'
+                : 'var(--md-sys-color-on-surface)'};"
               title={isYTSavedPlaylist ? tr(lang, 'nav.savedPlaylist') : tr(lang, 'nav.savePlaylist')}
               aria-label={isYTSavedPlaylist ? tr(lang, 'nav.savedPlaylist') : tr(lang, 'nav.savePlaylist')}
             >
               <Icon
-                name={isYTSavedPlaylist ? 'check' : 'bookmark-simple'}
+                name={justSavedTick && isYTSavedPlaylist ? 'check' : 'bookmark-simple'}
                 weight={isYTSavedPlaylist ? 'bold' : 'regular'}
                 size={18}
               />
@@ -570,6 +604,46 @@
               <Icon name="heart" weight={track.isFavorite ? 'fill' : 'regular'} size={18} />
             </button>
           {/if}
+
+          {#if (onDownloadCollection || onDownloadTrack) && listTracks.length > 0}
+            {@const allAlbumDownloaded = listTracks.every((t) => t.isDownloaded)}
+            <button
+              type="button"
+              onclick={() => {
+                if (allAlbumDownloaded && (onRemoveDownloadGroup || onRemoveDownload)) {
+                  confirmRemoveDownloadsOpen = true;
+                  return;
+                }
+                if (onDownloadCollection) {
+                  const colId = ytAlbum?.browseId || (album ? String(album.id) : displayTitle);
+                  const colKind = isPlaylistView ? 'playlist' : 'album';
+                  onDownloadCollection(
+                    {
+                      key: `${colKind}:${colId}`,
+                      title: displayTitle,
+                      cover: rawCover || listTracks.find((t) => t.coverUrl)?.coverUrl || '',
+                      kind: colKind
+                    },
+                    listTracks
+                  );
+                } else if (onDownloadTrack) {
+                  for (const t of listTracks) {
+                    if (!t.isDownloaded) onDownloadTrack(t);
+                  }
+                }
+              }}
+              class="velora-press w-11 h-11 rounded-full inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110"
+              style="background-color: {allAlbumDownloaded
+                ? 'var(--md-sys-color-primary)'
+                : 'var(--md-sys-color-surface-container-high)'}; color: {allAlbumDownloaded
+                ? 'var(--md-sys-color-on-primary)'
+                : 'var(--md-sys-color-on-surface)'};"
+              title={allAlbumDownloaded ? tr(lang, 'nav.removeDownload') : tr(lang, 'nav.downloadOffline')}
+              aria-label={allAlbumDownloaded ? tr(lang, 'nav.removeDownload') : tr(lang, 'nav.downloadOffline')}
+            >
+              <Icon name={allAlbumDownloaded ? 'check' : 'download'} weight={allAlbumDownloaded ? 'bold' : 'regular'} size={18} />
+            </button>
+          {/if}
         </div>
       </div>
       </div>
@@ -595,6 +669,11 @@
               disabled={savingPlaylist}
               onclick={async () => {
                 if (savingPlaylist) return;
+                const wasSaved = isYTSavedPlaylist;
+                if (wasSaved) {
+                  justSavedTick = false;
+                  if (justSavedTimer) clearTimeout(justSavedTimer);
+                }
                 savingPlaylist = true;
                 try {
                   await onToggleSaveYTMusicPlaylist({
@@ -604,19 +683,26 @@
                     coverUrl: rawCover,
                     trackIds: listTracks.map((t) => t.id).filter((id) => id > 0)
                   });
+                  if (!wasSaved) {
+                    justSavedTick = true;
+                    if (justSavedTimer) clearTimeout(justSavedTimer);
+                    justSavedTimer = setTimeout(() => {
+                      justSavedTick = false;
+                    }, 850);
+                  }
                 } finally {
                   savingPlaylist = false;
                 }
               }}
               class="velora-press min-w-11 min-h-11 rounded-full inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110 disabled:opacity-60"
-              style={isYTSavedPlaylist
-                ? 'background-color: var(--md-sys-color-tertiary); color: var(--md-sys-color-on-tertiary);'
-                : 'background-color: var(--md-sys-color-surface-container-high); color: var(--md-sys-color-on-surface);'}
+              style="background-color: var(--md-sys-color-surface-container-high); color: {isYTSavedPlaylist
+                ? 'var(--md-sys-color-tertiary)'
+                : 'var(--md-sys-color-on-surface)'};"
               title={isYTSavedPlaylist ? tr(lang, 'nav.savedPlaylist') : tr(lang, 'nav.savePlaylist')}
               aria-label={isYTSavedPlaylist ? tr(lang, 'nav.savedPlaylist') : tr(lang, 'nav.savePlaylist')}
             >
               <Icon
-                name={isYTSavedPlaylist ? 'check' : 'bookmark-simple'}
+                name={justSavedTick && isYTSavedPlaylist ? 'check' : 'bookmark-simple'}
                 weight={isYTSavedPlaylist ? 'bold' : 'regular'}
                 size={18}
               />
@@ -653,6 +739,44 @@
               aria-label={track.isFavorite ? 'Hapus dari Favorit' : 'Tambahkan ke Favorit'}
             >
               <Icon name="heart" weight={track.isFavorite ? 'fill' : 'regular'} size={18} />
+            </button>
+          {/if}
+
+          {#if (onDownloadCollection || onDownloadTrack) && listTracks.length > 0}
+            {@const allAlbumDownloaded = listTracks.every((t) => t.isDownloaded)}
+            <button
+              type="button"
+              onclick={() => {
+                if (allAlbumDownloaded && (onRemoveDownloadGroup || onRemoveDownload)) {
+                  confirmRemoveDownloadsOpen = true;
+                  return;
+                }
+                if (onDownloadCollection) {
+                  const colId = ytAlbum?.browseId || (album ? String(album.id) : displayTitle);
+                  const colKind = isPlaylistView ? 'playlist' : 'album';
+                  onDownloadCollection(
+                    {
+                      key: `${colKind}:${colId}`,
+                      title: displayTitle,
+                      cover: rawCover || listTracks.find((t) => t.coverUrl)?.coverUrl || '',
+                      kind: colKind
+                    },
+                    listTracks
+                  );
+                } else if (onDownloadTrack) {
+                  for (const t of listTracks) {
+                    if (!t.isDownloaded) onDownloadTrack(t);
+                  }
+                }
+              }}
+              class="velora-press min-w-11 min-h-11 rounded-full inline-flex items-center justify-center cursor-pointer transition-colors hover:brightness-110"
+              style="background-color: var(--md-sys-color-surface-container-high); color: {allAlbumDownloaded
+                ? 'var(--md-sys-color-primary)'
+                : 'var(--md-sys-color-on-surface)'};"
+              title={allAlbumDownloaded ? tr(lang, 'nav.downloaded') : tr(lang, 'nav.downloadOffline')}
+              aria-label={allAlbumDownloaded ? tr(lang, 'nav.downloaded') : tr(lang, 'nav.downloadOffline')}
+            >
+              <Icon name={allAlbumDownloaded ? 'check-circle' : 'download'} weight={allAlbumDownloaded ? 'fill' : 'regular'} size={18} />
             </button>
           {/if}
         </div>
@@ -706,9 +830,10 @@
     {#if ytAlbumLoading}
       <div class="w-full animate-pulse" aria-busy="true" aria-label="Memuat daftar lagu album">
         <div
-          class="-mx-2 hidden sm:grid grid-cols-[minmax(0,1fr)_52px_32px] md:grid-cols-[minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] gap-4 px-3 py-2 text-[11px] font-bold uppercase tracking-wider"
+          class="-mx-2 hidden sm:grid grid-cols-[32px_minmax(0,1fr)_52px_32px] md:grid-cols-[32px_minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] gap-4 px-3 py-2 text-[11px] font-bold uppercase tracking-wider"
           style="color: var(--md-sys-color-on-surface-variant);"
         >
+          <div class="text-center">#</div>
           <div>{tr(lang, 'nav.titleCol')}</div>
           <div class="hidden md:block">{tr(lang, 'nav.releaseCol')}</div>
           <div class="hidden md:block">{tr(lang, 'nav.playsCol')}</div>
@@ -718,26 +843,7 @@
           <div></div>
         </div>
 
-        <div class="space-y-1.5 mt-1">
-          {#each [62, 48, 70, 54, 66, 44] as titleW, idx (idx)}
-            <div class="-mx-2 grid grid-cols-[minmax(0,1fr)_52px_32px] md:grid-cols-[minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] gap-4 px-3 py-2.5 items-center rounded-lg">
-              <div class="space-y-1.5 min-w-0">
-                <div class="h-3.5 rounded bg-[var(--md-sys-color-surface-container-highest)]" style="width: {titleW}%;"></div>
-                <div class="h-2.5 w-28 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
-              </div>
-              <div class="hidden md:block">
-                <div class="h-3 w-12 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
-              </div>
-              <div class="hidden md:block">
-                <div class="h-3 w-14 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
-              </div>
-              <div class="flex justify-end pr-1">
-                <div class="h-3 w-9 rounded bg-[var(--md-sys-color-surface-container-high)]"></div>
-              </div>
-              <div></div>
-            </div>
-          {/each}
-        </div>
+        <Skeleton variant="track-rows" count={6} />
 
         <div class="mt-8 space-y-4">
           <div class="h-5 w-44 rounded bg-[var(--md-sys-color-surface-container-highest)]"></div>
@@ -753,78 +859,38 @@
         </div>
       </div>
     {:else}
-      <div class="w-full space-y-1">
-        <div
-          class="-mx-2 hidden sm:grid grid-cols-[minmax(0,1fr)_52px_32px] md:grid-cols-[minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] items-center gap-4 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider"
-          style="color: var(--md-sys-color-on-surface-variant);"
-        >
-          <span>{tr(lang, 'nav.titleCol')}</span>
-          <span class="hidden md:block">{tr(lang, 'nav.releaseCol')}</span>
-          <span class="hidden md:block">{tr(lang, 'nav.playsCol')}</span>
-          <span class="flex justify-end pr-1">
-            <Icon name="clock" size={14} />
-          </span>
-          <span></span>
-        </div>
-
-        <div class="space-y-0.5" role="list">
-          {#each listTracks as item, idx (item.id + '-' + idx)}
-            {@const active = isTrackActive(item)}
-            {@const menuOpen = openActionTrackId === item.id}
-            <div
-              role="listitem"
-              class="group relative -mx-2 grid grid-cols-[minmax(0,1fr)_52px_32px] md:grid-cols-[minmax(0,1.6fr)_minmax(120px,0.7fr)_minmax(120px,0.7fr)_56px_32px] items-center gap-4 px-3 py-2 rounded-lg transition-colors duration-150 {active
-                ? 'bg-[var(--md-sys-color-state-active)]'
-                : 'hover:bg-[var(--md-sys-color-state-hover)]'}"
-              style="color: var(--md-sys-color-on-surface);"
-            >
-
-              <button
-                type="button"
-                onclick={() => handleRowPlayClick(item, active)}
-                class="min-w-0 pr-4 text-left cursor-pointer"
-              >
-                <div class="text-xs font-bold line-clamp-2 whitespace-normal leading-snug {active ? 'text-[var(--md-sys-color-primary)]' : ''}">
-                  {item.title}
-                </div>
-                <div class="text-[11px] truncate opacity-75 mt-0.5">
-                  {item.artistName}
-                </div>
-              </button>
-
-              <div class="hidden md:block text-xs tabular-nums truncate opacity-75">
-                {releaseDateLabel}
-              </div>
-
-              <div class="hidden md:block text-xs tabular-nums truncate opacity-75">
-                {item.globalPlays || '-'}
-              </div>
-
-              <span class="text-[11px] font-medium tabular-nums text-right opacity-75 pr-1">
-                {formatDuration(item.durationSec)}
-              </span>
-
-              <TrackActionMenu
-                track={item}
-                open={menuOpen}
-                {playlists}
-                {lang}
-                triggerClass="min-w-11 min-h-11 sm:min-w-8 sm:min-h-8 w-11 h-11 sm:w-8 sm:h-8 {menuOpen ? 'opacity-100' : 'opacity-65 hover:opacity-100'}"
-                onToggleOpen={() => (openActionTrackId = menuOpen ? null : item.id)}
-                onClose={() => (openActionTrackId = null)}
-                {onPlayNext}
-                {onAddToQueue}
-                {onAddToPlaylist}
-                onToggleFavorite={onToggleFavoriteTrack}
-                {onDownloadTrack}
-                {onRemoveDownload}
-                {onOpenArtist}
-                {onCopyLink}
-              />
-            </div>
-          {/each}
-        </div>
-      </div>
+      <TrackTable
+        tracks={listTracks}
+        {currentTrackId}
+        {currentExternalId}
+        {currentTrackTitle}
+        {currentTrackArtist}
+        {isPlaying}
+        {trackLoading}
+        {mediaBaseUrl}
+        {accentColor}
+        {playlists}
+        {downloadStates}
+        fallbackCoverUrl={rawCover}
+        mobileShowCover={false}
+        col2Header={tr(lang, 'nav.releaseCol')}
+        getCol2={() => releaseDateLabel}
+        col3Header={tr(lang, 'nav.playsCol')}
+        getCol3={(item) => item.globalPlays || '-'}
+        onPlayTrack={(trItem, list) => onPlayTrack(trItem, list)}
+        {onTogglePlay}
+        {onPlayNext}
+        {onAddToQueue}
+        onToggleFavorite={onToggleFavoriteTrack}
+        {onAddToPlaylist}
+        onCreatePlaylist={onCreatePlaylistTrack}
+        {onDownloadTrack}
+        {onRemoveDownload}
+        {onOpenArtist}
+        onOpenTrackAlbum={isPlaylistView ? onOpenTrackAlbum : undefined}
+        {onCopyLink}
+        {lang}
+      />
     {/if}
   </div>
 
@@ -877,3 +943,41 @@
     </section>
   {/if}
 </div>
+
+<ModalDialog
+  open={confirmRemoveDownloadsOpen}
+  onClose={() => (confirmRemoveDownloadsOpen = false)}
+  ariaLabelledby="remove-col-downloads-title"
+  maxWidthClass="max-w-sm"
+  class="p-6"
+>
+  <div class="space-y-3">
+    <h2 id="remove-col-downloads-title" class="text-base font-bold tracking-tight" style="color: var(--md-sys-color-on-surface);">
+      {tr(lang, 'nav.removeCollectionDownloadsTitle')}
+    </h2>
+    <p class="text-xs leading-relaxed" style="color: var(--md-sys-color-on-surface-variant);">
+      {tr(lang, 'nav.removeCollectionDownloadsDesc')}
+    </p>
+    <div class="pt-2 flex items-center justify-end gap-2">
+      <button
+        type="button"
+        onclick={() => (confirmRemoveDownloadsOpen = false)}
+        class="h-9 px-4 rounded-full bg-[var(--md-sys-color-surface-container)] hover:bg-[var(--md-sys-color-surface-container-highest)] text-xs font-semibold cursor-pointer"
+      >
+        {tr(lang, 'nav.cancel')}
+      </button>
+      <button
+        type="button"
+        onclick={() => {
+          confirmRemoveDownloadsOpen = false;
+          if (listTracks.length > 0 && onRemoveDownloadGroup) {
+            onRemoveDownloadGroup(listTracks);
+          }
+        }}
+        class="h-9 px-5 rounded-full bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold cursor-pointer transition-colors"
+      >
+        {tr(lang, 'nav.delete')}
+      </button>
+    </div>
+  </div>
+</ModalDialog>
