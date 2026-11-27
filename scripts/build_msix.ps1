@@ -25,6 +25,15 @@ if (-not $makeappx) {
     throw "makeappx.exe (Windows 10/11 SDK x64) not found."
 }
 
+$makepri = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "makepri.exe" -ErrorAction SilentlyContinue |
+    Where-Object { $_.FullName -match "\\x64\\" } |
+    Sort-Object FullName -Descending |
+    Select-Object -First 1 -ExpandProperty FullName
+
+if (-not $makepri) {
+    throw "makepri.exe (Windows 10/11 SDK x64) not found."
+}
+
 $py = "C:\Program Files\PostgreSQL\18\pgAdmin 4\python\python.exe"
 if (-not (Test-Path $py)) {
     $py = "python"
@@ -50,9 +59,16 @@ im = Image.open(src).convert('RGBA')
 
 for name, size in [
     ('Square44x44Logo.png', (44, 44)),
+    ('Square44x44Logo.targetsize-16_altform-unplated.png', (16, 16)),
+    ('Square44x44Logo.targetsize-16_altform-lightunplated.png', (16, 16)),
     ('Square44x44Logo.targetsize-24_altform-unplated.png', (24, 24)),
+    ('Square44x44Logo.targetsize-24_altform-lightunplated.png', (24, 24)),
+    ('Square44x44Logo.targetsize-32_altform-unplated.png', (32, 32)),
+    ('Square44x44Logo.targetsize-32_altform-lightunplated.png', (32, 32)),
     ('Square44x44Logo.targetsize-48_altform-unplated.png', (48, 48)),
+    ('Square44x44Logo.targetsize-48_altform-lightunplated.png', (48, 48)),
     ('Square44x44Logo.targetsize-256_altform-unplated.png', (256, 256)),
+    ('Square44x44Logo.targetsize-256_altform-lightunplated.png', (256, 256)),
     ('Square150x150Logo.png', (150, 150)),
     ('StoreLogo.png', (50, 50)),
 ]:
@@ -99,7 +115,7 @@ wide.save(os.path.join(out_dir, 'Wide310x150Logo.png'), format='PNG', optimize=T
       <uap:VisualElements
         DisplayName="Velora Player - Dynamic Island"
         Description="Modern desktop music player for Windows with native Dynamic Island overlay, synced lyrics, and local-first privacy."
-        BackgroundColor="transparent"
+        BackgroundColor="#101117"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
@@ -117,7 +133,15 @@ wide.save(os.path.join(out_dir, 'Wide310x150Logo.png'), format='PNG', optimize=T
   </Capabilities>
 </Package>
 "@
-    [System.IO.File]::WriteAllText((Join-Path $staging "AppxManifest.xml"), $manifest, [System.Text.UTF8Encoding]::new($false))
+    $manifestPath = Join-Path $staging "AppxManifest.xml"
+    [System.IO.File]::WriteAllText($manifestPath, $manifest, [System.Text.UTF8Encoding]::new($false))
+
+    $priConfig = Join-Path $staging "priconfig.xml"
+    & $makepri createconfig /cf $priConfig /dq en-US /o
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    & $makepri new /pr $staging /cf $priConfig /mn $manifestPath /of (Join-Path $staging "resources.pri") /o
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    Remove-Item -Force $priConfig -ErrorAction SilentlyContinue
 
     $shortVer = $Version.Split('.')[0..2] -join '.'
     $outMsix = Join-Path $root "build\bin\Velora-$shortVer-x64.msix"
