@@ -1198,6 +1198,54 @@
     syncTrackAcrossViews(trackId, updated?.externalId ?? existing?.externalId, () => updated);
   }
 
+  function openDownloadedGroup(entry: GroupedCompletedDownload) {
+    const groupKey = entry.key.startsWith('group:') ? entry.key.slice('group:'.length) : entry.key;
+    if (entry.kind === 'playlist') {
+      const rawId = groupKey.startsWith('playlist:') ? groupKey.slice('playlist:'.length).trim() : '';
+      const normPlId = (s: string) => s.trim().replace(/^VL/i, '');
+      const numId = Number(rawId);
+      const match = playlists.find(
+        (p) =>
+          (Number.isFinite(numId) && numId > 0 && p.id === numId) ||
+          (rawId !== '' && normPlId(p.externalId || '') === normPlId(rawId)) ||
+          p.name.trim().toLowerCase() === entry.title.trim().toLowerCase()
+      );
+      if (match) {
+        navigate({ name: 'playlist-detail', playlistId: match.id });
+      } else {
+        navigate({
+          name: 'yt-album-detail',
+          videoId: entry.primaryTrack.externalId || '',
+          browseId: rawId,
+          title: entry.title,
+          artist: entry.primaryTrack.artistName || 'YouTube Music',
+          albumTitle: entry.title,
+          coverUrl: entry.coverUrl || entry.primaryTrack.coverUrl || '',
+          kind: 'playlist',
+          localTracks: entry.tracks
+        });
+      }
+      return;
+    }
+    const rawAlbumId = groupKey.startsWith('album:') ? groupKey.slice('album:'.length).trim() : '';
+    const numAlbumId = Number(rawAlbumId);
+    if (Number.isFinite(numAlbumId) && numAlbumId > 0 && albums.some((a) => a.id === numAlbumId)) {
+      navigate({ name: 'album-detail', albumId: numAlbumId });
+    } else {
+      navigate({
+        name: 'yt-album-detail',
+        videoId: entry.primaryTrack.externalId || '',
+        browseId: rawAlbumId,
+        title: entry.title,
+        artist: entry.primaryTrack.artistName || '',
+        albumTitle: entry.title,
+        coverUrl: entry.coverUrl || entry.primaryTrack.coverUrl || '',
+        kind: 'album',
+        localTracks: entry.tracks
+      });
+    }
+  }
+
   async function handleRemoveDownloadGroup(groupTracks: Track[], rememberDeleted = true) {
     const ids = groupTracks.map((t) => t.id).filter((id) => id > 0);
     if (ids.length === 0) return;
@@ -4321,53 +4369,7 @@
           onPlayTrack={playTrack}
           onOpenTrackAlbum={openTrackAlbumDetail}
           onOpenDownloadedMusic={(tr) => navigate({ name: 'track-detail', trackId: tr.id, singleTrack: true })}
-          onOpenGroup={(entry) => {
-            const groupKey = entry.key.startsWith('group:') ? entry.key.slice('group:'.length) : entry.key;
-            if (entry.kind === 'playlist') {
-              const rawId = groupKey.startsWith('playlist:') ? groupKey.slice('playlist:'.length).trim() : '';
-              const normPlId = (s: string) => s.trim().replace(/^VL/i, '');
-              const numId = Number(rawId);
-              const match = playlists.find(
-                (p) =>
-                  (Number.isFinite(numId) && numId > 0 && p.id === numId) ||
-                  (rawId !== '' && normPlId(p.externalId || '') === normPlId(rawId)) ||
-                  p.name.trim().toLowerCase() === entry.title.trim().toLowerCase()
-              );
-              if (match) {
-                navigate({ name: 'playlist-detail', playlistId: match.id });
-              } else {
-                navigate({
-                  name: 'yt-album-detail',
-                  videoId: entry.primaryTrack.externalId || '',
-                  browseId: rawId,
-                  title: entry.title,
-                  artist: entry.primaryTrack.artistName || 'YouTube Music',
-                  albumTitle: entry.title,
-                  coverUrl: entry.coverUrl || entry.primaryTrack.coverUrl || '',
-                  kind: 'playlist',
-                  localTracks: entry.tracks
-                });
-              }
-              return;
-            }
-            const rawAlbumId = groupKey.startsWith('album:') ? groupKey.slice('album:'.length).trim() : '';
-            const numAlbumId = Number(rawAlbumId);
-            if (Number.isFinite(numAlbumId) && numAlbumId > 0 && albums.some((a) => a.id === numAlbumId)) {
-              navigate({ name: 'album-detail', albumId: numAlbumId });
-            } else {
-              navigate({
-                name: 'yt-album-detail',
-                videoId: entry.primaryTrack.externalId || '',
-                browseId: rawAlbumId,
-                title: entry.title,
-                artist: entry.primaryTrack.artistName || '',
-                albumTitle: entry.title,
-                coverUrl: entry.coverUrl || entry.primaryTrack.coverUrl || '',
-                kind: 'album',
-                localTracks: entry.tracks
-              });
-            }
-          }}
+          onOpenGroup={openDownloadedGroup}
           onCancelDownload={handleCancelDownload}
           onCancelDownloadGroup={handleCancelDownloadGroup}
           onPauseDownload={handlePauseDownload}
@@ -4422,6 +4424,8 @@
           onToggleFavoriteArtist={handleToggleFavoriteArtist}
           onDownloadTrack={handleDownloadTrack}
           onRemoveDownload={handleRemoveDownload}
+          onRemoveDownloadGroup={(list) => handleRemoveDownloadGroup(list, false)}
+          onOpenGroup={openDownloadedGroup}
           onOpenAlbum={handleOpenAlbum}
           onPlayAlbum={handlePlayAlbum}
           onOpenArtist={(artistId) => navigate({ name: 'artist-detail', artistId })}
